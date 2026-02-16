@@ -1,0 +1,75 @@
+{
+  "name": "multicorn-shield",
+  "version": "0.0.1",
+  "description": "The control layer for AI agents — permissions, consent, spending limits, and audit logging.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "lint": "eslint . && prettier --check .",
+    "lint:fix": "eslint --fix . && prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist coverage",
+    "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.19.0",
+    "@vitest/coverage-istanbul": "^3.0.5",
+    "eslint": "^9.19.0",
+    "eslint-config-prettier": "^10.0.1",
+    "eslint-plugin-unicorn": "^57.0.0",
+    "globals": "^15.14.0",
+    "prettier": "^3.4.2",
+    "tsup": "^8.3.6",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.22.0",
+    "vitest": "^3.0.5"
+  },
+  "keywords": [
+    "ai",
+    "agents",
+    "permissions",
+    "consent",
+    "spending-limits",
+    "audit-log",
+    "mcp",
+    "shield",
+    "multicorn"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Multicorn-AI/multicorn-shield.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Multicorn-AI/multicorn-shield/issues"
+  },
+  "homepage": "https://multicorn.ai"
+}
