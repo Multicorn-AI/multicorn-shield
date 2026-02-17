@@ -9,11 +9,7 @@
  * @module scopes/scope-parser
  */
 
-import {
-  type PermissionLevel,
-  type Scope,
-  PERMISSION_LEVELS,
-} from "../types/index.js";
+import { type PermissionLevel, type Scope, PERMISSION_LEVELS } from "../types/index.js";
 import { SERVICE_NAME_PATTERN } from "./scope-definitions.js";
 
 // ---------------------------------------------------------------------------
@@ -24,17 +20,13 @@ import { SERVICE_NAME_PATTERN } from "./scope-definitions.js";
  * Set of valid permission level strings for fast membership checks.
  * @internal
  */
-const VALID_PERMISSION_LEVELS: ReadonlySet<string> = new Set(
-  Object.values(PERMISSION_LEVELS),
-);
+const VALID_PERMISSION_LEVELS: ReadonlySet<string> = new Set(Object.values(PERMISSION_LEVELS));
 
 /**
  * Display-friendly list of valid permission levels, used in error messages.
  * @internal
  */
-const PERMISSION_LEVEL_LIST: string = [...VALID_PERMISSION_LEVELS].join(
-  ", ",
-);
+const PERMISSION_LEVEL_LIST: string = [...VALID_PERMISSION_LEVELS].join(", ");
 
 // ---------------------------------------------------------------------------
 // Error class

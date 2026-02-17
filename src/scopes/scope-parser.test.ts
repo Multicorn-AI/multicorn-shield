@@ -100,16 +100,12 @@ describe("parseScope", () => {
 
     it("throws on multiple colons", () => {
       expect(() => parseScope("read:gmail:extra")).toThrow(ScopeParseError);
-      expect(() => parseScope("read:gmail:extra")).toThrow(
-        /multiple ":" separators/,
-      );
+      expect(() => parseScope("read:gmail:extra")).toThrow(/multiple ":" separators/);
     });
 
     it("throws on empty permission level", () => {
       expect(() => parseScope(":gmail")).toThrow(ScopeParseError);
-      expect(() => parseScope(":gmail")).toThrow(
-        /permission level is empty/,
-      );
+      expect(() => parseScope(":gmail")).toThrow(/permission level is empty/);
     });
 
     it("throws on empty service name", () => {
@@ -119,44 +115,32 @@ describe("parseScope", () => {
 
     it("throws on unknown permission level", () => {
       expect(() => parseScope("delete:gmail")).toThrow(ScopeParseError);
-      expect(() => parseScope("delete:gmail")).toThrow(
-        /Unknown permission level "delete"/,
-      );
+      expect(() => parseScope("delete:gmail")).toThrow(/Unknown permission level "delete"/);
     });
 
     it("throws on misspelled permission level", () => {
       expect(() => parseScope("raed:gmail")).toThrow(ScopeParseError);
-      expect(() => parseScope("raed:gmail")).toThrow(
-        /Unknown permission level "raed"/,
-      );
+      expect(() => parseScope("raed:gmail")).toThrow(/Unknown permission level "raed"/);
     });
 
     it("throws on uppercase permission level", () => {
       expect(() => parseScope("Read:gmail")).toThrow(ScopeParseError);
-      expect(() => parseScope("Read:gmail")).toThrow(
-        /Unknown permission level "Read"/,
-      );
+      expect(() => parseScope("Read:gmail")).toThrow(/Unknown permission level "Read"/);
     });
 
     it("throws on uppercase service name", () => {
       expect(() => parseScope("read:Gmail")).toThrow(ScopeParseError);
-      expect(() => parseScope("read:Gmail")).toThrow(
-        /Invalid service name "Gmail"/,
-      );
+      expect(() => parseScope("read:Gmail")).toThrow(/Invalid service name "Gmail"/);
     });
 
     it("throws on service name starting with a digit", () => {
       expect(() => parseScope("read:123service")).toThrow(ScopeParseError);
-      expect(() => parseScope("read:123service")).toThrow(
-        /Invalid service name/,
-      );
+      expect(() => parseScope("read:123service")).toThrow(/Invalid service name/);
     });
 
     it("throws on service name starting with a hyphen", () => {
       expect(() => parseScope("read:-service")).toThrow(ScopeParseError);
-      expect(() => parseScope("read:-service")).toThrow(
-        /Invalid service name/,
-      );
+      expect(() => parseScope("read:-service")).toThrow(/Invalid service name/);
     });
 
     it("includes the original input in the error", () => {
@@ -186,11 +170,7 @@ describe("parseScope", () => {
 
 describe("parseScopes", () => {
   it("parses multiple valid scope strings", () => {
-    const scopes = parseScopes([
-      "read:gmail",
-      "write:calendar",
-      "execute:payments",
-    ]);
+    const scopes = parseScopes(["read:gmail", "write:calendar", "execute:payments"]);
     expect(scopes).toEqual([
       { service: "gmail", permissionLevel: "read" },
       { service: "calendar", permissionLevel: "write" },
@@ -204,9 +184,7 @@ describe("parseScopes", () => {
   });
 
   it("throws on the first invalid string", () => {
-    expect(() =>
-      parseScopes(["read:gmail", "bad", "write:calendar"]),
-    ).toThrow(ScopeParseError);
+    expect(() => parseScopes(["read:gmail", "bad", "write:calendar"])).toThrow(ScopeParseError);
   });
 });
 
@@ -253,9 +231,7 @@ describe("tryParseScope", () => {
 
 describe("formatScope", () => {
   it("formats a scope to permission:service", () => {
-    expect(
-      formatScope({ service: "gmail", permissionLevel: "read" }),
-    ).toBe("read:gmail");
+    expect(formatScope({ service: "gmail", permissionLevel: "read" })).toBe("read:gmail");
   });
 
   it("round-trips with parseScope", () => {
@@ -265,9 +241,7 @@ describe("formatScope", () => {
   });
 
   it("formats a custom service scope", () => {
-    expect(
-      formatScope({ service: "my-custom", permissionLevel: "write" }),
-    ).toBe("write:my-custom");
+    expect(formatScope({ service: "my-custom", permissionLevel: "write" })).toBe("write:my-custom");
   });
 });
 

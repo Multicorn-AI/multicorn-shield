@@ -16,49 +16,29 @@ describe("BUILT_IN_SERVICES", () => {
   it("contains the expected built-in services", () => {
     const names = Object.keys(BUILT_IN_SERVICES);
     expect(names).toEqual(
-      expect.arrayContaining([
-        "gmail",
-        "calendar",
-        "slack",
-        "drive",
-        "payments",
-        "github",
-        "jira",
-      ]),
+      expect.arrayContaining(["gmail", "calendar", "slack", "drive", "payments", "github", "jira"]),
     );
     expect(names).toHaveLength(7);
   });
 
-  it.each(serviceEntries)(
-    '"%s" has a name matching its key',
-    (key, definition) => {
-      expect(definition.name).toBe(key);
-    },
-  );
+  it.each(serviceEntries)('"%s" has a name matching its key', (key, definition) => {
+    expect(definition.name).toBe(key);
+  });
 
-  it.each(serviceEntries)(
-    '"%s" has a non-empty description',
-    (_key, definition) => {
-      expect(definition.description.length).toBeGreaterThan(0);
-    },
-  );
+  it.each(serviceEntries)('"%s" has a non-empty description', (_key, definition) => {
+    expect(definition.description.length).toBeGreaterThan(0);
+  });
 
-  it.each(serviceEntries)(
-    '"%s" has at least one capability',
-    (_key, definition) => {
-      expect(definition.capabilities.length).toBeGreaterThan(0);
-    },
-  );
+  it.each(serviceEntries)('"%s" has at least one capability', (_key, definition) => {
+    expect(definition.capabilities.length).toBeGreaterThan(0);
+  });
 
-  it.each(serviceEntries)(
-    '"%s" capabilities are valid permission levels',
-    (_key, definition) => {
-      const validLevels = new Set(Object.values(PERMISSION_LEVELS));
-      for (const cap of definition.capabilities) {
-        expect(validLevels.has(cap)).toBe(true);
-      }
-    },
-  );
+  it.each(serviceEntries)('"%s" capabilities are valid permission levels', (_key, definition) => {
+    const validLevels = new Set(Object.values(PERMISSION_LEVELS));
+    for (const cap of definition.capabilities) {
+      expect(validLevels.has(cap)).toBe(true);
+    }
+  });
 
   it("drive does NOT support execute", () => {
     const caps = BUILT_IN_SERVICES.drive.capabilities as readonly string[];
@@ -143,9 +123,7 @@ describe("createScopeRegistry", () => {
         capabilities: ["read"],
       });
       expect(registry.has("analytics")).toBe(true);
-      expect(registry.get("analytics")?.description).toBe(
-        "Internal analytics",
-      );
+      expect(registry.get("analytics")?.description).toBe("Internal analytics");
     });
 
     it("includes custom services in getAllServices()", () => {
@@ -245,9 +223,7 @@ describe("createScopeRegistry", () => {
   describe("isValidScope", () => {
     it("returns true for a valid built-in scope", () => {
       const registry = createScopeRegistry();
-      expect(
-        registry.isValidScope({ service: "gmail", permissionLevel: "read" }),
-      ).toBe(true);
+      expect(registry.isValidScope({ service: "gmail", permissionLevel: "read" })).toBe(true);
     });
 
     it("returns true for an execute scope on a service that supports it", () => {
@@ -287,9 +263,7 @@ describe("createScopeRegistry", () => {
         description: "CRM",
         capabilities: ["read", "write"],
       });
-      expect(
-        registry.isValidScope({ service: "crm", permissionLevel: "write" }),
-      ).toBe(true);
+      expect(registry.isValidScope({ service: "crm", permissionLevel: "write" })).toBe(true);
     });
 
     it("returns false for a capability not in custom service", () => {

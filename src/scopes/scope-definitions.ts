@@ -8,11 +8,7 @@
  * @module scopes/scope-definitions
  */
 
-import {
-  type PermissionLevel,
-  type Scope,
-  PERMISSION_LEVELS,
-} from "../types/index.js";
+import { type PermissionLevel, type Scope, PERMISSION_LEVELS } from "../types/index.js";
 
 // ---------------------------------------------------------------------------
 // Service definition types
@@ -64,58 +60,36 @@ export const BUILT_IN_SERVICES = {
   gmail: {
     name: "gmail",
     description: "Google Gmail — email reading, composing, and sending",
-    capabilities: [
-      PERMISSION_LEVELS.Read,
-      PERMISSION_LEVELS.Write,
-      PERMISSION_LEVELS.Execute,
-    ],
+    capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   calendar: {
     name: "calendar",
-    description:
-      "Google Calendar — event viewing, creation, and management",
-    capabilities: [
-      PERMISSION_LEVELS.Read,
-      PERMISSION_LEVELS.Write,
-      PERMISSION_LEVELS.Execute,
-    ],
+    description: "Google Calendar — event viewing, creation, and management",
+    capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   slack: {
     name: "slack",
-    description:
-      "Slack — message reading, posting, and workflow triggers",
-    capabilities: [
-      PERMISSION_LEVELS.Read,
-      PERMISSION_LEVELS.Write,
-      PERMISSION_LEVELS.Execute,
-    ],
+    description: "Slack — message reading, posting, and workflow triggers",
+    capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   drive: {
     name: "drive",
-    description:
-      "Google Drive — file browsing, uploading, and sharing",
+    description: "Google Drive — file browsing, uploading, and sharing",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write],
   },
   payments: {
     name: "payments",
-    description:
-      "Payment processing — balance enquiries and transaction execution",
+    description: "Payment processing — balance enquiries and transaction execution",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Execute],
   },
   github: {
     name: "github",
-    description:
-      "GitHub — repository access, issues, and pull requests",
-    capabilities: [
-      PERMISSION_LEVELS.Read,
-      PERMISSION_LEVELS.Write,
-      PERMISSION_LEVELS.Execute,
-    ],
+    description: "GitHub — repository access, issues, and pull requests",
+    capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   jira: {
     name: "jira",
-    description:
-      "Jira — issue tracking, sprint management, and reporting",
+    description: "Jira — issue tracking, sprint management, and reporting",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write],
   },
 } as const satisfies Record<string, ServiceDefinition>;
@@ -270,9 +244,7 @@ export interface ScopeRegistry {
 export function createScopeRegistry(): ScopeRegistry {
   const services = new Map<string, ServiceDefinition>();
 
-  const validPermissionLevels = new Set<string>(
-    Object.values(PERMISSION_LEVELS),
-  );
+  const validPermissionLevels = new Set<string>(Object.values(PERMISSION_LEVELS));
 
   // Pre-populate with built-in services
   for (const service of Object.values(BUILT_IN_SERVICES)) {
@@ -283,7 +255,7 @@ export function createScopeRegistry(): ScopeRegistry {
     // Name validation
     if (definition.name.length === 0) {
       throw new Error(
-        "Service name must not be empty. Provide a lowercase identifier such as \"my-service\".",
+        'Service name must not be empty. Provide a lowercase identifier such as "my-service".',
       );
     }
 
@@ -291,7 +263,7 @@ export function createScopeRegistry(): ScopeRegistry {
       throw new Error(
         `Invalid service name "${definition.name}". Service names must start with a lowercase letter ` +
           "and contain only lowercase letters, digits, hyphens, or underscores " +
-          "(e.g. \"my-service\", \"analytics2\").",
+          '(e.g. "my-service", "analytics2").',
       );
     }
 
@@ -356,9 +328,7 @@ export function createScopeRegistry(): ScopeRegistry {
       if (!service) {
         return false;
       }
-      return (service.capabilities as readonly string[]).includes(
-        scope.permissionLevel,
-      );
+      return (service.capabilities as readonly string[]).includes(scope.permissionLevel);
     },
   };
 }

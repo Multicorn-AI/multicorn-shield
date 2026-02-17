@@ -92,14 +92,10 @@ export function validateScopeAccess(
   }
 
   // Build a descriptive denial reason
-  const serviceScopes = grantedScopes.filter(
-    (g) => g.service === requested.service,
-  );
+  const serviceScopes = grantedScopes.filter((g) => g.service === requested.service);
 
   if (serviceScopes.length > 0) {
-    const grantedLevels = serviceScopes
-      .map((g) => `"${g.permissionLevel}"`)
-      .join(", ");
+    const grantedLevels = serviceScopes.map((g) => `"${g.permissionLevel}"`).join(", ");
 
     return {
       allowed: false,
@@ -193,10 +189,7 @@ export function validateAllScopesAccess(
  * }
  * ```
  */
-export function hasScope(
-  grantedScopes: readonly Scope[],
-  requested: Scope,
-): boolean {
+export function hasScope(grantedScopes: readonly Scope[], requested: Scope): boolean {
   return grantedScopes.some(
     (granted) =>
       granted.service === requested.service &&
