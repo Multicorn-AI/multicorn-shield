@@ -49,10 +49,7 @@ export default tseslint.config(
       ],
 
       /* Named exports only */
-      "no-restricted-exports": [
-        "error",
-        { restrictDefaultExports: { direct: true } },
-      ],
+      "no-restricted-exports": ["error", { restrictDefaultExports: { direct: true } }],
 
       /* Prefer readonly */
       "@typescript-eslint/prefer-readonly": "error",

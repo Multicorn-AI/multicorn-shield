@@ -27,7 +27,7 @@ yarn add multicorn-shield
 ```
 
 ```typescript
-import { /* modules will be exported here */ } from "multicorn-shield";
+import {} from /* modules will be exported here */ "multicorn-shield";
 ```
 
 ## Development
@@ -47,16 +47,16 @@ pnpm install
 
 ### Commands
 
-| Command | Description |
-|---------|-------------|
-| `pnpm build` | Build ESM and CJS bundles with tsup |
-| `pnpm dev` | Build in watch mode |
-| `pnpm lint` | Run ESLint and Prettier checks |
-| `pnpm lint:fix` | Auto-fix lint and formatting issues |
-| `pnpm test` | Run tests with Vitest |
-| `pnpm test:watch` | Run tests in watch mode |
+| Command              | Description                                |
+| -------------------- | ------------------------------------------ |
+| `pnpm build`         | Build ESM and CJS bundles with tsup        |
+| `pnpm dev`           | Build in watch mode                        |
+| `pnpm lint`          | Run ESLint and Prettier checks             |
+| `pnpm lint:fix`      | Auto-fix lint and formatting issues        |
+| `pnpm test`          | Run tests with Vitest                      |
+| `pnpm test:watch`    | Run tests in watch mode                    |
 | `pnpm test:coverage` | Run tests with Istanbul coverage reporting |
-| `pnpm typecheck` | Type-check without emitting |
+| `pnpm typecheck`     | Type-check without emitting                |
 
 ### Project Structure
 
@@ -78,14 +78,14 @@ Multicorn Shield is the client-side SDK in the Multicorn ecosystem. It communica
 
 The `main` branch is protected with the following rules:
 
-| Rule | Setting |
-|------|---------|
-| Require status checks to pass | **CI** workflow must pass |
-| Require branches to be up to date | Enabled |
-| Require pull request reviews | At least 1 approving review |
-| Dismiss stale reviews | Enabled — new pushes dismiss prior approvals |
-| Require linear history | Enabled (squash merge) |
-| Include administrators | Enabled — no one bypasses the rules |
+| Rule                              | Setting                                      |
+| --------------------------------- | -------------------------------------------- |
+| Require status checks to pass     | **CI** workflow must pass                    |
+| Require branches to be up to date | Enabled                                      |
+| Require pull request reviews      | At least 1 approving review                  |
+| Dismiss stale reviews             | Enabled — new pushes dismiss prior approvals |
+| Require linear history            | Enabled (squash merge)                       |
+| Include administrators            | Enabled — no one bypasses the rules          |
 
 All PRs must pass lint, type check, tests (≥ 85% coverage), security audit, and build before merge.
 

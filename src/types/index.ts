@@ -19,9 +19,9 @@
  * - `revoked` — agent's permissions have been permanently revoked
  */
 export const AGENT_STATUSES = {
-  Active: 'active',
-  Paused: 'paused',
-  Revoked: 'revoked',
+  Active: "active",
+  Paused: "paused",
+  Revoked: "revoked",
 } as const;
 
 export type AgentStatus = (typeof AGENT_STATUSES)[keyof typeof AGENT_STATUSES];
@@ -34,13 +34,12 @@ export type AgentStatus = (typeof AGENT_STATUSES)[keyof typeof AGENT_STATUSES];
  * - `execute` — trigger side-effects (e.g. send an email, make a payment)
  */
 export const PERMISSION_LEVELS = {
-  Read: 'read',
-  Write: 'write',
-  Execute: 'execute',
+  Read: "read",
+  Write: "write",
+  Execute: "execute",
 } as const;
 
-export type PermissionLevel =
-  (typeof PERMISSION_LEVELS)[keyof typeof PERMISSION_LEVELS];
+export type PermissionLevel = (typeof PERMISSION_LEVELS)[keyof typeof PERMISSION_LEVELS];
 
 /**
  * Lifecycle states for an action processed by the policy engine.
@@ -51,14 +50,13 @@ export type PermissionLevel =
  * - `flagged` — action was executed but flagged for review
  */
 export const ACTION_STATUSES = {
-  Approved: 'approved',
-  Blocked: 'blocked',
-  Pending: 'pending',
-  Flagged: 'flagged',
+  Approved: "approved",
+  Blocked: "blocked",
+  Pending: "pending",
+  Flagged: "flagged",
 } as const;
 
-export type ActionStatus =
-  (typeof ACTION_STATUSES)[keyof typeof ACTION_STATUSES];
+export type ActionStatus = (typeof ACTION_STATUSES)[keyof typeof ACTION_STATUSES];
 
 // ---------------------------------------------------------------------------
 // Domain interfaces
