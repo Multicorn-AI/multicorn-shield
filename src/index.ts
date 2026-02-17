@@ -12,5 +12,5 @@ export * from "./types/index.js";
 // Module re-exports — enabled as each module gains public API surface.
 export * from "./scopes/index.js";
 // export * from "./consent/index.js";
-// export * from "./logger/index.js";
+export * from "./logger/index.js";
 // export * from "./spending/index.js";
