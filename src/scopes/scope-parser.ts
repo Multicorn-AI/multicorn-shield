@@ -124,7 +124,7 @@ function doParse(input: string): ScopeParseResult {
     };
   }
 
-  if (input.indexOf(":", colonIndex + 1) !== -1) {
+  if (input.includes(":", colonIndex + 1)) {
     return {
       success: false,
       error:
