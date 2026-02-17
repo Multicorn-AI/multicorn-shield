@@ -1,6 +1,7 @@
 # ADR-003: MCP-native as primary protocol
 
 ## Status
+
 Accepted
 
 ## Context
@@ -8,6 +9,7 @@ Accepted
 Multicorn Shield needs to integrate with AI agents that use various protocols for tool calling and permission management. The industry is converging on the Model Context Protocol (MCP) as a standard, with major players (Anthropic, OpenAI) adopting it.
 
 We evaluated protocol options:
+
 - **Custom protocol**: Full control, but requires building ecosystem support
 - **OpenAI Functions/Tools**: Widely used, but proprietary and may change
 - **LangChain**: Popular but adds abstraction layer and dependency overhead
@@ -22,6 +24,7 @@ The consent screen, permission scopes, and action logging all use MCP terminolog
 ## Consequences
 
 **Positive:**
+
 - Aligns with industry trajectory: MCP is becoming the de facto standard
 - Future-proof: as MCP adoption grows, our integration becomes easier for developers
 - Reduced integration friction: developers already using MCP can add Shield with minimal changes
@@ -29,12 +32,14 @@ The consent screen, permission scopes, and action logging all use MCP terminolog
 - Community alignment: we can contribute to MCP spec improvements and benefit from ecosystem growth
 
 **Negative:**
+
 - MCP is still evolving: spec changes may require SDK updates
 - Not all agents use MCP yet: we need adapters for OpenAI Functions, LangChain, etc.
 - Early adoption risk: if MCP doesn't gain traction, we may need to pivot
 - Documentation must explain MCP concepts to developers unfamiliar with the protocol
 
 **Future considerations:**
+
 - Monitor MCP spec evolution and participate in standardization discussions
 - Build robust adapters for non-MCP protocols to capture early adopters
 - If MCP fragments or fails to gain adoption, we can pivot while maintaining our permission model (the core value is in the consent and control, not the protocol)
