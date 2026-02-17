@@ -2,6 +2,8 @@
 
 The control layer for AI agents — permissions, consent, spending limits, and audit logging.
 
+[![CI](https://github.com/Multicorn-AI/multicorn-shield/actions/workflows/ci.yml/badge.svg)](https://github.com/Multicorn-AI/multicorn-shield/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/multicorn-shield.svg)](https://www.npmjs.com/package/multicorn-shield)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## What is Multicorn Shield?
@@ -71,6 +73,21 @@ src/
 ## Architecture
 
 Multicorn Shield is the client-side SDK in the Multicorn ecosystem. It communicates with the [Multicorn Service](https://github.com/Multicorn-AI/multicorn-service) backend API and is complemented by the [Multicorn Dashboard](https://github.com/Multicorn-AI/multicorn-dashboard) for administration.
+
+## Branch Protection
+
+The `main` branch is protected with the following rules:
+
+| Rule | Setting |
+|------|---------|
+| Require status checks to pass | **CI** workflow must pass |
+| Require branches to be up to date | Enabled |
+| Require pull request reviews | At least 1 approving review |
+| Dismiss stale reviews | Enabled — new pushes dismiss prior approvals |
+| Require linear history | Enabled (squash merge) |
+| Include administrators | Enabled — no one bypasses the rules |
+
+All PRs must pass lint, type check, tests (≥ 85% coverage), security audit, and build before merge.
 
 ## Contributing
 
