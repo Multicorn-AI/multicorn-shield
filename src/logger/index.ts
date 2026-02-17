@@ -6,3 +6,11 @@
  *
  * @module logger
  */
+
+export {
+  createActionLogger,
+  type ActionLogger,
+  type ActionLoggerConfig,
+  type ActionPayload,
+  type BatchModeConfig,
+} from "./action-logger.js";
