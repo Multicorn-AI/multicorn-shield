@@ -161,13 +161,13 @@ describe("createScopeRegistry", () => {
 
     it("throws when registering a duplicate service name", () => {
       const registry = createScopeRegistry();
-      expect(() =>
+      expect(() => {
         registry.register({
           name: "gmail",
           description: "Duplicate",
           capabilities: ["read"],
-        }),
-      ).toThrow(/already registered/);
+        });
+      }).toThrow(/already registered/);
     });
 
     it("throws when registering a duplicate custom service", () => {
@@ -177,68 +177,68 @@ describe("createScopeRegistry", () => {
         description: "First",
         capabilities: ["read"],
       });
-      expect(() =>
+      expect(() => {
         registry.register({
           name: "my-svc",
           description: "Duplicate",
           capabilities: ["read"],
-        }),
-      ).toThrow(/already registered/);
+        });
+      }).toThrow(/already registered/);
     });
 
     it("throws on empty service name", () => {
       const registry = createScopeRegistry();
-      expect(() =>
+      expect(() => {
         registry.register({
           name: "",
           description: "Bad",
           capabilities: ["read"],
-        }),
-      ).toThrow(/must not be empty/);
+        });
+      }).toThrow(/must not be empty/);
     });
 
     it("throws on invalid service name format", () => {
       const registry = createScopeRegistry();
-      expect(() =>
+      expect(() => {
         registry.register({
           name: "Bad-Name",
           description: "Bad",
           capabilities: ["read"],
-        }),
-      ).toThrow(/Invalid service name/);
+        });
+      }).toThrow(/Invalid service name/);
     });
 
     it("throws on empty capabilities", () => {
       const registry = createScopeRegistry();
-      expect(() =>
+      expect(() => {
         registry.register({
           name: "empty-caps",
           description: "No caps",
           capabilities: [],
-        }),
-      ).toThrow(/at least one capability/);
+        });
+      }).toThrow(/at least one capability/);
     });
 
     it("throws on invalid capability", () => {
       const registry = createScopeRegistry();
-      expect(() =>
+      expect(() => {
         registry.register({
           name: "bad-cap",
           description: "Bad cap",
           capabilities: ["read", "delete" as never],
-        }),
-      ).toThrow(/Invalid capability/);
+        });
+      }).toThrow(/Invalid capability/);
     });
 
     it("throws on duplicate capabilities", () => {
       const registry = createScopeRegistry();
-      expect(() =>
+      expect(() => {
         registry.register({
           name: "dup-cap",
           description: "Dup cap",
           capabilities: ["read", "read"],
-        }),
-      ).toThrow(/Duplicate capability/);
+        });
+      }).toThrow(/Duplicate capability/);
     });
   });
 
