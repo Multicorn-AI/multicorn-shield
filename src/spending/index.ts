@@ -6,3 +6,14 @@
  *
  * @module spending
  */
+
+export {
+  createSpendingChecker,
+  dollarsToCents,
+  centsToDollars,
+  type SpendingChecker,
+  type SpendingLimits,
+  type SpendingTrackerConfig,
+  type SpendingCheckResult,
+  type RemainingBudget,
+} from "./spending-checker.js";
