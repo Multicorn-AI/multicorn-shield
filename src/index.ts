@@ -13,4 +13,4 @@ export * from "./types/index.js";
 export * from "./scopes/index.js";
 // export * from "./consent/index.js";
 export * from "./logger/index.js";
-// export * from "./spending/index.js";
+export * from "./spending/index.js";
