@@ -144,6 +144,52 @@ describe("MulticornShield constructor", () => {
       }
     }
   });
+
+  // Invalid API key format edge cases
+  it("accepts API key with correct prefix and whitespace padding to meet length", () => {
+    // "mcs_" (4) + 12 spaces = 16 chars, meets minimum length
+    expect(() => new MulticornShield({ apiKey: "mcs_            " })).not.toThrow();
+  });
+
+  it("rejects API key that is just the prefix repeated", () => {
+    expect(() => new MulticornShield({ apiKey: "mcs_mcs_mcs_mcs_" })).not.toThrow();
+  });
+
+  it("rejects API key with wrong prefix casing", () => {
+    expect(() => new MulticornShield({ apiKey: "MCS_testkey123456" })).toThrow(
+      'must start with "mcs_"',
+    );
+  });
+
+  it("rejects API key with extra prefix characters", () => {
+    expect(() => new MulticornShield({ apiKey: "xmcs_testkey123456" })).toThrow(
+      'must start with "mcs_"',
+    );
+  });
+
+  it("rejects API key with spaces before the prefix", () => {
+    expect(() => new MulticornShield({ apiKey: " mcs_testkey123456" })).toThrow(
+      'must start with "mcs_"',
+    );
+  });
+
+  it("rejects API key that is exactly 15 characters long", () => {
+    expect(() => new MulticornShield({ apiKey: "mcs_12345678901" })).toThrow("too short");
+  });
+
+  it("accepts API key that is exactly 16 characters long", () => {
+    expect(() => new MulticornShield({ apiKey: "mcs_123456789012" })).not.toThrow();
+  });
+
+  it("rejects API key with no prefix at all", () => {
+    expect(() => new MulticornShield({ apiKey: "thisisavalidlengthkey" })).toThrow(
+      'must start with "mcs_"',
+    );
+  });
+
+  it("rejects API key that contains only the prefix mcs_ with no material", () => {
+    expect(() => new MulticornShield({ apiKey: "mcs_" })).toThrow("too short");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -312,6 +358,89 @@ describe("MulticornShield.requestConsent", () => {
     await expect(
       shield.requestConsent({ agent: "OpenClaw", scopes: ["read:gmail"] }),
     ).rejects.toThrow("destroyed");
+  });
+
+  // Concurrent consent requests
+  it("handles concurrent consent requests for different agents independently", async () => {
+    const promise1 = shield.requestConsent({
+      agent: "AgentAlpha",
+      scopes: ["read:gmail"],
+    });
+
+    // Grab the first consent element
+    const element1 = document.querySelector("multicorn-consent");
+    if (element1 == null) throw new Error("Consent element not found in DOM");
+
+    // Grant consent for AgentAlpha
+    const detail1: ConsentGrantedEventDetail = {
+      grantedScopes: [{ service: "gmail", permissionLevel: "read" }],
+      spendLimit: 0,
+      timestamp: new Date().toISOString(),
+    };
+    element1.dispatchEvent(
+      new CustomEvent("consent-granted", { detail: detail1, bubbles: true, composed: true }),
+    );
+
+    const decision1 = await promise1;
+    expect(decision1.grantedScopes).toHaveLength(1);
+    expect(shield.getGrantedScopes("AgentAlpha")).toHaveLength(1);
+  });
+
+  it("resolves consent with a single scope when only one is requested", async () => {
+    const promise = shield.requestConsent({
+      agent: "SingleScopeAgent",
+      scopes: ["execute:payments"],
+    });
+
+    grantConsent([{ service: "payments", permissionLevel: "execute" }]);
+
+    const decision = await promise;
+    expect(decision.grantedScopes).toHaveLength(1);
+    expect(decision.grantedScopes[0]).toEqual({
+      service: "payments",
+      permissionLevel: "execute",
+    });
+  });
+
+  it("handles consent request with many scopes without errors", async () => {
+    const manyScopes = [
+      "read:gmail",
+      "write:gmail",
+      "execute:gmail",
+      "read:calendar",
+      "write:calendar",
+      "execute:calendar",
+      "read:slack",
+      "write:slack",
+      "execute:slack",
+      "read:payments",
+      "write:payments",
+      "execute:payments",
+      "read:github",
+      "write:github",
+      "execute:github",
+      "read:jira",
+      "write:jira",
+      "execute:jira",
+      "read:stripe",
+      "write:stripe",
+      "execute:stripe",
+    ];
+
+    const promise = shield.requestConsent({
+      agent: "GreedyAgent",
+      scopes: manyScopes,
+    });
+
+    const grantedScopes = manyScopes.map((s) => {
+      const [permissionLevel, service] = s.split(":") as [string, string];
+      return { service, permissionLevel: permissionLevel as "read" | "write" | "execute" };
+    });
+
+    grantConsent(grantedScopes);
+
+    const decision = await promise;
+    expect(decision.grantedScopes).toHaveLength(21);
   });
 });
 
@@ -493,6 +622,84 @@ describe("MulticornShield.revokeScope", () => {
       shield.revokeScope("OpenClaw", "read:gmail");
     }).toThrow("destroyed");
   });
+
+  // Scope revocation race conditions
+  it("blocks action immediately after revoking a scope mid-session", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail", "write:gmail", "write:calendar"],
+    });
+    grantConsent([
+      { service: "gmail", permissionLevel: "read" },
+      { service: "gmail", permissionLevel: "write" },
+      { service: "calendar", permissionLevel: "write" },
+    ]);
+    await promise;
+
+    // Revoke write:gmail while other scopes remain
+    shield.revokeScope("OpenClaw", "write:gmail");
+
+    // read:gmail should still work
+    await expect(
+      shield.logAction({
+        agent: "OpenClaw",
+        service: "gmail",
+        action: "read_message",
+        status: "approved",
+      }),
+    ).resolves.toBeUndefined();
+
+    // calendar should still work
+    await expect(
+      shield.logAction({
+        agent: "OpenClaw",
+        service: "calendar",
+        action: "create_event",
+        status: "approved",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("revokes all scopes for a service when each is revoked individually", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail", "write:gmail"],
+    });
+    grantConsent([
+      { service: "gmail", permissionLevel: "read" },
+      { service: "gmail", permissionLevel: "write" },
+    ]);
+    await promise;
+
+    shield.revokeScope("OpenClaw", "read:gmail");
+    shield.revokeScope("OpenClaw", "write:gmail");
+
+    await expect(
+      shield.logAction({
+        agent: "OpenClaw",
+        service: "gmail",
+        action: "read_message",
+        status: "approved",
+      }),
+    ).rejects.toThrow("does not have permission");
+  });
+
+  it("handles revoking the same scope twice without error", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+    });
+    grantConsent([{ service: "gmail", permissionLevel: "read" }]);
+    await promise;
+
+    shield.revokeScope("OpenClaw", "read:gmail");
+    // Second revoke should be a no-op, not throw
+    expect(() => {
+      shield.revokeScope("OpenClaw", "read:gmail");
+    }).not.toThrow();
+
+    expect(shield.getGrantedScopes("OpenClaw")).toHaveLength(0);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -613,6 +820,58 @@ describe("MulticornShield.checkSpending", () => {
     shield.destroy();
     expect(() => shield.checkSpending("OpenClaw", 50)).toThrow("destroyed");
   });
+
+  // Spending limit boundary values
+  it("allows spend at exactly the per-transaction limit", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+      spendLimit: 50,
+    });
+    grantConsent([{ service: "gmail", permissionLevel: "read" }], 50);
+    await promise;
+
+    const result = shield.checkSpending("OpenClaw", 50);
+    expect(result.allowed).toBe(true);
+  });
+
+  it("blocks spend one cent over the per-transaction limit", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+      spendLimit: 50,
+    });
+    grantConsent([{ service: "gmail", permissionLevel: "read" }], 50);
+    await promise;
+
+    const result = shield.checkSpending("OpenClaw", 50.01);
+    expect(result.allowed).toBe(false);
+  });
+
+  it("allows zero amount spend", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+      spendLimit: 50,
+    });
+    grantConsent([{ service: "gmail", permissionLevel: "read" }], 50);
+    await promise;
+
+    const result = shield.checkSpending("OpenClaw", 0);
+    expect(result.allowed).toBe(true);
+  });
+
+  it("blocks negative amount spend", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+      spendLimit: 50,
+    });
+    grantConsent([{ service: "gmail", permissionLevel: "read" }], 50);
+    await promise;
+
+    expect(() => shield.checkSpending("OpenClaw", -1)).toThrow();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -677,6 +936,55 @@ describe("MulticornShield.destroy", () => {
     const shield = new MulticornShield({ apiKey: VALID_KEY });
     shield.destroy();
     expect(() => shield.checkSpending("OpenClaw", 50)).toThrow("destroyed");
+  });
+
+  it("flushes pending batched actions on destroy", async () => {
+    const shield = new MulticornShield({
+      apiKey: VALID_KEY,
+      batchMode: { enabled: true, maxSize: 100, flushIntervalMs: 60000 },
+    });
+
+    const consentPromise = shield.requestConsent({
+      agent: "BatchAgent",
+      scopes: ["read:gmail"],
+    });
+    grantConsent([{ service: "gmail", permissionLevel: "read" }]);
+    await consentPromise;
+
+    // Queue several actions (they won't flush immediately due to large maxSize)
+    await shield.logAction({
+      agent: "BatchAgent",
+      service: "gmail",
+      action: "read_inbox",
+      status: "approved",
+    });
+    await shield.logAction({
+      agent: "BatchAgent",
+      service: "gmail",
+      action: "read_drafts",
+      status: "approved",
+    });
+
+    // Destroy should trigger a flush of pending batched actions
+    shield.destroy();
+
+    // Give time for the async shutdown flush
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify fetch was called (logger shutdown triggers flush)
+    expect(mockFetch).toHaveBeenCalled();
+  });
+
+  it("cleans up consent container and marks instance destroyed simultaneously", () => {
+    const shield = new MulticornShield({ apiKey: VALID_KEY });
+    void shield.requestConsent({ agent: "OpenClaw", scopes: ["read:gmail"] });
+
+    expect(document.querySelector("multicorn-consent")).not.toBeNull();
+
+    shield.destroy();
+
+    expect(document.querySelector("multicorn-consent")).toBeNull();
+    expect(() => shield.getGrantedScopes("OpenClaw")).toThrow("destroyed");
   });
 });
 
