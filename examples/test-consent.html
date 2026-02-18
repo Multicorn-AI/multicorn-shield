@@ -1,0 +1,693 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Multicorn Consent — Playground</title>
+
+    <!-- Import map: resolve bare "lit" specifiers for the browser -->
+    <script type="importmap">
+      {
+        "imports": {
+          "lit": "https://esm.sh/lit@3?bundle",
+          "lit/": "https://esm.sh/lit@3&bundle/"
+        }
+      }
+    </script>
+
+    <!-- DM Sans + DM Mono from Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "DM Sans", system-ui, sans-serif;
+        margin: 0;
+        padding: 48px 20px 60px;
+        background: #0a0a12;
+        color: #e8e8f0;
+        min-height: 100vh;
+      }
+
+      /* ── Page header ──────────────────────────────────────────── */
+      .page-header {
+        text-align: center;
+        margin-bottom: 48px;
+      }
+
+      .page-header h1 {
+        font-size: clamp(1.3rem, 3.5vw, 1.75rem);
+        font-weight: 700;
+        color: #e8e8f0;
+        margin: 0 0 6px;
+        letter-spacing: -0.02em;
+      }
+
+      .page-header h1 span {
+        background: linear-gradient(135deg, #8b5cf6, #a78bfa);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+      }
+
+      .page-header p {
+        color: #6b6b80;
+        font-size: 14px;
+        margin: 0;
+      }
+
+      /* ── Layout ───────────────────────────────────────────────── */
+      .demo-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        max-width: 960px;
+        margin: 0 auto;
+        align-items: start;
+      }
+
+      /* ── Demo panel ───────────────────────────────────────────── */
+      .demo-panel {
+        background: #111119;
+        border: 1px solid #1e1e2e;
+        border-radius: 16px;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+
+      .activity-toggle {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid #2a2a3d;
+        color: #9999ab;
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 500;
+        cursor: pointer;
+        padding: 5px 12px;
+        border-radius: 6px;
+        transition: all 0.15s;
+      }
+
+      .activity-toggle:hover {
+        color: #c8c8d8;
+        background: rgba(255, 255, 255, 0.06);
+        border-color: #3a3a4d;
+      }
+
+      .activity-toggle.active {
+        color: #c4b5fd;
+        background: rgba(139, 92, 246, 0.12);
+        border-color: rgba(139, 92, 246, 0.3);
+      }
+
+      /* Hide the toggle when activity view is open — Back button takes over */
+      .panel-body.show-activity ~ .activity-toggle,
+      .demo-panel:has(.panel-body.show-activity) > .activity-toggle {
+        display: none;
+      }
+
+      .activity-toggle .toggle-icon {
+        font-size: 10px;
+      }
+
+      .activity-badge {
+        font-size: 10px;
+        font-weight: 600;
+        min-width: 16px;
+        height: 16px;
+        line-height: 16px;
+        text-align: center;
+        border-radius: 8px;
+        background: rgba(139, 92, 246, 0.2);
+        color: #a78bfa;
+        padding: 0 4px;
+        display: none;
+      }
+
+      .activity-badge.visible {
+        display: inline-block;
+      }
+
+      /* ── Panel body — view swap ───────────────────────────────── */
+      .panel-body {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .view-content {
+        opacity: 1;
+      }
+
+      .view-activity {
+        display: none;
+      }
+
+      .panel-body.show-activity .view-content {
+        display: none;
+      }
+
+      .panel-body.show-activity .view-activity {
+        display: block;
+        animation: fadeSlideIn 0.2s ease-out;
+      }
+
+      @keyframes fadeSlideIn {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .panel-body.show-activity .view-activity {
+          animation: none;
+        }
+      }
+
+      /* ── Controls (left panel) ────────────────────────────────── */
+      .controls {
+        padding: 24px 20px;
+      }
+
+      .controls-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #c8c8d8;
+        margin: 0 0 4px;
+      }
+
+      .controls-desc {
+        font-size: 13px;
+        color: #6b6b80;
+        margin: 0 0 20px;
+        line-height: 1.5;
+      }
+
+      .btn {
+        font-family: inherit;
+        font-size: 13px;
+        font-weight: 500;
+        padding: 10px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: all 0.15s;
+        border: none;
+      }
+
+      .btn:focus-visible {
+        outline: 2px solid #8b5cf6;
+        outline-offset: 2px;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, #8b5cf6, #6d28d9);
+        color: #fff;
+        font-weight: 600;
+        box-shadow: 0 4px 16px rgba(139, 92, 246, 0.2);
+      }
+
+      .btn-primary:hover {
+        box-shadow: 0 6px 24px rgba(139, 92, 246, 0.3);
+        transform: translateY(-1px);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      /* ── Activity view ────────────────────────────────────────── */
+      .activity-view-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 16px 20px;
+        border-bottom: 1px solid #1a1a28;
+      }
+
+      .btn-back {
+        background: none;
+        border: 1px solid #2a2a3d;
+        color: #8888a0;
+        font-family: inherit;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        padding: 6px 12px;
+        border-radius: 8px;
+        transition: all 0.15s;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .btn-back:hover {
+        color: #e8e8f0;
+        background: rgba(255, 255, 255, 0.04);
+        border-color: #3a3a4d;
+      }
+
+      .btn-back .arrow {
+        font-size: 14px;
+        line-height: 1;
+      }
+
+      .activity-view-title {
+        font-size: 13px;
+        font-weight: 600;
+        color: #c8c8d8;
+      }
+
+      .btn-clear-activity {
+        margin-left: auto;
+        background: none;
+        border: 1px solid #2a2a3d;
+        color: #9999ab;
+        font-family: inherit;
+        font-size: 11px;
+        cursor: pointer;
+        padding: 5px 10px;
+        border-radius: 6px;
+        transition:
+          color 0.15s,
+          background 0.15s,
+          border-color 0.15s;
+      }
+
+      .btn-clear-activity:hover {
+        color: #f87171;
+        background: rgba(239, 68, 68, 0.08);
+        border-color: rgba(239, 68, 68, 0.2);
+      }
+
+      .activity-list {
+        max-height: 380px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: #2a2a3d transparent;
+      }
+
+      .activity-list::-webkit-scrollbar {
+        width: 4px;
+      }
+
+      .activity-list::-webkit-scrollbar-thumb {
+        background: #2a2a3d;
+        border-radius: 2px;
+      }
+
+      .activity-empty {
+        padding: 40px 20px;
+        text-align: center;
+        color: #3a3a4c;
+        font-size: 13px;
+      }
+
+      .activity-empty .empty-icon {
+        font-size: 24px;
+        display: block;
+        margin-bottom: 8px;
+        opacity: 0.5;
+      }
+
+      /* Event entry */
+      .event-entry {
+        padding: 14px 20px;
+        border-bottom: 1px solid #14141f;
+        display: flex;
+        gap: 12px;
+        align-items: flex-start;
+        animation: fadeSlideIn 0.15s ease-out;
+      }
+
+      .event-entry:last-child {
+        border-bottom: none;
+      }
+
+      .event-pip {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-top: 5px;
+        flex-shrink: 0;
+      }
+
+      .event-pip.granted {
+        background: #22c55e;
+        box-shadow: 0 0 6px rgba(34, 197, 94, 0.4);
+      }
+
+      .event-pip.denied {
+        background: #ef4444;
+        box-shadow: 0 0 6px rgba(239, 68, 68, 0.4);
+      }
+
+      .event-pip.partial {
+        background: #f59e0b;
+        box-shadow: 0 0 6px rgba(245, 158, 11, 0.4);
+      }
+
+      .event-info {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .event-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: #c8c8d8;
+      }
+
+      .event-time {
+        font-family: "DM Mono", monospace;
+        font-size: 11px;
+        color: #4a4a5c;
+        margin-left: 8px;
+        font-weight: 400;
+      }
+
+      .event-scopes {
+        margin-top: 6px;
+        font-family: "DM Mono", monospace;
+        font-size: 11px;
+        line-height: 1.7;
+        color: #6b6b80;
+      }
+
+      .scope-granted {
+        color: #4ade80;
+      }
+
+      .scope-denied {
+        color: #f87171;
+      }
+
+      /* ── Responsive ───────────────────────────────────────────── */
+      @media (max-width: 720px) {
+        .demo-grid {
+          grid-template-columns: 1fr;
+          max-width: 480px;
+        }
+      }
+
+      @media (max-width: 400px) {
+        body {
+          padding: 24px 12px 40px;
+        }
+
+        .controls {
+          padding: 20px 16px;
+        }
+
+        .activity-view-header {
+          padding: 12px 16px;
+        }
+
+        .event-entry {
+          padding: 12px 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page-header">
+      <h1>🛡️ <span>Multicorn Consent</span> Playground</h1>
+      <p>Interactive demo of the consent web component</p>
+    </div>
+
+    <div class="demo-grid">
+      <!-- ═══ Left panel — open consent screen ═══════════════════ -->
+      <div class="demo-panel" id="overlay-panel">
+        <button class="activity-toggle" id="overlay-activity-toggle" aria-label="View activity">
+          <span class="toggle-icon">📡</span>
+          Activity
+          <span class="activity-badge" id="overlay-badge">0</span>
+        </button>
+
+        <div class="panel-body" id="overlay-panel-body">
+          <div class="view-content">
+            <div class="controls">
+              <p class="controls-title">Open consent screen</p>
+              <p class="controls-desc">
+                Launches the consent screen as a fullscreen overlay. Grant or deny permissions, then
+                check Activity to see the emitted events.
+              </p>
+              <button class="btn btn-primary" id="open-overlay">Open Consent Screen</button>
+            </div>
+          </div>
+
+          <div class="view-activity">
+            <div class="activity-view-header">
+              <button class="btn-back" id="overlay-back" aria-label="Back">
+                <span class="arrow">←</span> Back
+              </button>
+              <span class="activity-view-title">Activity</span>
+              <button class="btn-clear-activity" id="overlay-clear">Clear all</button>
+            </div>
+            <div class="activity-list" id="overlay-activity-list">
+              <div class="activity-empty">
+                <span class="empty-icon">📭</span>
+                No events yet — open the consent screen and interact with it.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Right panel — inline consent ═══════════════════════ -->
+      <div class="demo-panel" id="inline-panel">
+        <button class="activity-toggle" id="inline-activity-toggle" aria-label="View activity">
+          <span class="toggle-icon">📡</span>
+          Activity
+          <span class="activity-badge" id="inline-badge">0</span>
+        </button>
+
+        <div class="panel-body" id="inline-panel-body">
+          <div class="view-content">
+            <multicorn-consent
+              id="inline-consent"
+              agent-name="Code Assistant"
+              agent-color="#06b6d4"
+              mode="inline"
+              scopes='[{"service":"gmail","permissionLevel":"read"},{"service":"gmail","permissionLevel":"write"},{"service":"calendar","permissionLevel":"read"},{"service":"github","permissionLevel":"read"}]'
+              spend-limit="100"
+            ></multicorn-consent>
+          </div>
+
+          <div class="view-activity">
+            <div class="activity-view-header">
+              <button class="btn-back" id="inline-back" aria-label="Back">
+                <span class="arrow">←</span> Back
+              </button>
+              <span class="activity-view-title">Activity</span>
+              <button class="btn-clear-activity" id="inline-clear">Clear all</button>
+            </div>
+            <div class="activity-list" id="inline-activity-list">
+              <div class="activity-empty">
+                <span class="empty-icon">📭</span>
+                No events yet — interact with the consent form.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Overlay consent gets appended here -->
+    <div id="overlay-container"></div>
+
+    <script type="module">
+      import "../dist/index.js";
+
+      const $ = (id) => document.getElementById(id);
+
+      const openOverlayBtn = $("open-overlay");
+      const overlayContainer = $("overlay-container");
+      const inlineConsent = $("inline-consent");
+
+      const overlayPanelBody = $("overlay-panel-body");
+      const inlinePanelBody = $("inline-panel-body");
+
+      const overlayActivityToggle = $("overlay-activity-toggle");
+      const inlineActivityToggle = $("inline-activity-toggle");
+
+      const overlayBackBtn = $("overlay-back");
+      const inlineBackBtn = $("inline-back");
+
+      const overlayActivityList = $("overlay-activity-list");
+      const inlineActivityList = $("inline-activity-list");
+
+      const overlayBadge = $("overlay-badge");
+      const inlineBadge = $("inline-badge");
+
+      const overlayClearBtn = $("overlay-clear");
+      const inlineClearBtn = $("inline-clear");
+
+      let overlayCount = 0;
+      let inlineCount = 0;
+
+      // ── View toggle ─────────────────────────────────────────────
+      function toggleActivity(panelBody, toggleBtn) {
+        const showing = panelBody.classList.toggle("show-activity");
+        toggleBtn.classList.toggle("active", showing);
+      }
+
+      function hideActivity(panelBody, toggleBtn) {
+        panelBody.classList.remove("show-activity");
+        toggleBtn.classList.remove("active");
+      }
+
+      overlayActivityToggle.addEventListener("click", () =>
+        toggleActivity(overlayPanelBody, overlayActivityToggle),
+      );
+      inlineActivityToggle.addEventListener("click", () =>
+        toggleActivity(inlinePanelBody, inlineActivityToggle),
+      );
+
+      overlayBackBtn.addEventListener("click", () =>
+        hideActivity(overlayPanelBody, overlayActivityToggle),
+      );
+      inlineBackBtn.addEventListener("click", () =>
+        hideActivity(inlinePanelBody, inlineActivityToggle),
+      );
+
+      // ── Helpers ─────────────────────────────────────────────────
+      function formatTime(ts) {
+        const d = new Date(ts);
+        return (
+          d.toLocaleDateString([], {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }) +
+          ", " +
+          d.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })
+        );
+      }
+
+      function buildScopesHtml(detail) {
+        const parts = [];
+        if (detail.spendLimit != null) {
+          parts.push(`<span style="color: #c4b5fd;">Spend limit: $${detail.spendLimit}</span>`);
+        }
+        if (detail.grantedScopes?.length > 0) {
+          detail.grantedScopes.forEach((s) => {
+            parts.push(`<span class="scope-granted">✓ ${s.service}:${s.permissionLevel}</span>`);
+          });
+        }
+        if (detail.deniedScopes?.length > 0) {
+          detail.deniedScopes.forEach((s) => {
+            parts.push(`<span class="scope-denied">✗ ${s.service}:${s.permissionLevel}</span>`);
+          });
+        }
+        return parts.join("<br/>");
+      }
+
+      function addEvent(list, badge, eventName, detail, getCount) {
+        const empty = list.querySelector(".activity-empty");
+        if (empty) empty.remove();
+
+        const type = eventName.replace("consent-", "");
+        const entry = document.createElement("div");
+        entry.className = "event-entry";
+        entry.innerHTML = `
+          <div class="event-pip ${type}"></div>
+          <div class="event-info">
+            <span class="event-name">${eventName}<span class="event-time">${formatTime(detail.timestamp)}</span></span>
+            <div class="event-scopes">${buildScopesHtml(detail)}</div>
+          </div>
+        `;
+        list.insertBefore(entry, list.firstChild);
+
+        const count = getCount();
+        badge.textContent = count;
+        badge.classList.add("visible");
+      }
+
+      function clearActivity(list, badge) {
+        list.innerHTML =
+          '<div class="activity-empty"><span class="empty-icon">📭</span>No events yet</div>';
+        badge.textContent = "0";
+        badge.classList.remove("visible");
+      }
+
+      // ── Overlay consent ─────────────────────────────────────────
+      function openOverlay() {
+        const existing = overlayContainer.querySelector("multicorn-consent");
+        if (existing) existing.remove();
+
+        const el = document.createElement("multicorn-consent");
+        el.setAttribute("agent-name", "Email Assistant");
+        el.setAttribute("agent-color", "#8b5cf6");
+        el.setAttribute("mode", "modal");
+        el.setAttribute("spend-limit", "200");
+        el.setAttribute(
+          "scopes",
+          JSON.stringify([
+            { service: "gmail", permissionLevel: "read" },
+            { service: "gmail", permissionLevel: "write" },
+            { service: "calendar", permissionLevel: "read" },
+            { service: "payments", permissionLevel: "execute" },
+          ]),
+        );
+
+        const onEvent = (eventName) => (e) => {
+          addEvent(overlayActivityList, overlayBadge, eventName, e.detail, () => ++overlayCount);
+          el.remove();
+        };
+
+        el.addEventListener("consent-granted", onEvent("consent-granted"));
+        el.addEventListener("consent-partial", onEvent("consent-partial"));
+        el.addEventListener("consent-denied", onEvent("consent-denied"));
+
+        overlayContainer.appendChild(el);
+      }
+
+      openOverlayBtn.addEventListener("click", openOverlay);
+
+      // ── Inline events ───────────────────────────────────────────
+      ["consent-granted", "consent-partial", "consent-denied"].forEach((evt) => {
+        inlineConsent.addEventListener(evt, (e) => {
+          addEvent(inlineActivityList, inlineBadge, evt, e.detail, () => ++inlineCount);
+        });
+      });
+
+      // ── Clear buttons ───────────────────────────────────────────
+      overlayClearBtn.addEventListener("click", () => {
+        overlayCount = 0;
+        clearActivity(overlayActivityList, overlayBadge);
+      });
+
+      inlineClearBtn.addEventListener("click", () => {
+        inlineCount = 0;
+        clearActivity(inlineActivityList, inlineBadge);
+      });
+    </script>
+  </body>
+</html>

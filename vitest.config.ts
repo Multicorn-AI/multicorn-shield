@@ -1,11 +1,21 @@
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
+  esbuild: {
+    // Required for Lit decorators (@property, @state, @customElement)
+    tsconfigRaw: {
+      compilerOptions: {
+        experimentalDecorators: true,
+        useDefineForClassFields: false,
+      },
+    },
+  },
   test: {
     globals: true,
-    environment: "node",
+    environment: "jsdom",
     passWithNoTests: true,
     include: ["src/**/*.{test,spec}.ts"],
+    setupFiles: [],
     coverage: {
       provider: "istanbul",
       reporter: ["text", "lcov", "html"],
@@ -17,6 +27,8 @@ export default defineConfig({
         functions: 85,
         lines: 85,
       },
+      // Higher threshold for consent module (≥90%)
+      perFile: true,
     },
   },
 });
