@@ -30,6 +30,9 @@ importers:
       eslint-config-prettier:
         specifier: ^10.0.1
         version: 10.1.8(eslint@9.39.2(jiti@2.6.1))
+      eslint-plugin-multicorn-ui:
+        specifier: file:../eslint-plugin-multicorn-ui
+        version: file:../eslint-plugin-multicorn-ui(eslint@9.39.2(jiti@2.6.1))
       eslint-plugin-unicorn:
         specifier: ^57.0.0
         version: 57.0.0(eslint@9.39.2(jiti@2.6.1))
@@ -980,6 +983,11 @@ packages:
     hasBin: true
     peerDependencies:
       eslint: '>=7.0.0'
+
+  eslint-plugin-multicorn-ui@file:../eslint-plugin-multicorn-ui:
+    resolution: {directory: ../eslint-plugin-multicorn-ui, type: directory}
+    peerDependencies:
+      eslint: '>=8.0.0'
 
   eslint-plugin-unicorn@57.0.0:
     resolution: {integrity: sha512-zUYYa6zfNdTeG9BISWDlcLmz16c+2Ck2o5ZDHh0UzXJz3DEP7xjmlVDTzbyV0W+XksgZ0q37WEWzN2D2Ze+g9Q==}
@@ -2863,6 +2871,10 @@ snapshots:
   escape-string-regexp@4.0.0: {}
 
   eslint-config-prettier@10.1.8(eslint@9.39.2(jiti@2.6.1)):
+    dependencies:
+      eslint: 9.39.2(jiti@2.6.1)
+
+  eslint-plugin-multicorn-ui@file:../eslint-plugin-multicorn-ui(eslint@9.39.2(jiti@2.6.1)):
     dependencies:
       eslint: 9.39.2(jiti@2.6.1)
 
