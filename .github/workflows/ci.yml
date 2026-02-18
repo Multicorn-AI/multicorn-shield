@@ -34,6 +34,165 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
 
+      - name: Scaffold eslint-plugin-multicorn-ui
+        run: |
+          mkdir -p ../eslint-plugin-multicorn-ui/src
+          cat > ../eslint-plugin-multicorn-ui/package.json << 'PKGJSON'
+          {
+            "name": "eslint-plugin-multicorn-ui",
+            "version": "1.0.0",
+            "description": "ESLint rules to enforce Multicorn UI language standards",
+            "main": "src/index.js",
+            "license": "MIT",
+            "keywords": ["eslint", "eslintplugin"],
+            "peerDependencies": {
+              "eslint": ">=8.0.0"
+            }
+          }
+          PKGJSON
+          cat > ../eslint-plugin-multicorn-ui/src/index.js << 'INDEXJS'
+          const noUiJargon = require("./no-ui-jargon");
+
+          module.exports = {
+            rules: {
+              "no-ui-jargon": noUiJargon,
+            },
+            configs: {
+              recommended: {
+                plugins: ["multicorn-ui"],
+                rules: {
+                  "multicorn-ui/no-ui-jargon": "warn",
+                },
+              },
+              strict: {
+                plugins: ["multicorn-ui"],
+                rules: {
+                  "multicorn-ui/no-ui-jargon": "error",
+                },
+              },
+            },
+          };
+          INDEXJS
+          cat > ../eslint-plugin-multicorn-ui/src/no-ui-jargon.js << 'RULEJS'
+          /**
+           * Catches implementation jargon in user-facing UI text.
+           *
+           * Checks JSX text content, JSX attribute strings (aria-label, title, placeholder, alt),
+           * and template literals inside JSX. Does NOT flag variable names, imports, comments,
+           * or non-UI strings — only text that would be visible to a user.
+           */
+
+          const BANNED_WORDS = new Map([
+            ["modal", "Don't label UI patterns. Just show the content."],
+            ["dialog", "Don't label UI patterns. Name the content, not the container."],
+            ["inline", "Users don't care about rendering method."],
+            ["embedded", "Users don't care about rendering method."],
+            ["component", "Use 'feature', 'section', or name the specific thing."],
+            ["widget", "Use 'feature', 'section', or name the specific thing."],
+            ["container", "Never user-facing."],
+            ["wrapper", "Never user-facing."],
+            ["rendered", "Use 'shown', 'displayed', or 'appears'."],
+            ["callback", "Never user-facing."],
+            ["handler", "Never user-facing."],
+            ["instance", "Use 'agent', 'item', or name the specific thing."],
+            ["payload", "Use 'details', 'data', or 'content'."],
+            ["endpoint", "Never user-facing."],
+            ["schema", "Use 'structure' or 'format'."],
+            ["lifecycle", "Never user-facing."],
+            ["hydrate", "Use 'load' or 'appear'."],
+            ["hydration", "Use 'loading'."],
+            ["dispatch", "Use 'send' or 'trigger'."],
+            ["refetch", "Use 'refresh' or 'update'."],
+            ["invalidate", "Use 'refresh' or 'update'."],
+            ["fallback", "Use 'default' or 'backup'."],
+            ["singleton", "Never user-facing."],
+            ["polymorphic", "Never user-facing."],
+            ["propagate", "Use 'spread', 'apply', or 'pass through'."],
+            ["serialize", "Use 'save' or 'convert'."],
+            ["deserialize", "Use 'load' or 'convert'."],
+            ["deprecated", "Use 'no longer available' or 'replaced by'."],
+            ["popover", "Don't label UI patterns."],
+            ["pagination", "Use 'page', 'next', 'previous', or 'show more'."],
+            ["stateful", "Describe the behaviour, not the implementation."],
+            ["stateless", "Describe the behaviour, not the implementation."],
+            ["unmount", "Use 'close', 'hide', or 'remove'."],
+          ]);
+
+          const UI_ATTRIBUTES = new Set([
+            "aria-label",
+            "aria-describedby",
+            "title",
+            "placeholder",
+            "alt",
+            "label",
+          ]);
+
+          function buildPattern() {
+            const words = [...BANNED_WORDS.keys()].join("|");
+            return new RegExp(`\\b(${words})\\b`, "gi");
+          }
+
+          function checkText(context, node, text, bannedPattern) {
+            bannedPattern.lastIndex = 0;
+            let match;
+            while ((match = bannedPattern.exec(text)) !== null) {
+              const word = match[1].toLowerCase();
+              const suggestion = BANNED_WORDS.get(word);
+              context.report({
+                node,
+                message: `Banned UI term "{{word}}" in user-facing text. ${suggestion}`,
+                data: { word: match[1] },
+              });
+            }
+          }
+
+          module.exports = {
+            meta: {
+              type: "suggestion",
+              docs: {
+                description: "Disallow implementation jargon in user-facing UI text",
+                category: "Multicorn UI Standards",
+                recommended: true,
+              },
+              schema: [],
+              messages: {},
+            },
+
+            create(context) {
+              const bannedPattern = buildPattern();
+
+              return {
+                JSXText(node) {
+                  checkText(context, node, node.value, bannedPattern);
+                },
+
+                JSXExpressionContainer(node) {
+                  if (node.expression.type === "Literal" && typeof node.expression.value === "string") {
+                    checkText(context, node, node.expression.value, bannedPattern);
+                  }
+                  if (node.expression.type === "TemplateLiteral") {
+                    for (const quasi of node.expression.quasis) {
+                      checkText(context, node, quasi.value.raw, bannedPattern);
+                    }
+                  }
+                },
+
+                JSXAttribute(node) {
+                  const attrName = node.name.type === "JSXNamespacedName"
+                    ? `${node.name.namespace.name}:${node.name.name.name}`
+                    : node.name.name;
+
+                  if (!UI_ATTRIBUTES.has(attrName)) return;
+
+                  if (node.value && node.value.type === "Literal" && typeof node.value.value === "string") {
+                    checkText(context, node, node.value.value, bannedPattern);
+                  }
+                },
+              };
+            },
+          };
+          RULEJS
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
