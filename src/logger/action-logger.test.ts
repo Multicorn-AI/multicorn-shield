@@ -550,6 +550,64 @@ describe("createActionLogger", () => {
       expect(fetchMock.calls).toHaveLength(2);
       expect(errorHandler).not.toHaveBeenCalled();
     });
+
+    it("reports network error with descriptive message for DNS failure", async () => {
+      fetchMock.mockNetworkError("getaddrinfo ENOTFOUND api.multicorn.ai");
+
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      await sleep(400);
+
+      expect(errorHandler).toHaveBeenCalledOnce();
+      expect(errorHandler.mock.calls[0]?.[0]?.message).toContain("Network error");
+      expect(errorHandler.mock.calls[0]?.[0]?.message).toContain("ENOTFOUND");
+    });
+
+    it("reports network error with descriptive message for connection refused", async () => {
+      fetchMock.mockNetworkError("connect ECONNREFUSED 127.0.0.1:443");
+
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      await sleep(400);
+
+      expect(errorHandler).toHaveBeenCalledOnce();
+      expect(errorHandler.mock.calls[0]?.[0]?.message).toContain("Network error");
+      expect(errorHandler.mock.calls[0]?.[0]?.message).toContain("ECONNREFUSED");
+    });
+
+    it("handles non-Error thrown by fetch gracefully", async () => {
+      (fetchMock.fetch as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+        (input: RequestInfo | URL, init?: RequestInit) => {
+          const url =
+            typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+          fetchMock.calls.push({ url, options: init ?? {} });
+          // eslint-disable-next-line @typescript-eslint/only-throw-error
+          throw "string error, not an Error object";
+        },
+      );
+
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      await sleep(400);
+
+      expect(errorHandler).toHaveBeenCalled();
+      expect(errorHandler.mock.calls[0]?.[0]?.message).toContain("Unknown error");
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -770,6 +828,78 @@ describe("createActionLogger", () => {
         }),
       ).toThrow(/after shutdown/);
     });
+
+    it("shutdown is idempotent in batch mode", async () => {
+      logger = createActionLogger({
+        apiKey: "test-key",
+        batchMode: { enabled: true, maxSize: 10, flushIntervalMs: 10000 },
+      });
+      fetchMock.mockResponse(200);
+
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      await logger.shutdown();
+      await logger.shutdown(); // Second call should be a no-op
+
+      expect(fetchMock.calls).toHaveLength(1); // Only flushed once
+    });
+
+    it("shutdown flushes remaining actions even when flush timer has not fired", async () => {
+      logger = createActionLogger({
+        apiKey: "test-key",
+        batchMode: { enabled: true, maxSize: 100, flushIntervalMs: 60000 },
+      });
+      fetchMock.mockResponse(200);
+
+      // Queue 5 actions (well below maxSize of 100)
+      for (let i = 0; i < 5; i++) {
+        await logger.logAction({
+          agent: `agent-${String(i)}`,
+          service: "gmail",
+          actionType: "send_email",
+          status: ACTION_STATUSES.Approved,
+        });
+      }
+
+      // Nothing flushed yet
+      expect(fetchMock.calls).toHaveLength(0);
+
+      // Shutdown should flush all 5
+      await logger.shutdown();
+
+      expect(fetchMock.calls).toHaveLength(1);
+      const call = fetchMock.calls[0];
+      if (call) {
+        const body: unknown = JSON.parse(call.options.body as string);
+        expect((body as { actions: unknown[] }).actions).toHaveLength(5);
+      }
+    });
+
+    it("silently handles errors without onError callback in immediate mode", async () => {
+      logger = createActionLogger({
+        apiKey: "test-key",
+        // intentionally no onError callback
+      });
+      fetchMock.mockNetworkError("Network failure");
+
+      // Should not throw — fire-and-forget
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      await sleep(400);
+
+      // No crash, calls were attempted
+      expect(fetchMock.calls.length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -818,6 +948,95 @@ describe("createActionLogger", () => {
       const elapsed = Date.now() - start;
 
       expect(elapsed).toBeLessThan(50);
+
+      await logger.shutdown();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Error propagation from onError callback
+  // ---------------------------------------------------------------------------
+
+  describe("error propagation from onError callback", () => {
+    it("swallows errors when onError callback itself throws in immediate mode", async () => {
+      const logger = createActionLogger({
+        apiKey: "test-key",
+        onError: () => {
+          throw new Error("onError handler crashed");
+        },
+      });
+      fetchMock.mockNetworkError("Network failure");
+
+      // Should not throw — the internal .catch() safety net catches it
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      await sleep(400);
+
+      // No crash — fire-and-forget design holds
+      expect(fetchMock.calls.length).toBeGreaterThanOrEqual(1);
+
+      await logger.shutdown();
+    });
+
+    it("swallows errors when onError callback throws in batch mode at max size", async () => {
+      const logger = createActionLogger({
+        apiKey: "test-key",
+        batchMode: { enabled: true, maxSize: 2, flushIntervalMs: 60000 },
+        onError: () => {
+          throw new Error("onError handler crashed");
+        },
+      });
+      fetchMock.mockNetworkError("Network failure");
+
+      // Queue two actions to trigger flush (maxSize = 2)
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+      await logger.logAction({
+        agent: "agent-2",
+        service: "gmail",
+        actionType: "read_inbox",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      await sleep(400);
+
+      // No crash — the catch handler in logAction absorbed it
+      expect(fetchMock.calls.length).toBeGreaterThanOrEqual(1);
+
+      await logger.shutdown();
+    });
+
+    it("swallows errors when onError callback throws during interval flush", async () => {
+      const logger = createActionLogger({
+        apiKey: "test-key",
+        batchMode: { enabled: true, maxSize: 100, flushIntervalMs: 100 },
+        onError: () => {
+          throw new Error("onError handler crashed in interval");
+        },
+      });
+      fetchMock.mockNetworkError("Network failure");
+
+      await logger.logAction({
+        agent: "agent-1",
+        service: "gmail",
+        actionType: "send_email",
+        status: ACTION_STATUSES.Approved,
+      });
+
+      // Wait for the interval to fire (100ms + retry backoff + overhead)
+      await sleep(600);
+
+      // No crash — the catch handler in setInterval absorbed it
+      expect(fetchMock.calls.length).toBeGreaterThanOrEqual(1);
 
       await logger.shutdown();
     });
