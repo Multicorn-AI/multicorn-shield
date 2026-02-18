@@ -2,6 +2,7 @@ import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 import eslintConfigPrettier from "eslint-config-prettier";
 import unicorn from "eslint-plugin-unicorn";
+import multicornUi from "eslint-plugin-multicorn-ui";
 
 export default tseslint.config(
   eslint.configs.recommended,
@@ -19,6 +20,7 @@ export default tseslint.config(
   {
     plugins: {
       unicorn,
+      "multicorn-ui": multicornUi,
     },
     rules: {
       /* No any — enforced at lint level as well as tsconfig */
@@ -67,6 +69,9 @@ export default tseslint.config(
       "unicorn/prefer-node-protocol": "error",
       "unicorn/no-array-for-each": "error",
       "unicorn/prefer-ternary": "error",
+
+      /* Multicorn UI language standards */
+      "multicorn-ui/no-ui-jargon": "warn",
     },
   },
   {
