@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -290,7 +290,10 @@
         cursor: pointer;
         padding: 5px 10px;
         border-radius: 6px;
-        transition: color 0.15s, background 0.15s, border-color 0.15s;
+        transition:
+          color 0.15s,
+          background 0.15s,
+          border-color 0.15s;
       }
 
       .btn-clear-activity:hover {
@@ -573,15 +576,19 @@
       // ── Helpers ─────────────────────────────────────────────────
       function formatTime(ts) {
         const d = new Date(ts);
-        return d.toLocaleDateString([], {
-          day: "numeric",
-          month: "short",
-          year: "numeric",
-        }) + ", " + d.toLocaleTimeString([], {
-          hour: "2-digit",
-          minute: "2-digit",
-          second: "2-digit",
-        });
+        return (
+          d.toLocaleDateString([], {
+            day: "numeric",
+            month: "short",
+            year: "numeric",
+          }) +
+          ", " +
+          d.toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })
+        );
       }
 
       function buildScopesHtml(detail) {
