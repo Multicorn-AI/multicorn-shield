@@ -1,6 +1,6 @@
 {
   "name": "multicorn-shield",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "The control layer for AI agents — permissions, consent, spending limits, and audit logging.",
   "license": "MIT",
   "type": "module",
@@ -39,6 +39,7 @@
     "typecheck": "tsc --noEmit",
     "docs": "typedoc",
     "clean": "rm -rf dist coverage docs/api",
+    "size": "size-limit",
     "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
     "prepare": "husky"
   },
@@ -67,12 +68,26 @@
     "jsdom": "^25.0.1",
     "lint-staged": "^16.2.7",
     "prettier": "^3.4.2",
+    "@size-limit/file": "^11.1.6",
+    "size-limit": "^11.1.6",
     "tsup": "^8.3.6",
     "typedoc": "^0.28.17",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.22.0",
     "vitest": "^3.0.5"
   },
+  "size-limit": [
+    {
+      "path": "dist/index.js",
+      "limit": "50 kB",
+      "gzip": true
+    },
+    {
+      "path": "dist/index.cjs",
+      "limit": "50 kB",
+      "gzip": true
+    }
+  ],
   "keywords": [
     "ai",
     "agents",
