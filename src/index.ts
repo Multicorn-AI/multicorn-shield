@@ -14,3 +14,12 @@ export * from "./scopes/index.js";
 export * from "./consent/index.js";
 export * from "./logger/index.js";
 export * from "./spending/index.js";
+
+// Main SDK entry point
+export {
+  MulticornShield,
+  type MulticornShieldConfig,
+  type ConsentOptions,
+  type ActionInput,
+  type SpendCheckResult,
+} from "./multicorn-shield.js";
