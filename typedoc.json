@@ -1,0 +1,18 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts"],
+  "out": "docs/api",
+  "name": "Multicorn Shield",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "sort": ["source-order"],
+  "navigationLinks": {
+    "GitHub": "https://github.com/Multicorn-AI/multicorn-shield",
+    "npm": "https://www.npmjs.com/package/multicorn-shield"
+  },
+  "plugin": [],
+  "tsconfig": "tsconfig.json"
+}

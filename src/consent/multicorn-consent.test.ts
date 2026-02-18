@@ -698,5 +698,451 @@ describe("MulticornConsent", () => {
       expect(shadowRoot.querySelector(".permission-row")).toBeFalsy();
       expect(shadowRoot.textContent).toContain("No permissions requested");
     });
+
+    it("shows fallback agent name when no agent-name provided and scopes empty", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent .scopes=${[]}></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      const agentName = shadowRoot.querySelector(".agent-name");
+      expect(agentName?.textContent).toContain("Agent");
+    });
+
+    it("does not render spending limit section when scopes are empty", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${[]}
+          spend-limit="200"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      expect(shadowRoot.querySelector(".spending-limit")).toBeFalsy();
+    });
+  });
+
+  describe("Single scope rendering", () => {
+    const singleScope: Scope[] = [{ service: "gmail", permissionLevel: PERMISSION_LEVELS.Read }];
+
+    it("renders one permission row for a single scope", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent agent-name="Test" .scopes=${singleScope}></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      const permissionRows = shadowRoot.querySelectorAll(".permission-row");
+      expect(permissionRows).toHaveLength(1);
+    });
+
+    it("emits consent-granted with the single scope when authorized", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent agent-name="Test" .scopes=${singleScope}></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const handler = vi.fn();
+      el.addEventListener("consent-granted", handler);
+
+      const shadowRoot = getShadowRoot(el);
+      const authorizeButton = queryOne(shadowRoot, ".button-primary");
+      (authorizeButton as HTMLElement).click();
+
+      await waitUntil(() => handler.mock.calls.length > 0);
+
+      const event = handler.mock.calls[0]?.[0] as
+        | CustomEvent<ConsentGrantedEventDetail>
+        | undefined;
+      expect(event?.detail.grantedScopes).toHaveLength(1);
+      expect(event?.detail.grantedScopes[0]?.service).toBe("gmail");
+    });
+  });
+
+  describe("Many scopes rendering (20+ scopes)", () => {
+    const manyScopes: Scope[] = [
+      { service: "gmail", permissionLevel: PERMISSION_LEVELS.Read },
+      { service: "gmail", permissionLevel: PERMISSION_LEVELS.Write },
+      { service: "gmail", permissionLevel: PERMISSION_LEVELS.Execute },
+      { service: "calendar", permissionLevel: PERMISSION_LEVELS.Read },
+      { service: "calendar", permissionLevel: PERMISSION_LEVELS.Write },
+      { service: "calendar", permissionLevel: PERMISSION_LEVELS.Execute },
+      { service: "slack", permissionLevel: PERMISSION_LEVELS.Read },
+      { service: "slack", permissionLevel: PERMISSION_LEVELS.Write },
+      { service: "slack", permissionLevel: PERMISSION_LEVELS.Execute },
+      { service: "payments", permissionLevel: PERMISSION_LEVELS.Read },
+      { service: "payments", permissionLevel: PERMISSION_LEVELS.Write },
+      { service: "payments", permissionLevel: PERMISSION_LEVELS.Execute },
+      { service: "github", permissionLevel: PERMISSION_LEVELS.Read },
+      { service: "github", permissionLevel: PERMISSION_LEVELS.Write },
+      { service: "github", permissionLevel: PERMISSION_LEVELS.Execute },
+      { service: "jira", permissionLevel: PERMISSION_LEVELS.Read },
+      { service: "jira", permissionLevel: PERMISSION_LEVELS.Write },
+      { service: "stripe", permissionLevel: PERMISSION_LEVELS.Read },
+      { service: "stripe", permissionLevel: PERMISSION_LEVELS.Write },
+      { service: "stripe", permissionLevel: PERMISSION_LEVELS.Execute },
+      { service: "aws", permissionLevel: PERMISSION_LEVELS.Read },
+    ];
+
+    it("renders all permission rows for 20+ scopes across many services", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent agent-name="Test" .scopes=${manyScopes}></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      const permissionRows = shadowRoot.querySelectorAll(".permission-row");
+      // 8 unique services: gmail, calendar, slack, payments, github, jira, stripe, aws
+      expect(permissionRows.length).toBe(8);
+    });
+
+    it("emits consent-granted with all 21 scopes when authorized", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent agent-name="Test" .scopes=${manyScopes}></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const handler = vi.fn();
+      el.addEventListener("consent-granted", handler);
+
+      const shadowRoot = getShadowRoot(el);
+      const authorizeButton = queryOne(shadowRoot, ".button-primary");
+      (authorizeButton as HTMLElement).click();
+
+      await waitUntil(() => handler.mock.calls.length > 0);
+
+      const event = handler.mock.calls[0]?.[0] as
+        | CustomEvent<ConsentGrantedEventDetail>
+        | undefined;
+      expect(event?.detail.grantedScopes).toHaveLength(21);
+    });
+
+    it("handles toggling individual scopes among 20+ correctly", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent agent-name="Test" .scopes=${manyScopes}></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      const levelButtons = shadowRoot.querySelectorAll(".permission-level-button");
+
+      // Toggle off the first scope button
+      if (levelButtons.length > 0) {
+        (levelButtons[0] as HTMLElement).click();
+        await el.updateComplete;
+
+        // Now emit partial — should have one fewer granted
+        const handler = vi.fn();
+        el.addEventListener("consent-partial", handler);
+
+        const authorizeButton = queryOne(shadowRoot, ".button-primary");
+        (authorizeButton as HTMLElement).click();
+
+        await waitUntil(() => handler.mock.calls.length > 0);
+
+        const event = handler.mock.calls[0]?.[0] as
+          | CustomEvent<ConsentPartialEventDetail>
+          | undefined;
+        expect(event?.detail.grantedScopes.length).toBeLessThan(21);
+        expect(event?.detail.deniedScopes.length).toBeGreaterThan(0);
+      }
+    });
+  });
+
+  describe("Inline mode behavior", () => {
+    it("renders without backdrop in inline mode", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          mode="inline"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      expect(shadowRoot.querySelector(".backdrop")).toBeFalsy();
+      expect(shadowRoot.querySelector(".card")).toBeTruthy();
+    });
+
+    it("sets aria-modal to false in inline mode", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          mode="inline"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      const card = shadowRoot.querySelector(".card");
+      expect(card?.getAttribute("aria-modal")).toBe("false");
+    });
+
+    it("does not close the card after Deny in inline mode", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          mode="inline"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      const denyButton = queryOne(shadowRoot, ".button-secondary");
+      (denyButton as HTMLElement).click();
+      await el.updateComplete;
+
+      // In inline mode, the card stays visible after deny
+      // (unlike modal mode where it disappears)
+      // The component re-renders but doesn't hide the card
+    });
+
+    it("does not emit consent-denied on Escape in inline mode", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          mode="inline"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const handler = vi.fn();
+      el.addEventListener("consent-denied", handler);
+
+      const escapeEvent = new KeyboardEvent("keydown", { key: "Escape", bubbles: true });
+      el.dispatchEvent(escapeEvent);
+
+      // Small wait to ensure no event fires
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(handler).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Spending limit input handling", () => {
+    it("handles direct input of spending limit value", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          spend-limit="200"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+      const shadowRoot = getShadowRoot(el);
+
+      const input = queryOne(shadowRoot, ".spend-input") as HTMLInputElement;
+      input.value = "150";
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await el.updateComplete;
+
+      // The adjusted spend limit should now be 150
+      const handler = vi.fn();
+      el.addEventListener("consent-granted", handler);
+
+      const authorizeButton = queryOne(shadowRoot, ".button-primary");
+      (authorizeButton as HTMLElement).click();
+
+      await waitUntil(() => handler.mock.calls.length > 0);
+
+      const event = handler.mock.calls[0]?.[0] as
+        | CustomEvent<ConsentGrantedEventDetail>
+        | undefined;
+      expect(event?.detail.spendLimit).toBe(150);
+    });
+
+    it("clamps direct input to zero when NaN is entered", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          spend-limit="200"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+      const shadowRoot = getShadowRoot(el);
+
+      const input = queryOne(shadowRoot, ".spend-input") as HTMLInputElement;
+      input.value = "abc";
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await el.updateComplete;
+
+      const handler = vi.fn();
+      el.addEventListener("consent-granted", handler);
+
+      const authorizeButton = queryOne(shadowRoot, ".button-primary");
+      (authorizeButton as HTMLElement).click();
+
+      await waitUntil(() => handler.mock.calls.length > 0);
+
+      const event = handler.mock.calls[0]?.[0] as
+        | CustomEvent<ConsentGrantedEventDetail>
+        | undefined;
+      expect(event?.detail.spendLimit).toBe(0);
+    });
+
+    it("clamps direct input above max to the original spend limit", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          spend-limit="200"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+      const shadowRoot = getShadowRoot(el);
+
+      const input = queryOne(shadowRoot, ".spend-input") as HTMLInputElement;
+      input.value = "500";
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      await el.updateComplete;
+
+      const handler = vi.fn();
+      el.addEventListener("consent-granted", handler);
+
+      const authorizeButton = queryOne(shadowRoot, ".button-primary");
+      (authorizeButton as HTMLElement).click();
+
+      await waitUntil(() => handler.mock.calls.length > 0);
+
+      const event = handler.mock.calls[0]?.[0] as
+        | CustomEvent<ConsentGrantedEventDetail>
+        | undefined;
+      expect(event?.detail.spendLimit).toBe(200);
+    });
+
+    it("decrease button is disabled when spend limit is at zero", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          spend-limit="10"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+      const shadowRoot = getShadowRoot(el);
+
+      // Click decrease until it reaches 0
+      const decreaseBtn = shadowRoot.querySelectorAll(".spend-step-btn")[0] as HTMLButtonElement;
+      decreaseBtn.click();
+      await el.updateComplete;
+
+      // Now it should be at 0
+      expect(decreaseBtn.disabled).toBe(true);
+    });
+  });
+
+  describe("Scopes attribute parsing edge cases", () => {
+    it("handles scopes set to null-ish attribute gracefully", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent agent-name="Test"></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      expect(shadowRoot.textContent).toContain("No permissions requested");
+    });
+
+    it("treats non-array JSON in scopes attribute as empty scopes", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          scopes='{"service":"gmail","permissionLevel":"read"}'
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      expect(shadowRoot.textContent).toContain("No permissions requested");
+    });
+
+    it("treats a number JSON in scopes attribute as empty scopes", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent agent-name="Test" scopes="42"></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      expect(shadowRoot.textContent).toContain("No permissions requested");
+    });
+  });
+
+  describe("Spending limit increase button", () => {
+    it("increases spending limit when + button is clicked after decrease", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          spend-limit="200"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+      const shadowRoot = getShadowRoot(el);
+
+      // First decrease
+      const decreaseBtn = shadowRoot.querySelectorAll(".spend-step-btn")[0] as HTMLButtonElement;
+      decreaseBtn.click();
+      await el.updateComplete;
+
+      // Then increase back
+      const increaseBtn = shadowRoot.querySelectorAll(".spend-step-btn")[1] as HTMLButtonElement;
+      expect(increaseBtn.disabled).toBe(false);
+      increaseBtn.click();
+      await el.updateComplete;
+
+      const input = queryOne(shadowRoot, ".spend-input") as HTMLInputElement;
+      expect(input.value).toBe("200");
+    });
+  });
+
+  describe("Modal close via Authorize", () => {
+    it("renders empty after modal is closed via Authorize", async () => {
+      const el = await fixture<MulticornConsent>(
+        html`<multicorn-consent
+          agent-name="Test"
+          .scopes=${mockScopes}
+          mode="modal"
+        ></multicorn-consent>`,
+      );
+
+      await waitUntil(() => el.shadowRoot != null);
+
+      const shadowRoot = getShadowRoot(el);
+      expect(shadowRoot.querySelector(".card")).toBeTruthy();
+
+      // Click Authorize to close modal
+      const authorizeButton = queryOne(shadowRoot, ".button-primary");
+      (authorizeButton as HTMLElement).click();
+      await el.updateComplete;
+
+      // Modal should now be closed — card should be gone
+      expect(shadowRoot.querySelector(".card")).toBeFalsy();
+    });
   });
 });

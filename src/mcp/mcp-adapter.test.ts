@@ -388,6 +388,129 @@ describe("createMcpAdapter", () => {
   });
 
   // -------------------------------------------------------------------------
+  // Malformed tool calls
+  // -------------------------------------------------------------------------
+
+  describe("malformed tool calls", () => {
+    it("treats an empty tool name as both the service and falls back to 'call' action", async () => {
+      const { logger, logActionSpy } = makeLogger();
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [{ service: "", permissionLevel: "execute" }],
+        logger,
+      });
+
+      const result = await adapter.intercept({ toolName: "", arguments: {} }, makeHandler());
+
+      expect(isBlockedResult(result)).toBe(false);
+      expect(logActionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ service: "", actionType: "call" }),
+      );
+    });
+
+    it("blocks tool call with empty tool name when no empty-service scope is granted", async () => {
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [GMAIL_EXECUTE],
+      });
+
+      const result = await adapter.intercept({ toolName: "", arguments: {} }, makeHandler());
+
+      expect(isBlockedResult(result)).toBe(true);
+    });
+
+    it("handles tool name with only underscores as empty service and empty action", async () => {
+      const { logger, logActionSpy } = makeLogger();
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [{ service: "", permissionLevel: "execute" }],
+        logger,
+      });
+
+      await adapter.intercept({ toolName: "_", arguments: {} }, makeHandler());
+
+      expect(logActionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ service: "", actionType: "" }),
+      );
+    });
+
+    it("handles tool name with multiple underscores preserving action after first", async () => {
+      const { logger, logActionSpy } = makeLogger();
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [{ service: "gmail", permissionLevel: "execute" }],
+        logger,
+      });
+
+      await adapter.intercept(
+        { toolName: "gmail_send_batch_emails", arguments: {} },
+        makeHandler(),
+      );
+
+      expect(logActionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ service: "gmail", actionType: "send_batch_emails" }),
+      );
+    });
+
+    it("handles tool name with leading underscore as empty service", async () => {
+      const { logger, logActionSpy } = makeLogger();
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [{ service: "", permissionLevel: "execute" }],
+        logger,
+      });
+
+      await adapter.intercept({ toolName: "_send_email", arguments: {} }, makeHandler());
+
+      expect(logActionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ service: "", actionType: "send_email" }),
+      );
+    });
+
+    it("handles tool name with trailing underscore as service with empty action", async () => {
+      const { logger, logActionSpy } = makeLogger();
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [{ service: "gmail", permissionLevel: "execute" }],
+        logger,
+      });
+
+      await adapter.intercept({ toolName: "gmail_", arguments: {} }, makeHandler());
+
+      expect(logActionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ service: "gmail", actionType: "" }),
+      );
+    });
+
+    it("handles tool name with special characters as a single service", async () => {
+      const { logger, logActionSpy } = makeLogger();
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [{ service: "my-service.v2", permissionLevel: "execute" }],
+        logger,
+      });
+
+      await adapter.intercept({ toolName: "my-service.v2", arguments: {} }, makeHandler());
+
+      expect(logActionSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ service: "my-service.v2", actionType: "call" }),
+      );
+    });
+
+    it("passes through empty arguments object for malformed tool calls", async () => {
+      const handler = makeHandler();
+      const adapter = createMcpAdapter({
+        agentId: "agent",
+        grantedScopes: [{ service: "test", permissionLevel: "execute" }],
+      });
+
+      await adapter.intercept({ toolName: "test_action", arguments: {} }, handler);
+
+      expect(handler).toHaveBeenCalledWith({ toolName: "test_action", arguments: {} });
+    });
+  });
+
+  // -------------------------------------------------------------------------
   // isBlockedResult type guard
   // -------------------------------------------------------------------------
 
