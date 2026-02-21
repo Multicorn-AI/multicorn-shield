@@ -84,10 +84,15 @@ export async function findAgentByName(
   apiKey: string,
   baseUrl: string,
 ): Promise<AgentRecord | null> {
-  const response = await fetch(`${baseUrl}/api/v1/agents`, {
-    headers: { "X-Multicorn-Key": apiKey },
-    signal: AbortSignal.timeout(8000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/v1/agents`, {
+      headers: { "X-Multicorn-Key": apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    return null;
+  }
 
   if (!response.ok) return null;
 
@@ -143,10 +148,15 @@ export async function fetchGrantedScopes(
   apiKey: string,
   baseUrl: string,
 ): Promise<readonly Scope[]> {
-  const response = await fetch(`${baseUrl}/api/v1/agents/${agentId}`, {
-    headers: { "X-Multicorn-Key": apiKey },
-    signal: AbortSignal.timeout(8000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/v1/agents/${agentId}`, {
+      headers: { "X-Multicorn-Key": apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    return [];
+  }
 
   if (!response.ok) return [];
 
@@ -217,19 +227,31 @@ export async function resolveAgentRecord(
   baseUrl: string,
   logger: ProxyLogger,
 ): Promise<AgentRecord> {
-  let agent = await findAgentByName(agentName, apiKey, baseUrl);
-
-  if (agent === null) {
-    logger.info("Agent not found — registering.", { agent: agentName });
-    const id = await registerAgent(agentName, apiKey, baseUrl);
-    agent = { id, name: agentName, scopes: [] };
-    logger.info("Agent registered.", { agent: agentName, id });
-  }
-
+  // Always try the cache first — it works offline.
   const cachedScopes = await loadCachedScopes(agentName);
   if (cachedScopes !== null && cachedScopes.length > 0) {
     logger.debug("Loaded scopes from cache.", { agent: agentName, count: cachedScopes.length });
-    return { ...agent, scopes: cachedScopes };
+    // Use a placeholder id — it will be overwritten once the service is reachable.
+    return { id: "", name: agentName, scopes: cachedScopes };
+  }
+
+  let agent = await findAgentByName(agentName, apiKey, baseUrl);
+
+  if (agent === null) {
+    // Service may be unreachable — attempt registration, fall back to offline mode.
+    try {
+      logger.info("Agent not found — registering.", { agent: agentName });
+      const id = await registerAgent(agentName, apiKey, baseUrl);
+      agent = { id, name: agentName, scopes: [] };
+      logger.info("Agent registered.", { agent: agentName, id });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.warn("Could not reach Multicorn service. Running with empty permissions.", {
+        error: detail,
+      });
+      // id: "" signals offline mode — consent flow and action logging are skipped.
+      return { id: "", name: agentName, scopes: [] };
+    }
   }
 
   const scopes = await fetchGrantedScopes(agent.id, apiKey, baseUrl);

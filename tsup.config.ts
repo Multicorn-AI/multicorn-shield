@@ -22,7 +22,6 @@ export default defineConfig([
     treeshake: true,
     minify: false,
     outDir: "dist",
-    banner: { js: "#!/usr/bin/env node" },
     noExternal: [],
   },
 ]);
