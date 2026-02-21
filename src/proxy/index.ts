@@ -80,6 +80,9 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
 
   async function ensureConsent(): Promise<void> {
     if (grantedScopes.length > 0 || consentInProgress) return;
+    // agentId is empty when the service was unreachable at startup.
+    // Consent requires the service, so skip and let the permission check block the call.
+    if (agentId.length === 0) return;
 
     consentInProgress = true;
     try {
