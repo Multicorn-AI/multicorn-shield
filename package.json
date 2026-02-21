@@ -19,6 +19,9 @@
       }
     }
   },
+  "bin": {
+    "multicorn-proxy": "./dist/multicorn-proxy.js"
+  },
   "files": [
     "dist",
     "LICENSE",
@@ -56,6 +59,7 @@
     "lit": "^3.2.0"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
     "@eslint/js": "^9.19.0",
     "@open-wc/testing-helpers": "^3.0.1",
     "@vitest/coverage-istanbul": "^3.0.5",
