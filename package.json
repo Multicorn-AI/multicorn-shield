@@ -111,5 +111,10 @@
   "bugs": {
     "url": "https://github.com/Multicorn-AI/multicorn-shield/issues"
   },
-  "homepage": "https://multicorn.ai"
+  "homepage": "https://multicorn.ai",
+  "pnpm": {
+    "overrides": {
+      "minimatch": ">=10.2.1"
+    }
+  }
 }
