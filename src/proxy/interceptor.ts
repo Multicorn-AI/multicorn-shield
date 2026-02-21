@@ -34,6 +34,7 @@ export interface ToolCallParams {
 
 // JSON-RPC server-defined error range starts at -32000
 const BLOCKED_ERROR_CODE = -32000;
+const SPENDING_BLOCKED_ERROR_CODE = -32001;
 
 export function parseJsonRpcLine(line: string): JsonRpcRequest | null {
   const trimmed = line.trim();
@@ -78,6 +79,24 @@ export function buildBlockedResponse(
     id,
     error: {
       code: BLOCKED_ERROR_CODE,
+      message,
+    },
+  };
+}
+
+export function buildSpendingBlockedResponse(
+  id: string | number | null,
+  reason: string,
+): JsonRpcResponse {
+  const message =
+    `Action blocked by Multicorn Shield: ${reason}. ` +
+    `Review spending limits at https://app.multicorn.ai`;
+
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: SPENDING_BLOCKED_ERROR_CODE,
       message,
     },
   };
