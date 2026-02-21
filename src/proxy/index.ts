@@ -19,12 +19,15 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { validateScopeAccess } from "../scopes/scope-validator.js";
 import { createActionLogger } from "../logger/action-logger.js";
+import { createSpendingChecker, dollarsToCents } from "../spending/spending-checker.js";
+import type { SpendingLimits, SpendingChecker } from "../spending/spending-checker.js";
 import type { Scope } from "../types/index.js";
 import type { ActionLogger } from "../logger/action-logger.js";
 import {
   parseJsonRpcLine,
   extractToolCallParams,
   buildBlockedResponse,
+  buildSpendingBlockedResponse,
   extractServiceFromToolName,
   extractActionFromToolName,
 } from "./interceptor.js";
@@ -36,7 +39,7 @@ import {
 } from "./consent.js";
 import type { ProxyLogger } from "./logger.js";
 
-const SCOPE_REFRESH_INTERVAL_MS = 60_000;
+const DEFAULT_SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
 export interface ProxyServerConfig {
   readonly command: string;
@@ -45,6 +48,8 @@ export interface ProxyServerConfig {
   readonly agentName: string;
   readonly baseUrl: string;
   readonly logger: ProxyLogger;
+  readonly spendingLimits?: SpendingLimits;
+  readonly scopeRefreshIntervalMs?: number;
 }
 
 export interface ProxyServer {
@@ -55,6 +60,7 @@ export interface ProxyServer {
 export function createProxyServer(config: ProxyServerConfig): ProxyServer {
   let child: ChildProcess | null = null;
   let actionLogger: ActionLogger | null = null;
+  let spendingChecker: SpendingChecker | null = null;
   let grantedScopes: readonly Scope[] = [];
   let agentId = "";
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -66,11 +72,11 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     if (agentId.length === 0) return;
     try {
       const scopes = await fetchGrantedScopes(agentId, config.apiKey, config.baseUrl);
+      grantedScopes = scopes;
       if (scopes.length > 0) {
-        grantedScopes = scopes;
         await saveCachedScopes(config.agentName, agentId, scopes);
-        config.logger.debug("Scopes refreshed.", { count: scopes.length });
       }
+      config.logger.debug("Scopes refreshed.", { count: scopes.length });
     } catch (error) {
       config.logger.warn("Scope refresh failed.", {
         error: error instanceof Error ? error.message : String(error),
@@ -134,6 +140,30 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
 
       const blocked = buildBlockedResponse(request.id, service, "execute");
       return JSON.stringify(blocked);
+    }
+
+    if (spendingChecker !== null) {
+      const costCents = extractCostCents(toolParams.arguments);
+      if (costCents > 0) {
+        const spendResult = spendingChecker.checkSpend(costCents);
+        if (!spendResult.allowed) {
+          if (actionLogger !== null) {
+            await actionLogger.logAction({
+              agent: config.agentName,
+              service,
+              actionType: action,
+              status: "blocked",
+            });
+          }
+
+          const blocked = buildSpendingBlockedResponse(
+            request.id,
+            spendResult.reason ?? "spending limit exceeded",
+          );
+          return JSON.stringify(blocked);
+        }
+        spendingChecker.recordSpend(costCents);
+      }
     }
 
     if (actionLogger !== null) {
@@ -225,6 +255,10 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
       },
     });
 
+    if (config.spendingLimits !== undefined) {
+      spendingChecker = createSpendingChecker({ limits: config.spendingLimits });
+    }
+
     child = spawn(config.command, config.commandArgs as string[], {
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -263,9 +297,10 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
       void stop();
     });
 
+    const refreshIntervalMs = config.scopeRefreshIntervalMs ?? DEFAULT_SCOPE_REFRESH_INTERVAL_MS;
     refreshTimer = setInterval(() => {
       void refreshScopes();
-    }, SCOPE_REFRESH_INTERVAL_MS);
+    }, refreshIntervalMs);
 
     const timer = refreshTimer as unknown as { unref?: () => void };
     if (typeof timer.unref === "function") {
@@ -282,4 +317,15 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
   }
 
   return { start, stop };
+}
+
+/**
+ * Extract a cost in integer cents from tool call arguments.
+ * Looks for an `amount` field (dollars) and converts to cents.
+ * Returns 0 when no recognisable cost is present.
+ */
+function extractCostCents(args: Record<string, unknown>): number {
+  const amount = args["amount"];
+  if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) return 0;
+  return dollarsToCents(amount);
 }

@@ -31,6 +31,7 @@ export interface RecordedRequest {
 export interface MockMulticornService {
   readonly baseUrl: string;
   readonly requests: RecordedRequest[];
+  setScopes(scopes: readonly Scope[]): void;
   stop(): Promise<void>;
 }
 
@@ -128,9 +129,8 @@ export async function startMockMulticornService(
   config?: MockServiceConfig,
 ): Promise<MockMulticornService> {
   const agents = [...(config?.agents ?? DEFAULT_AGENTS)];
-  const scopes = config?.scopes ?? DEFAULT_SCOPES;
+  let activeScopes: readonly Scope[] = config?.scopes ?? DEFAULT_SCOPES;
   const requests: RecordedRequest[] = [];
-  const permissions = scopesToPermissions(scopes);
 
   const server: Server = createServer();
 
@@ -170,13 +170,13 @@ export async function startMockMulticornService(
 
     const scopeAgentId = matchAgentScopesPath(path);
     if (scopeAgentId !== null && method === "GET") {
-      json(res, 200, { success: true, data: { permissions } });
+      json(res, 200, { success: true, data: { permissions: scopesToPermissions(activeScopes) } });
       return;
     }
 
     const detailAgentId = matchAgentDetailPath(path);
     if (detailAgentId !== null && method === "GET") {
-      json(res, 200, { success: true, data: { permissions } });
+      json(res, 200, { success: true, data: { permissions: scopesToPermissions(activeScopes) } });
       return;
     }
 
@@ -214,7 +214,11 @@ export async function startMockMulticornService(
         });
       }
 
-      resolve({ baseUrl, requests, stop });
+      function setScopes(scopes: readonly Scope[]): void {
+        activeScopes = scopes;
+      }
+
+      resolve({ baseUrl, requests, setScopes, stop });
     });
   });
 }
