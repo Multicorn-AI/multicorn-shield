@@ -14,6 +14,42 @@ AI agents are getting access to your email, calendar, bank accounts, and code re
 
 ## Quick Start
 
+### Option 1: Wrap your existing agents (no code changes)
+
+Already using an MCP server with Claude Code, OpenClaw, or another agent? Add Shield as a proxy in front of it. No code changes required — the proxy intercepts every tool call, enforces permissions, and logs activity to your dashboard.
+
+**Step 1: Install**
+
+```bash
+npm install -g multicorn-shield
+```
+
+**Step 2: Set up your API key**
+
+```bash
+npx multicorn-proxy init
+```
+
+**Step 3: Wrap your MCP server**
+
+```bash
+npx multicorn-proxy --wrap <your-mcp-server>
+```
+
+For example, to wrap the MCP filesystem server:
+
+```bash
+npx multicorn-proxy --wrap npx @modelcontextprotocol/server-filesystem /tmp
+```
+
+That's it. Every tool call now goes through Shield's permission layer, and activity appears in your [Multicorn dashboard](https://app.multicorn.ai) in real time.
+
+See the [full MCP proxy guide](https://multicorn.ai/docs/mcp-proxy) for Claude Code, OpenClaw, and generic MCP client examples.
+
+### Option 2: Integrate the SDK
+
+For full control over consent screens, spending limits, and action logging, use the SDK directly in your application code.
+
 ```bash
 npm install multicorn-shield
 ```
@@ -225,6 +261,8 @@ The hosted API handles persistence, policy enforcement, and the audit trail. The
 | `extractAction`           | `(toolName: string) => string` | Split on first `_` | Custom function to derive the action type from a tool name.                 |
 
 ## Framework Examples
+
+> **Using MCP?** If your agent connects to tools via an MCP server, you may not need any of these. See [Option 1](#option-1-wrap-your-existing-agents-no-code-changes) to add Shield with zero code changes.
 
 ### React
 
