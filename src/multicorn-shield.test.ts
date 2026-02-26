@@ -481,7 +481,12 @@ describe("MulticornShield.logAction", () => {
       expect(mockFetch).toHaveBeenCalled();
     });
 
-    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    // Find the /actions call (grantGmailAccess POSTs to /consent first)
+    const actionsCall = mockFetch.mock.calls.find((call) =>
+      (call[0] as string).includes("/actions"),
+    );
+    expect(actionsCall).toBeDefined();
+    const [url, init] = actionsCall as [string, RequestInit];
     expect(url).toContain("/actions");
     const body = JSON.parse(init.body as string) as { actionType: string };
     expect(body.actionType).toBe("read_message");
@@ -503,7 +508,12 @@ describe("MulticornShield.logAction", () => {
       expect(mockFetch).toHaveBeenCalled();
     });
 
-    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    // Find the /actions call (grantGmailAccess POSTs to /consent first)
+    const actionsCall = mockFetch.mock.calls.find((call) =>
+      (call[0] as string).includes("/actions"),
+    );
+    expect(actionsCall).toBeDefined();
+    const [, init] = actionsCall as [string, RequestInit];
     const body = JSON.parse(init.body as string) as { cost: number; metadata: unknown };
     expect(body.cost).toBe(0.002);
     expect(body.metadata).toEqual({ recipient: "user@example.com" });
