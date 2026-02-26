@@ -65,7 +65,6 @@
     "@vitest/coverage-istanbul": "^3.0.5",
     "eslint": "^9.19.0",
     "eslint-config-prettier": "^10.0.1",
-    "eslint-plugin-multicorn-ui": "file:../eslint-plugin-multicorn-ui",
     "eslint-plugin-unicorn": "^57.0.0",
     "globals": "^15.14.0",
     "husky": "^9.1.7",
@@ -114,7 +113,8 @@
   "homepage": "https://multicorn.ai",
   "pnpm": {
     "overrides": {
-      "minimatch": ">=10.2.1"
+      "minimatch": ">=10.2.1",
+      "rollup": ">=4.59.0"
     }
   }
 }
