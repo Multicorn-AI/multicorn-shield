@@ -71,6 +71,21 @@ import type {
 const API_KEY_PREFIX = "mcs_";
 
 /**
+ * Convert a Scope object to a scope string format expected by the backend.
+ * @example { service: "gmail", permissionLevel: "read" } → "gmail:read"
+ */
+function formatScope(scope: Scope): string {
+  return `${scope.service}:${scope.permissionLevel}`;
+}
+
+/**
+ * Convert an array of Scope objects to scope strings.
+ */
+function formatScopes(scopes: readonly Scope[]): readonly string[] {
+  return scopes.map(formatScope);
+}
+
+/**
  * Minimum total length for a valid API key (prefix + key material).
  * Ensures keys have sufficient entropy beyond the `mcs_` prefix.
  */
@@ -236,6 +251,7 @@ export class MulticornShield {
   // Private class fields for true runtime privacy.
   // #apiKey is unreachable outside this class at the JS level — not just compile time.
   readonly #apiKey: string;
+  readonly #baseUrl: string;
   readonly #logger: ActionLogger;
   readonly #grantedScopes = new Map<string, Scope[]>();
   readonly #spendingCheckers = new Map<string, SpendingChecker>();
@@ -258,6 +274,7 @@ export class MulticornShield {
 
     // Held in a private field — unreachable outside this class instance.
     this.#apiKey = config.apiKey;
+    this.#baseUrl = config.baseUrl ?? "https://api.multicorn.ai";
 
     this.#logger = createActionLogger({
       apiKey: this.#apiKey,
@@ -333,6 +350,24 @@ export class MulticornShield {
         if (detail.spendLimit > 0) {
           this.#setupSpendingChecker(options.agent, detail.spendLimit);
         }
+
+        // POST granted scopes to backend (fire-and-forget)
+        void this.#postConsentToBackend(
+          options.agent,
+          detail.grantedScopes,
+          [],
+          detail.spendLimit,
+          detail.timestamp,
+        ).catch((error: unknown) => {
+          // Log error but don't block the consent resolution
+          // The user has already granted consent, so we resolve the promise
+          // even if the backend call fails (fire-and-forget pattern)
+          console.warn(
+            "[MulticornShield] Failed to store consent to backend:",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+
         cleanup();
         resolve({
           scopeRequest,
@@ -347,6 +382,22 @@ export class MulticornShield {
         if (detail.spendLimit > 0) {
           this.#setupSpendingChecker(options.agent, detail.spendLimit);
         }
+
+        // POST granted and denied scopes to backend (fire-and-forget)
+        void this.#postConsentToBackend(
+          options.agent,
+          detail.grantedScopes,
+          detail.deniedScopes,
+          detail.spendLimit,
+          detail.timestamp,
+        ).catch((error: unknown) => {
+          // Log error but don't block the consent resolution
+          console.warn(
+            "[MulticornShield] Failed to store consent to backend:",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+
         cleanup();
         resolve({
           scopeRequest,
@@ -418,6 +469,75 @@ export class MulticornShield {
     };
 
     await this.#logger.logAction(payload);
+  }
+
+  /**
+   * POST granted scopes to the backend consent endpoint.
+   * @private
+   */
+  async #postConsentToBackend(
+    agentName: string,
+    grantedScopes: readonly Scope[],
+    deniedScopes: readonly Scope[],
+    spendLimit: number,
+    timestamp: string,
+  ): Promise<void> {
+    this.#assertNotDestroyed();
+
+    // Only POST if there are granted scopes (backend requires at least one)
+    if (grantedScopes.length === 0) {
+      return;
+    }
+
+    const endpoint = `${this.#baseUrl}/api/v1/consent`;
+    const grantedScopeStrings = formatScopes(grantedScopes);
+    const deniedScopeStrings = formatScopes(deniedScopes);
+
+    // Convert spend limit from dollars to cents (backend expects cents)
+    // Backend accepts null for spendLimit, so send null if 0
+    const spendLimitCents = spendLimit > 0 ? Math.round(spendLimit * 100) : null;
+
+    // Backend expects snake_case field names due to SNAKE_CASE Jackson strategy
+    // agent maps to agentName via @JsonProperty("agent")
+    const payload = {
+      agent: agentName,
+      granted_scopes: grantedScopeStrings,
+      denied_scopes: deniedScopeStrings,
+      spend_limit: spendLimitCents,
+      timestamp: timestamp,
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 10000); // 10 second timeout
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Multicorn-Key": this.#apiKey,
+        },
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        throw new Error(
+          `Failed to store consent: ${String(response.status)} ${response.statusText}. ${errorText}`,
+        );
+      }
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("Consent POST request timed out");
+      }
+      throw error;
+    }
   }
 
   /**
