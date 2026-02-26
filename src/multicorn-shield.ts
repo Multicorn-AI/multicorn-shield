@@ -450,6 +450,17 @@ export class MulticornShield {
     const granted = this.#grantedScopes.get(action.agent) ?? [];
     const hasPermissionForService = granted.some((s) => s.service === action.service);
 
+    const payload: ActionPayload = {
+      agent: action.agent,
+      service: action.service,
+      actionType: action.action,
+      status: hasPermissionForService ? action.status : "blocked",
+      ...(action.cost !== undefined ? { cost: action.cost } : {}),
+      ...(action.metadata !== undefined ? { metadata: action.metadata } : {}),
+    };
+
+    await this.#logger.logAction(payload);
+
     if (!hasPermissionForService) {
       const grantedServiceList = [...new Set(granted.map((s) => s.service))].join(", ") || "none";
       throw new Error(
@@ -458,17 +469,6 @@ export class MulticornShield {
           "Call requestConsent() to grant access.",
       );
     }
-
-    const payload: ActionPayload = {
-      agent: action.agent,
-      service: action.service,
-      actionType: action.action,
-      status: action.status,
-      ...(action.cost !== undefined ? { cost: action.cost } : {}),
-      ...(action.metadata !== undefined ? { metadata: action.metadata } : {}),
-    };
-
-    await this.#logger.logAction(payload);
   }
 
   /**
