@@ -681,7 +681,7 @@ describe("MulticornConsent", () => {
       (denyButton as HTMLElement).click();
       await el.updateComplete;
 
-      // Modal should now be closed — card should be gone
+      // Modal should now be closed. Card should be gone.
       expect(shadowRoot.querySelector(".card")).toBeFalsy();
     });
   });
@@ -841,7 +841,7 @@ describe("MulticornConsent", () => {
         (levelButtons[0] as HTMLElement).click();
         await el.updateComplete;
 
-        // Now emit partial — should have one fewer granted
+        // Now emit partial. Should have one fewer granted.
         const handler = vi.fn();
         el.addEventListener("consent-partial", handler);
 
@@ -1141,7 +1141,7 @@ describe("MulticornConsent", () => {
       (authorizeButton as HTMLElement).click();
       await el.updateComplete;
 
-      // Modal should now be closed — card should be gone
+      // Modal should now be closed. Card should be gone.
       expect(shadowRoot.querySelector(".card")).toBeFalsy();
     });
   });

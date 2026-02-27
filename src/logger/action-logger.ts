@@ -64,7 +64,7 @@ export interface ActionLoggerConfig {
 
   /**
    * Optional error handler for logging failures.
-   * Called asynchronously — does not block the main action flow.
+   * Called asynchronously. Does not block the main action flow.
    */
   readonly onError?: (error: Error) => void;
 }

@@ -257,7 +257,7 @@ describe("createFocusTrap", () => {
       // Focus the middle button
       (buttons[1] as HTMLElement).focus();
 
-      // Simulate Tab — should NOT wrap (middle element, not last)
+      // Simulate Tab. Should NOT wrap (middle element, not last).
       const tabEvent = new KeyboardEvent("keydown", {
         key: "Tab",
         bubbles: true,

@@ -3,7 +3,7 @@
  *
  * Given a set of granted scopes and a requested action, determines whether
  * the action is permitted. Returns a structured result with a human-readable
- * reason when access is denied — no silent failures, no implicit grants.
+ * reason when access is denied. No silent failures, no implicit grants.
  *
  * **Design principle (Jordan persona):** Every permission must be explicitly
  * granted. `read` does **not** imply `write`; `write` does **not** imply
@@ -128,7 +128,7 @@ export function validateScopeAccess(
  *
  * @param grantedScopes - The scopes the agent has been granted.
  * @param requestedScopes - All scopes required by the action.
- * @returns A {@link ValidationResult} — allowed only if **every** scope matches.
+ * @returns A {@link ValidationResult}: allowed only if **every** scope matches.
  *
  * @example
  * ```ts

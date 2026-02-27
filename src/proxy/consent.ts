@@ -100,7 +100,7 @@ export async function saveCachedScopes(
     const parsed: unknown = JSON.parse(raw);
     if (isScopesCacheFile(parsed)) existing = parsed;
   } catch {
-    // File missing or corrupt — start fresh
+    // File missing or corrupt. Start fresh.
   }
 
   const updated: ScopesCacheFile = {
@@ -264,20 +264,20 @@ export async function resolveAgentRecord(
   baseUrl: string,
   logger: ProxyLogger,
 ): Promise<AgentRecord> {
-  // Always try the cache first — it works offline.
+  // Always try the cache first. It works offline.
   const cachedScopes = await loadCachedScopes(agentName);
   if (cachedScopes !== null && cachedScopes.length > 0) {
     logger.debug("Loaded scopes from cache.", { agent: agentName, count: cachedScopes.length });
-    // Use a placeholder id — it will be overwritten once the service is reachable.
+    // Use a placeholder id. It will be overwritten once the service is reachable.
     return { id: "", name: agentName, scopes: cachedScopes };
   }
 
   let agent = await findAgentByName(agentName, apiKey, baseUrl);
 
   if (agent === null) {
-    // Service may be unreachable — attempt registration, fall back to offline mode.
+    // Service may be unreachable. Attempt registration, fall back to offline mode.
     try {
-      logger.info("Agent not found — registering.", { agent: agentName });
+      logger.info("Agent not found. Registering.", { agent: agentName });
       const id = await registerAgent(agentName, apiKey, baseUrl);
       agent = { id, name: agentName, scopes: [] };
       logger.info("Agent registered.", { agent: agentName, id });
@@ -286,7 +286,7 @@ export async function resolveAgentRecord(
       logger.warn("Could not reach Multicorn service. Running with empty permissions.", {
         error: detail,
       });
-      // id: "" signals offline mode — consent flow and action logging are skipped.
+      // id: "" signals offline mode. Consent flow and action logging are skipped.
       return { id: "", name: agentName, scopes: [] };
     }
   }

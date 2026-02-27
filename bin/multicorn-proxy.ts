@@ -92,7 +92,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
 function printHelp(): void {
   process.stderr.write(
     [
-      "multicorn-proxy — MCP permission proxy",
+      "multicorn-proxy: MCP permission proxy",
       "",
       "Usage:",
       "  npx multicorn-proxy init",

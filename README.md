@@ -10,13 +10,13 @@ The permissions and control layer for AI agents. Open source.
 
 ## Why?
 
-AI agents are getting access to your email, calendar, bank accounts, and code repositories. Today, most agents operate with no permission boundaries — they can read, write, and spend with no oversight. Multicorn Shield gives developers a single SDK to enforce what agents can do, track what they did, and let users stay in control.
+AI agents are getting access to your email, calendar, bank accounts, and code repositories. Today, most agents operate with no permission boundaries: they can read, write, and spend with no oversight. Multicorn Shield gives developers a single SDK to enforce what agents can do, track what they did, and let users stay in control.
 
 ## Quick Start
 
 ### Option 1: Wrap your existing agents (no code changes)
 
-Already using an MCP server with Claude Code, OpenClaw, or another agent? Add Shield as a proxy in front of it. No code changes required — the proxy intercepts every tool call, enforces permissions, and logs activity to your dashboard.
+Already using an MCP server with Claude Code, OpenClaw, or another agent? Add Shield as a proxy in front of it. No code changes required: the proxy intercepts every tool call, enforces permissions, and logs activity to your dashboard.
 
 **Step 1: Install**
 
@@ -89,7 +89,7 @@ const decision = await shield.requestConsent({
   agentColor: "#8b5cf6",
 });
 
-// decision.grantedScopes — what the user actually approved
+// decision.grantedScopes - what the user actually approved
 ```
 
 ### Scopes
@@ -173,7 +173,7 @@ Full API documentation is generated from source with TypeDoc:
 pnpm run docs
 ```
 
-This outputs to `docs/api/`. You can also browse the inline JSDoc on every public export — all interfaces, functions, and types are documented with examples.
+This outputs to `docs/api/`. You can also browse the inline JSDoc on every public export. All interfaces, functions, and types are documented with examples.
 
 ## Architecture
 
@@ -213,13 +213,13 @@ Multicorn Shield is the client-side SDK in the Multicorn ecosystem. It runs in t
 
 The SDK handles:
 
-- **Consent** — renders a Shadow DOM web component for permission approval
-- **Scope validation** — parses and validates `"permission:service"` scope strings locally
-- **Action logging** — sends structured events to the hosted API over HTTPS
-- **Spending checks** — client-side pre-validation (server is the source of truth)
-- **MCP adapter** — middleware layer between AI agents and MCP tool servers
+- **Consent**: renders a Shadow DOM web component for permission approval
+- **Scope validation**: parses and validates `"permission:service"` scope strings locally
+- **Action logging**: sends structured events to the hosted API over HTTPS
+- **Spending checks**: client-side pre-validation (server is the source of truth)
+- **MCP adapter**: middleware layer between AI agents and MCP tool servers
 
-The hosted API handles persistence, policy enforcement, and the audit trail. The SDK never stores credentials locally — API keys are held in memory only.
+The hosted API handles persistence, policy enforcement, and the audit trail. The SDK never stores credentials locally. API keys are held in memory only.
 
 ## Configuration
 
@@ -227,16 +227,16 @@ The hosted API handles persistence, policy enforcement, and the audit trail. The
 
 | Option      | Type              | Default                      | Description                                                                                                        |
 | ----------- | ----------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `apiKey`    | `string`          | —                            | **Required.** Your Multicorn API key. Must start with `mcs_` and be at least 16 characters. Stored in memory only. |
+| `apiKey`    | `string`          | -                            | **Required.** Your Multicorn API key. Must start with `mcs_` and be at least 16 characters. Stored in memory only. |
 | `baseUrl`   | `string`          | `"https://api.multicorn.ai"` | Base URL for the Multicorn API.                                                                                    |
 | `timeout`   | `number`          | `5000`                       | Request timeout in milliseconds.                                                                                   |
-| `batchMode` | `BatchModeConfig` | —                            | Optional batch mode for action logging. When enabled, actions are queued and flushed periodically.                 |
+| `batchMode` | `BatchModeConfig` | -                            | Optional batch mode for action logging. When enabled, actions are queued and flushed periodically.                 |
 
 ### `BatchModeConfig`
 
 | Option            | Type      | Default | Description                               |
 | ----------------- | --------- | ------- | ----------------------------------------- |
-| `enabled`         | `boolean` | —       | Whether batch mode is active.             |
+| `enabled`         | `boolean` | -       | Whether batch mode is active.             |
 | `maxSize`         | `number`  | `10`    | Maximum actions to queue before flushing. |
 | `flushIntervalMs` | `number`  | `5000`  | Maximum time (ms) between flushes.        |
 
@@ -244,8 +244,8 @@ The hosted API handles persistence, policy enforcement, and the audit trail. The
 
 | Option       | Type       | Default     | Description                                                                     |
 | ------------ | ---------- | ----------- | ------------------------------------------------------------------------------- |
-| `agent`      | `string`   | —           | **Required.** Name of the agent requesting access. Shown on the consent screen. |
-| `scopes`     | `string[]` | —           | **Required.** Permission scopes to request. Format: `"permission:service"`.     |
+| `agent`      | `string`   | -           | **Required.** Name of the agent requesting access. Shown on the consent screen. |
+| `scopes`     | `string[]` | -           | **Required.** Permission scopes to request. Format: `"permission:service"`.     |
 | `spendLimit` | `number`   | `0`         | Maximum spend per transaction in dollars. `0` disables spending controls.       |
 | `agentColor` | `string`   | `"#8b5cf6"` | Hex colour for the agent icon on the consent screen.                            |
 
@@ -253,9 +253,9 @@ The hosted API handles persistence, policy enforcement, and the audit trail. The
 
 | Option                    | Type                           | Default            | Description                                                                 |
 | ------------------------- | ------------------------------ | ------------------ | --------------------------------------------------------------------------- |
-| `agentId`                 | `string`                       | —                  | **Required.** Agent identifier for audit logging.                           |
-| `grantedScopes`           | `Scope[]`                      | —                  | **Required.** Scopes granted via the consent screen.                        |
-| `logger`                  | `ActionLogger`                 | —                  | Optional logger instance. When omitted, actions are checked but not logged. |
+| `agentId`                 | `string`                       | -                  | **Required.** Agent identifier for audit logging.                           |
+| `grantedScopes`           | `Scope[]`                      | -                  | **Required.** Scopes granted via the consent screen.                        |
+| `logger`                  | `ActionLogger`                 | -                  | Optional logger instance. When omitted, actions are checked but not logged. |
 | `requiredPermissionLevel` | `PermissionLevel`              | `"execute"`        | Permission level required for MCP tool calls.                               |
 | `extractService`          | `(toolName: string) => string` | Split on first `_` | Custom function to derive the service name from a tool name.                |
 | `extractAction`           | `(toolName: string) => string` | Split on first `_` | Custom function to derive the action type from a tool name.                 |
@@ -407,7 +407,7 @@ pnpm build
 multicorn-shield/
 ├── src/
 │   ├── index.ts              # Package entry point (public API barrel)
-│   ├── multicorn-shield.ts   # Main SDK class — orchestrates all modules
+│   ├── multicorn-shield.ts   # Main SDK class that orchestrates all modules
 │   ├── consent/              # Consent screen web component (Lit + Shadow DOM)
 │   │   ├── multicorn-consent.ts   # <multicorn-consent> custom element
 │   │   ├── consent-events.ts      # Custom event types and dispatchers
