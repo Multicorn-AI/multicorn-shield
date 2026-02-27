@@ -24,6 +24,8 @@ describe("scope-labels", () => {
       expect(getServiceDisplayName("payments")).toBe("Payments");
       expect(getServiceDisplayName("github")).toBe("GitHub");
       expect(getServiceDisplayName("jira")).toBe("Jira");
+      expect(getServiceDisplayName("web")).toBe("Web");
+      expect(getServiceDisplayName("public_content")).toBe("Public Content");
     });
 
     it("capitalizes unknown service names", () => {
@@ -45,6 +47,8 @@ describe("scope-labels", () => {
       expect(getServiceIcon("payments")).toBe("💳");
       expect(getServiceIcon("github")).toBe("🐙");
       expect(getServiceIcon("jira")).toBe("🎯");
+      expect(getServiceIcon("web")).toBe("🌐");
+      expect(getServiceIcon("public_content")).toBe("📢");
     });
 
     it("returns default icon for unknown services", () => {
@@ -58,6 +62,8 @@ describe("scope-labels", () => {
       expect(getPermissionLabel(PERMISSION_LEVELS.Read)).toBe("Read");
       expect(getPermissionLabel(PERMISSION_LEVELS.Write)).toBe("Create and modify");
       expect(getPermissionLabel(PERMISSION_LEVELS.Execute)).toBe("Execute actions");
+      expect(getPermissionLabel(PERMISSION_LEVELS.Publish)).toBe("Publish");
+      expect(getPermissionLabel(PERMISSION_LEVELS.Create)).toBe("Create");
     });
   });
 
@@ -86,6 +92,32 @@ describe("scope-labels", () => {
       );
     });
 
+    it("returns special description for publish:web scope", () => {
+      expect(getScopeLabel({ service: "web", permissionLevel: PERMISSION_LEVELS.Publish })).toBe(
+        "Publish content to the open internet",
+      );
+    });
+
+    it("returns generic publish description for non-web services", () => {
+      expect(getScopeLabel({ service: "blog", permissionLevel: PERMISSION_LEVELS.Publish })).toBe(
+        "Publish Blog content",
+      );
+    });
+
+    it("returns special description for create:public_content scope", () => {
+      // Note: getScopeLabel uses getServiceDisplayName which capitalizes "public_content" to "Public Content"
+      // but the special case check uses the raw service name, so it still works
+      expect(
+        getScopeLabel({ service: "public_content", permissionLevel: PERMISSION_LEVELS.Create }),
+      ).toBe("Create content that is immediately public");
+    });
+
+    it("returns generic create description for non-public_content services", () => {
+      expect(getScopeLabel({ service: "blog", permissionLevel: PERMISSION_LEVELS.Create })).toBe(
+        "Create Blog",
+      );
+    });
+
     it("handles unknown services with fallback capitalization", () => {
       expect(
         getScopeLabel({ service: "custom-api", permissionLevel: PERMISSION_LEVELS.Read }),
@@ -110,6 +142,21 @@ describe("scope-labels", () => {
       expect(
         getScopeShortLabel({ service: "github", permissionLevel: PERMISSION_LEVELS.Execute }),
       ).toBe("GitHub: Execute actions");
+    });
+
+    it("returns short label for publish permission", () => {
+      expect(
+        getScopeShortLabel({ service: "web", permissionLevel: PERMISSION_LEVELS.Publish }),
+      ).toBe("Web: Publish");
+    });
+
+    it("returns short label for create permission", () => {
+      expect(
+        getScopeShortLabel({
+          service: "public_content",
+          permissionLevel: PERMISSION_LEVELS.Create,
+        }),
+      ).toBe("Public Content: Create");
     });
 
     it("returns short label for unknown service", () => {

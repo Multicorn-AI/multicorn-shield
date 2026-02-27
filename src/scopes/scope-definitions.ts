@@ -2,8 +2,8 @@
  * Scope definitions for built-in and custom service integrations.
  *
  * Provides a type-safe registry of service definitions that describe which
- * permission levels (read / write / execute) each service supports. Built-in
- * services are pre-defined; developers can register custom services at runtime.
+ * permission levels (read / write / execute / publish / create) each service supports.
+ * Built-in services are pre-defined; developers can register custom services at runtime.
  *
  * @module scopes/scope-definitions
  */
@@ -91,6 +91,16 @@ export const BUILT_IN_SERVICES = {
     name: "jira",
     description: "Jira: issue tracking, sprint management, and reporting",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write],
+  },
+  web: {
+    name: "web",
+    description: "Web publishing: content accessible on the open internet",
+    capabilities: [PERMISSION_LEVELS.Publish],
+  },
+  public_content: {
+    name: "public_content",
+    description: "Public content creation: blog posts, social media, public repositories",
+    capabilities: [PERMISSION_LEVELS.Create],
   },
 } as const satisfies Record<string, ServiceDefinition>;
 

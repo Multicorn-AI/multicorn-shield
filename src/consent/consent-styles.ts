@@ -174,6 +174,31 @@ export const consentStyles: CSSResult = css`
     margin: 2px 0 0 0;
   }
 
+  /* High-risk warning callout */
+  .high-risk-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 14px 24px;
+    margin: 0;
+    background: var(--shield-amber-dim);
+    border-top: 1px solid var(--shield-border);
+    border-bottom: 1px solid var(--shield-border);
+  }
+
+  .warning-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .warning-text {
+    font-size: 12.5px;
+    color: var(--shield-text);
+    line-height: 1.5;
+    margin: 0;
+  }
+
   /* Permissions section */
   .permissions {
     padding: 8px 24px 0;
