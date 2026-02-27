@@ -15,7 +15,7 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { createProxyServer, type ProxyServer } from "../index.js";
 import { createLogger } from "../logger.js";
 import { loadConfig, validateApiKey, runInit } from "../config.js";
-import { resolveAgentRecord, waitForConsent } from "../consent.js";
+import { resolveAgentRecord, waitForConsent, deriveDashboardUrl } from "../consent.js";
 import { startMockMcpServer } from "../__fixtures__/mockMcpServer.js";
 import {
   startMockMulticornService,
@@ -152,6 +152,7 @@ describe("graceful shutdown", () => {
       apiKey: "test-key",
       agentName: "test-agent",
       baseUrl,
+      dashboardUrl: deriveDashboardUrl(baseUrl),
       logger: createLogger("error"),
       ...(options.scopeRefreshIntervalMs !== undefined && {
         scopeRefreshIntervalMs: options.scopeRefreshIntervalMs,
@@ -565,7 +566,7 @@ describe("consent edge cases", () => {
               success: true,
               data: {
                 permissions: [
-                  { service: "gmail", read: true, write: false, execute: true, revokedAt: null },
+                  { service: "gmail", read: true, write: false, execute: true, revoked_at: null },
                 ],
               },
             }),
@@ -578,6 +579,7 @@ describe("consent edge cases", () => {
         "test-agent",
         "mcs_key",
         "https://api.multicorn.ai",
+        "https://app.multicorn.ai",
         logger,
       );
 
@@ -637,6 +639,7 @@ describe("service unavailable", () => {
       apiKey: "test-key",
       agentName: "test-agent",
       baseUrl: options.baseUrl,
+      dashboardUrl: deriveDashboardUrl(options.baseUrl),
       logger: createLogger("warn"),
       ...(options.scopeRefreshIntervalMs !== undefined && {
         scopeRefreshIntervalMs: options.scopeRefreshIntervalMs,

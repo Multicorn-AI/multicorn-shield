@@ -48,12 +48,14 @@ export type PermissionLevel = (typeof PERMISSION_LEVELS)[keyof typeof PERMISSION
  * - `blocked` — action was denied by policy
  * - `pending` — action is awaiting human approval
  * - `flagged` — action was executed but flagged for review
+ * - `requires_approval` — action requires content review before execution
  */
 export const ACTION_STATUSES = {
   Approved: "approved",
   Blocked: "blocked",
   Pending: "pending",
   Flagged: "flagged",
+  RequiresApproval: "requires_approval",
 } as const;
 
 export type ActionStatus = (typeof ACTION_STATUSES)[keyof typeof ACTION_STATUSES];
