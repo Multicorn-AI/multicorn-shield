@@ -14,9 +14,9 @@
 /**
  * Possible operational states for an agent.
  *
- * - `active` — agent is running and permitted to take actions
- * - `paused` — agent is temporarily suspended by the user
- * - `revoked` — agent's permissions have been permanently revoked
+ * - `active`: agent is running and permitted to take actions
+ * - `paused`: agent is temporarily suspended by the user
+ * - `revoked`: agent's permissions have been permanently revoked
  */
 export const AGENT_STATUSES = {
   Active: "active",
@@ -29,9 +29,9 @@ export type AgentStatus = (typeof AGENT_STATUSES)[keyof typeof AGENT_STATUSES];
 /**
  * Permission levels that can be granted on a service scope.
  *
- * - `read` — observe data without modification
- * - `write` — create or modify data
- * - `execute` — trigger side-effects (e.g. send an email, make a payment)
+ * - `read`: observe data without modification
+ * - `write`: create or modify data
+ * - `execute`: trigger side-effects (e.g. send an email, make a payment)
  */
 export const PERMISSION_LEVELS = {
   Read: "read",
@@ -44,11 +44,11 @@ export type PermissionLevel = (typeof PERMISSION_LEVELS)[keyof typeof PERMISSION
 /**
  * Lifecycle states for an action processed by the policy engine.
  *
- * - `approved` — action passed policy checks and was executed
- * - `blocked` — action was denied by policy
- * - `pending` — action is awaiting human approval
- * - `flagged` — action was executed but flagged for review
- * - `requires_approval` — action requires content review before execution
+ * - `approved`: action passed policy checks and was executed
+ * - `blocked`: action was denied by policy
+ * - `pending`: action is awaiting human approval
+ * - `flagged`: action was executed but flagged for review
+ * - `requires_approval`: action requires content review before execution
  */
 export const ACTION_STATUSES = {
   Approved: "approved",

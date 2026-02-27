@@ -21,7 +21,7 @@ export default tseslint.config(
       unicorn,
     },
     rules: {
-      /* No any — enforced at lint level as well as tsconfig */
+      /* No any. Enforced at lint level as well as tsconfig */
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unsafe-assignment": "error",
       "@typescript-eslint/no-unsafe-call": "error",

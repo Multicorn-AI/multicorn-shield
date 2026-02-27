@@ -24,7 +24,7 @@ We considered several business models:
 The SDK (`multicorn-shield`) is fully open-source (MIT license). The backend service (`multicorn-service`) is proprietary and hosted. Revenue comes from:
 
 - Hosted platform subscriptions (usage-based pricing)
-- Enterprise features (SSO, advanced audit logs, custom integrations)
+- Enterprise features (SSO, audit logs with retention policies and compliance exports, custom integrations)
 - Support and SLA guarantees
 
 The SDK can be configured to point to any backend that implements the Multicorn API, but the default configuration points to our hosted service.

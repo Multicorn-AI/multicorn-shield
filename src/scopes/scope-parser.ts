@@ -3,7 +3,7 @@
  *
  * Parses human-readable scope strings (e.g. `"read:gmail"`) into structured
  * {@link Scope} objects and formats them back. Validates format, permission
- * level, and service name — rejecting malformed input with clear, actionable
+ * level, and service name, rejecting malformed input with clear, actionable
  * error messages.
  *
  * @module scopes/scope-parser
@@ -249,7 +249,7 @@ export function parseScopes(inputs: readonly string[]): readonly Scope[] {
  * whether parsing succeeded and access either the `scope` or the `error`.
  *
  * @param input - The scope string to parse.
- * @returns A {@link ScopeParseResult} — either `{ success: true, scope }` or `{ success: false, error }`.
+ * @returns A {@link ScopeParseResult}: either `{ success: true, scope }` or `{ success: false, error }`.
  *
  * @example
  * ```ts

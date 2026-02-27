@@ -899,7 +899,7 @@ describe("createActionLogger", () => {
       });
       fetchMock.mockNetworkError("Network failure");
 
-      // Should not throw — fire-and-forget
+      // Should not throw. Fire-and-forget.
       await logger.logAction({
         agent: "agent-1",
         service: "gmail",
@@ -979,7 +979,7 @@ describe("createActionLogger", () => {
       });
       fetchMock.mockNetworkError("Network failure");
 
-      // Should not throw — the internal .catch() safety net catches it
+      // Should not throw. The internal .catch() safety net catches it.
       await logger.logAction({
         agent: "agent-1",
         service: "gmail",
@@ -989,7 +989,7 @@ describe("createActionLogger", () => {
 
       await sleep(400);
 
-      // No crash — fire-and-forget design holds
+      // No crash. Fire-and-forget design holds.
       expect(fetchMock.calls.length).toBeGreaterThanOrEqual(1);
 
       await logger.shutdown();
@@ -1021,7 +1021,7 @@ describe("createActionLogger", () => {
 
       await sleep(400);
 
-      // No crash — the catch handler in logAction absorbed it
+      // No crash. The catch handler in logAction absorbed it.
       expect(fetchMock.calls.length).toBeGreaterThanOrEqual(1);
 
       await logger.shutdown();
@@ -1047,7 +1047,7 @@ describe("createActionLogger", () => {
       // Wait for the interval to fire (100ms + retry backoff + overhead)
       await sleep(600);
 
-      // No crash — the catch handler in setInterval absorbed it
+      // No crash. The catch handler in setInterval absorbed it.
       expect(fetchMock.calls.length).toBeGreaterThanOrEqual(1);
 
       await logger.shutdown();

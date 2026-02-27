@@ -1,7 +1,7 @@
 /**
  * Structured JSON logger for the MCP proxy.
  *
- * Writes to stderr only — stdout is reserved for the MCP JSON-RPC transport.
+ * Writes to stderr only. Stdout is reserved for the MCP JSON-RPC transport.
  * Log output is newline-delimited JSON so it can be parsed by log aggregators.
  *
  * @module proxy/logger

@@ -18,4 +18,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MCP protocol adapter for Model Context Protocol integration
 - TypeScript strict mode with full type safety across all modules
 - ESM and CJS dual-format builds via tsup
-- Comprehensive test suite with >85% coverage thresholds
+- Full test suite with >85% coverage thresholds
