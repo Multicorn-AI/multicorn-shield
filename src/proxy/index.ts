@@ -47,6 +47,7 @@ export interface ProxyServerConfig {
   readonly apiKey: string;
   readonly agentName: string;
   readonly baseUrl: string;
+  readonly dashboardUrl: string;
   readonly logger: ProxyLogger;
   readonly spendingLimits?: SpendingLimits;
   readonly scopeRefreshIntervalMs?: number;
@@ -97,6 +98,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         config.agentName,
         config.apiKey,
         config.baseUrl,
+        config.dashboardUrl,
         config.logger,
       );
       grantedScopes = scopes;
@@ -138,7 +140,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         });
       }
 
-      const blocked = buildBlockedResponse(request.id, service, "execute");
+      const blocked = buildBlockedResponse(request.id, service, "execute", config.dashboardUrl);
       return JSON.stringify(blocked);
     }
 
@@ -159,6 +161,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
           const blocked = buildSpendingBlockedResponse(
             request.id,
             spendResult.reason ?? "spending limit exceeded",
+            config.dashboardUrl,
           );
           return JSON.stringify(blocked);
         }

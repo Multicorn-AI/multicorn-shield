@@ -68,11 +68,12 @@ export function buildBlockedResponse(
   id: string | number | null,
   service: string,
   permissionLevel: string,
+  dashboardUrl = "https://app.multicorn.ai",
 ): JsonRpcResponse {
   const displayService = capitalize(service);
   const message =
     `Action blocked by Multicorn Shield: agent does not have ${permissionLevel} access to ` +
-    `${displayService}. Configure permissions at https://app.multicorn.ai`;
+    `${displayService}. Configure permissions at ${dashboardUrl}`;
 
   return {
     jsonrpc: "2.0",
@@ -87,10 +88,10 @@ export function buildBlockedResponse(
 export function buildSpendingBlockedResponse(
   id: string | number | null,
   reason: string,
+  dashboardUrl = "https://app.multicorn.ai",
 ): JsonRpcResponse {
   const message =
-    `Action blocked by Multicorn Shield: ${reason}. ` +
-    `Review spending limits at https://app.multicorn.ai`;
+    `Action blocked by Multicorn Shield: ${reason}. ` + `Review spending limits at ${dashboardUrl}`;
 
   return {
     jsonrpc: "2.0",

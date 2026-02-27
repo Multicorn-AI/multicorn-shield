@@ -24,6 +24,42 @@ const SCOPES_PATH = join(MULTICORN_DIR, "scopes.json");
 const CONSENT_POLL_INTERVAL_MS = 3000;
 const CONSENT_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
+/**
+ * Derives the dashboard URL from the API base URL.
+ * - http://localhost:8080 -> http://localhost:5173
+ * - https://api.multicorn.ai -> https://app.multicorn.ai
+ * - Other URLs: replace "api" with "app" in the hostname, or use default
+ */
+export function deriveDashboardUrl(baseUrl: string): string {
+  try {
+    const url = new URL(baseUrl);
+
+    // Local development: API on 8080, dashboard on 5173
+    if (url.hostname === "localhost" && url.port === "8080") {
+      url.port = "5173";
+      return url.toString();
+    }
+
+    // Production: api.multicorn.ai -> app.multicorn.ai
+    if (url.hostname === "api.multicorn.ai") {
+      url.hostname = "app.multicorn.ai";
+      return url.toString();
+    }
+
+    // Try replacing "api" with "app" in hostname
+    if (url.hostname.includes("api")) {
+      url.hostname = url.hostname.replace("api", "app");
+      return url.toString();
+    }
+
+    // Fallback: default production dashboard
+    return "https://app.multicorn.ai";
+  } catch {
+    // If baseUrl is invalid, fall back to production dashboard
+    return "https://app.multicorn.ai";
+  }
+}
+
 export interface AgentRecord {
   readonly id: string;
   readonly name: string;
@@ -169,7 +205,7 @@ export async function fetchGrantedScopes(
   const scopes: Scope[] = [];
   for (const perm of agentDetail.permissions) {
     if (!isPermissionShape(perm)) continue;
-    if (perm.revokedAt !== null) continue;
+    if (perm.revoked_at !== null) continue;
     if (perm.read) scopes.push({ service: perm.service, permissionLevel: "read" });
     if (perm.write) scopes.push({ service: perm.service, permissionLevel: "write" });
     if (perm.execute) scopes.push({ service: perm.service, permissionLevel: "execute" });
@@ -190,10 +226,11 @@ export async function waitForConsent(
   agentName: string,
   apiKey: string,
   baseUrl: string,
+  dashboardUrl: string,
   logger: ProxyLogger,
 ): Promise<readonly Scope[]> {
   const detectedScopes = detectScopeHints();
-  const consentUrl = buildConsentUrl(agentName, detectedScopes);
+  const consentUrl = buildConsentUrl(agentName, detectedScopes, dashboardUrl);
 
   logger.info("Opening consent page in your browser.", { url: consentUrl });
   process.stderr.write(
@@ -217,7 +254,7 @@ export async function waitForConsent(
 
   throw new Error(
     `Consent not granted within ${String(CONSENT_POLL_TIMEOUT_MS / 60_000)} minutes. ` +
-      `Grant access at https://app.multicorn.ai and restart the proxy.`,
+      `Grant access at ${dashboardUrl} and restart the proxy.`,
   );
 }
 
@@ -262,12 +299,16 @@ export async function resolveAgentRecord(
   return { ...agent, scopes };
 }
 
-function buildConsentUrl(agentName: string, scopes: readonly string[]): string {
+function buildConsentUrl(
+  agentName: string,
+  scopes: readonly string[],
+  dashboardUrl: string,
+): string {
   const params = new URLSearchParams({ agent: agentName });
   if (scopes.length > 0) {
     params.set("scopes", scopes.join(","));
   }
-  return `https://app.multicorn.ai/consent?${params.toString()}`;
+  return `${dashboardUrl}/consent?${params.toString()}`;
 }
 
 function detectScopeHints(): readonly string[] {
@@ -297,7 +338,9 @@ interface PermissionShape {
   readonly read: boolean;
   readonly write: boolean;
   readonly execute: boolean;
-  readonly revokedAt: string | null;
+  readonly revoked_at: string | null;
+  readonly granted_at?: string;
+  readonly agent_id?: string;
 }
 
 interface AgentDetailShape {
@@ -330,7 +373,7 @@ function isPermissionShape(value: unknown): value is PermissionShape {
     typeof obj["read"] === "boolean" &&
     typeof obj["write"] === "boolean" &&
     typeof obj["execute"] === "boolean" &&
-    (obj["revokedAt"] === null || typeof obj["revokedAt"] === "string")
+    (obj["revoked_at"] === null || typeof obj["revoked_at"] === "string")
   );
 }
 
