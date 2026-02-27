@@ -100,11 +100,13 @@ describe("scope-labels", () => {
 
     it("returns generic publish description for non-web services", () => {
       expect(getScopeLabel({ service: "blog", permissionLevel: PERMISSION_LEVELS.Publish })).toBe(
-        "Publish blog content",
+        "Publish Blog content",
       );
     });
 
     it("returns special description for create:public_content scope", () => {
+      // Note: getScopeLabel uses getServiceDisplayName which capitalizes "public_content" to "Public Content"
+      // but the special case check uses the raw service name, so it still works
       expect(
         getScopeLabel({ service: "public_content", permissionLevel: PERMISSION_LEVELS.Create }),
       ).toBe("Create content that is immediately public");
@@ -112,7 +114,7 @@ describe("scope-labels", () => {
 
     it("returns generic create description for non-public_content services", () => {
       expect(getScopeLabel({ service: "blog", permissionLevel: PERMISSION_LEVELS.Create })).toBe(
-        "Create blog",
+        "Create Blog",
       );
     });
 

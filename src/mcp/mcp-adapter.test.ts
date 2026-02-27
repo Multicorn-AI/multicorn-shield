@@ -526,6 +526,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -540,6 +541,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -554,6 +556,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -568,6 +571,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -613,6 +617,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -627,6 +632,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -641,6 +647,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -669,6 +676,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -683,6 +691,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -714,6 +723,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -728,6 +738,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
@@ -742,6 +753,7 @@ describe("createMcpAdapter", () => {
         const adapter = createMcpAdapter({
           agentId: "agent",
           grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
         });
 
         const result = await adapter.intercept(
