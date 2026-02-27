@@ -229,7 +229,7 @@ describe("proxy happy path", () => {
     expect(payload).toBeDefined();
     expect(payload?.["agent"]).toBe("test-agent");
     expect(payload?.["service"]).toBe("gmail");
-    expect(payload?.["actionType"]).toBe("send_email");
+    expect(payload?.["action_type"]).toBe("send_email");
     expect(payload?.["status"]).toBe("approved");
   });
 
