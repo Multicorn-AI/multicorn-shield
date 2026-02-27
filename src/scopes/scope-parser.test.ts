@@ -9,7 +9,7 @@ import {
 } from "./scope-parser.js";
 
 // ---------------------------------------------------------------------------
-// parseScope — valid inputs
+// parseScope: valid inputs
 // ---------------------------------------------------------------------------
 
 describe("parseScope", () => {
@@ -69,7 +69,7 @@ describe("parseScope", () => {
   });
 
   // ---------------------------------------------------------------------------
-  // parseScope — invalid inputs
+  // parseScope: invalid inputs
   // ---------------------------------------------------------------------------
 
   describe("invalid scope strings", () => {

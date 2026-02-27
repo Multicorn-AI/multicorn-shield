@@ -2,9 +2,9 @@
  * Edge case integration tests for the MCP proxy.
  *
  * Verifies:
- * 1. Graceful shutdown — SIGTERM kills child, pending action logs flushed
- * 2. Config file parsing — valid loads, missing prompts init, invalid key clear error
- * 3. Service unavailable — proxy handles network errors gracefully
+ * 1. Graceful shutdown: SIGTERM kills child, pending action logs flushed
+ * 2. Config file parsing: valid loads, missing prompts init, invalid key clear error
+ * 3. Service unavailable: proxy handles network errors gracefully
  *
  * @vitest-environment node
  * @module proxy/__tests__/proxy.edge-cases.test
@@ -37,15 +37,15 @@ vi.mock("node:fs/promises", () => {
 });
 
 /**
- * Readline mock — passes through to the real implementation by default.
+ * Readline mock passes through to the real implementation by default.
  * When `rlQuestionMock` has an implementation set, createInterface returns
- * a controlled stub instead — used exclusively by the runInit tests.
+ * a controlled stub instead, used exclusively by the runInit tests.
  */
 const rlQuestionMock = vi.hoisted(() => vi.fn());
 const rlCloseMock = vi.hoisted(() => vi.fn());
 
 /**
- * Child process spawn mock — passes through to the real spawn by default.
+ * Child process spawn mock passes through to the real spawn by default.
  * When `spawnMock` has an implementation set, the mock is used instead.
  * This lets integration tests use real child processes while unit tests
  * for openBrowser/waitForConsent can stub spawn.

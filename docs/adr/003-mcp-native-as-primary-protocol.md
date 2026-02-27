@@ -41,5 +41,5 @@ The consent screen, permission scopes, and action logging all use MCP terminolog
 **Future considerations:**
 
 - Monitor MCP spec evolution and participate in standardization discussions
-- Build robust adapters for non-MCP protocols to capture early adopters
+- Build adapters for non-MCP protocols with explicit error handling and protocol-specific translation logic to capture early adopters
 - If MCP fragments or fails to gain adoption, we can pivot while maintaining our permission model (the core value is in the consent and control, not the protocol)
