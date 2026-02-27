@@ -188,7 +188,7 @@ function doParse(input: string): ScopeParseResult {
  * Parse a scope string into a structured {@link Scope} object.
  *
  * Scope strings use the format `"permission:service"` where:
- * - **permission** is one of `read`, `write`, or `execute`
+ * - **permission** is one of `read`, `write`, `execute`, `publish`, or `create`
  * - **service** is a lowercase identifier (letters, digits, hyphens, underscores)
  *
  * @param input - The scope string to parse (e.g. `"read:gmail"`).

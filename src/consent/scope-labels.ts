@@ -23,6 +23,8 @@ const SERVICE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   payments: "Payments",
   github: "GitHub",
   jira: "Jira",
+  web: "Web",
+  public_content: "Public Content",
 } as const;
 
 /**
@@ -38,6 +40,8 @@ const SERVICE_ICONS: Readonly<Record<string, string>> = {
   payments: "💳",
   github: "🐙",
   jira: "🎯",
+  web: "🌐",
+  public_content: "📢",
 } as const;
 
 /**
@@ -49,6 +53,8 @@ const PERMISSION_DESCRIPTIONS: Readonly<Record<PermissionLevel, string>> = {
   [PERMISSION_LEVELS.Read]: "Read",
   [PERMISSION_LEVELS.Write]: "Create and modify",
   [PERMISSION_LEVELS.Execute]: "Execute actions",
+  [PERMISSION_LEVELS.Publish]: "Publish",
+  [PERMISSION_LEVELS.Create]: "Create",
 } as const;
 
 /**
@@ -67,6 +73,18 @@ const PERMISSION_FULL_DESCRIPTIONS: Readonly<
       return "Make purchases on your behalf";
     }
     return `Execute actions in ${serviceName}`;
+  },
+  [PERMISSION_LEVELS.Publish]: (serviceName: string) => {
+    if (serviceName.toLowerCase() === "web") {
+      return "Publish content to the open internet";
+    }
+    return `Publish ${serviceName} content`;
+  },
+  [PERMISSION_LEVELS.Create]: (serviceName: string) => {
+    if (serviceName.toLowerCase() === "public_content") {
+      return "Create content that is immediately public";
+    }
+    return `Create ${serviceName}`;
   },
 } as const;
 
@@ -105,7 +123,7 @@ export function getServiceIcon(serviceName: string): string {
 /**
  * Get a human-readable label for a permission level.
  *
- * @param permissionLevel - The permission level (read, write, or execute).
+ * @param permissionLevel - The permission level (read, write, execute, publish, or create).
  * @returns A short label (e.g., `"Read"`, `"Create and modify"`).
  *
  * @example
