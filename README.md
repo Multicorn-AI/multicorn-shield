@@ -75,6 +75,14 @@ await shield.logAction({
 
 That gives you a consent screen, scoped permissions, and an audit trail.
 
+## Built with Shield
+
+Multicorn is developed using AI coding agents. Primarily Cursor for code generation and GitHub Actions as the deployment agent. Every one of those agents runs under Shield.
+
+We're not just building a trust layer for AI agents. We're depending on it ourselves. If Shield fails to catch something in our own workflow, we feel it directly.
+
+[Read how we use agents to build Multicorn →](https://multicorn.ai/blog/agents)
+
 ## Features
 
 ### Consent Screens
