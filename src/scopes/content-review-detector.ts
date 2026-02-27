@@ -18,20 +18,19 @@ import type { Scope } from "../types/index.js";
  *
  * @example
  * ```ts
- * requiresContentReview({ service: "publish", permissionLevel: "execute" }); // true
+ * requiresContentReview({ service: "web", permissionLevel: "publish" }); // true
+ * requiresContentReview({ service: "public_content", permissionLevel: "create" }); // true
  * requiresContentReview({ service: "gmail", permissionLevel: "execute" }); // false
  * ```
  */
 export function requiresContentReview(scope: Scope): boolean {
   // Check for publish:web scope
-  if (scope.service === "publish" && scope.permissionLevel === "execute") {
+  if (scope.service === "web" && scope.permissionLevel === "publish") {
     return true;
   }
 
   // Check for create:public_content scope
-  // This is typically represented as service "create" with execute permission
-  // and the action type would indicate public_content
-  if (scope.service === "create" && scope.permissionLevel === "execute") {
+  if (scope.service === "public_content" && scope.permissionLevel === "create") {
     return true;
   }
 
@@ -42,7 +41,7 @@ export function requiresContentReview(scope: Scope): boolean {
  * Check if a tool name/action indicates public content creation.
  *
  * This is a helper for cases where the service might not be explicitly
- * "publish" or "create" but the action name indicates public content.
+ * "web" or "public_content" but the action name indicates public content.
  *
  * @param toolName - The tool name to check
  * @param service - The service name
@@ -52,8 +51,8 @@ export function isPublicContentAction(toolName: string, service: string): boolea
   const lowerToolName = toolName.toLowerCase();
   const lowerService = service.toLowerCase();
 
-  // Explicit publish:web service
-  if (lowerService === "publish") {
+  // Explicit publish:web or create:public_content services
+  if (lowerService === "web" || lowerService === "public_content") {
     return true;
   }
 

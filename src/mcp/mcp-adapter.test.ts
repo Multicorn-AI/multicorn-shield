@@ -8,6 +8,7 @@ import {
 } from "./mcp-adapter.js";
 import type { ActionLogger } from "../logger/action-logger.js";
 import type { Scope } from "../types/index.js";
+import { PERMISSION_LEVELS } from "../types/index.js";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -34,9 +35,14 @@ function makeHandler(result: McpToolResult = { content: "success" }): McpToolHan
   return vi.fn().mockResolvedValue(result);
 }
 
-const GMAIL_EXECUTE: Scope = { service: "gmail", permissionLevel: "execute" };
-const GMAIL_READ: Scope = { service: "gmail", permissionLevel: "read" };
-const CALENDAR_READ: Scope = { service: "calendar", permissionLevel: "read" };
+const GMAIL_EXECUTE: Scope = { service: "gmail", permissionLevel: PERMISSION_LEVELS.Execute };
+const GMAIL_READ: Scope = { service: "gmail", permissionLevel: PERMISSION_LEVELS.Read };
+const CALENDAR_READ: Scope = { service: "calendar", permissionLevel: PERMISSION_LEVELS.Read };
+const WEB_PUBLISH: Scope = { service: "web", permissionLevel: PERMISSION_LEVELS.Publish };
+const PUBLIC_CONTENT_CREATE: Scope = {
+  service: "public_content",
+  permissionLevel: PERMISSION_LEVELS.Create,
+};
 
 const GMAIL_SEND_CALL: McpToolCall = {
   toolName: "gmail_send_email",
@@ -507,6 +513,289 @@ describe("createMcpAdapter", () => {
       await adapter.intercept({ toolName: "test_action", arguments: {} }, handler);
 
       expect(handler).toHaveBeenCalledWith({ toolName: "test_action", arguments: {} });
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Publishing platform mapping
+  // -------------------------------------------------------------------------
+
+  describe("publishing platform mapping", () => {
+    describe("publish:web mapping", () => {
+      it("maps deploy actions to publish:web scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "github_deploy", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("maps publish actions to publish:web scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "blog_publish", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("maps release actions to publish:web scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "app_release", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("maps GitHub Pages deployments to publish:web scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "github_pages_deploy", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("blocks deploy actions when publish:web is not granted", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [],
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "github_deploy", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(true);
+      });
+
+      it("logs deploy actions with mapped web service", async () => {
+        const { logger, logActionSpy } = makeLogger();
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [WEB_PUBLISH],
+          logger,
+        });
+
+        await adapter.intercept({ toolName: "github_deploy", arguments: {} }, makeHandler());
+
+        expect(logActionSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ service: "web", actionType: "deploy" }),
+        );
+      });
+    });
+
+    describe("create:public_content mapping", () => {
+      it("maps post actions to create:public_content scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "twitter_post", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("maps tweet actions to create:public_content scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "twitter_tweet", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("maps commit actions to create:public_content scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "github_commit", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("blocks post actions when create:public_content is not granted", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [],
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "twitter_post", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(true);
+      });
+
+      it("maps social media services to create:public_content scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "twitter_update_status", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("maps Facebook actions to create:public_content scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "facebook_post", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("logs post actions with mapped public_content service", async () => {
+        const { logger, logActionSpy } = makeLogger();
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          logger,
+        });
+
+        await adapter.intercept({ toolName: "twitter_post", arguments: {} }, makeHandler());
+
+        expect(logActionSpy).toHaveBeenCalledWith(
+          expect.objectContaining({ service: "public_content", actionType: "post" }),
+        );
+      });
+    });
+
+    describe("blog/CMS service mapping", () => {
+      it("maps WordPress publish actions to publish:web scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [WEB_PUBLISH],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "wordpress_publish", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("maps WordPress post actions to create:public_content scope", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "wordpress_post", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+
+      it("defaults blog post actions to create:public_content when not a publish action", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [PUBLIC_CONTENT_CREATE],
+          checkAutoApprove: () => true, // Auto-approve to bypass content review
+        });
+
+        const result = await adapter.intercept(
+          { toolName: "medium_create_article", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(false);
+      });
+    });
+
+    describe("backward compatibility", () => {
+      it("does not map non-publishing actions to publish:web", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [{ service: "github", permissionLevel: "write" }],
+        });
+
+        // Regular GitHub write action should not be mapped
+        const result = await adapter.intercept(
+          { toolName: "github_create_issue", arguments: {} },
+          makeHandler(),
+        );
+
+        // Should be blocked because we only have write:github, not execute
+        expect(isBlockedResult(result)).toBe(true);
+      });
+
+      it("requires explicit publish:web for GitHub Pages deployments", async () => {
+        const adapter = createMcpAdapter({
+          agentId: "agent",
+          grantedScopes: [{ service: "github", permissionLevel: "write" }],
+        });
+
+        // GitHub Pages deploy should require publish:web, not just write:github
+        const result = await adapter.intercept(
+          { toolName: "github_pages_deploy", arguments: {} },
+          makeHandler(),
+        );
+
+        expect(isBlockedResult(result)).toBe(true);
+      });
     });
   });
 

@@ -352,6 +352,86 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
   const permissionLevel: PermissionLevel =
     config.requiredPermissionLevel ?? PERMISSION_LEVELS.Execute;
 
+  /**
+   * Map publishing platform services to publish:web or create:public_content scopes.
+   *
+   * Scope distinction rules:
+   * - publish:web = making existing content publicly accessible (deploying, publishing, making a draft live)
+   *   Examples: GitHub Pages deploy, WordPress publish, making a private repo public, deploying to production
+   * - create:public_content = creating new content that is immediately public (sending a tweet, pushing a public commit, posting to a forum)
+   *   Examples: Twitter/X post, LinkedIn post, public GitHub commit, forum post, blog post creation that's immediately public
+   *
+   * If ambiguous, err toward the higher-risk classification (typically create:public_content).
+   *
+   * NOTE: This mapping may block existing agents with write:github but not publish:web - this is intentional.
+   * The new scope model requires explicit consent for public-facing actions.
+   */
+  function mapPublishingService(
+    service: string,
+    toolName: string,
+  ): {
+    mappedService: string;
+    mappedPermissionLevel: PermissionLevel;
+  } {
+    const lowerService = service.toLowerCase();
+    const lowerToolName = toolName.toLowerCase();
+
+    // Publishing/deployment actions (publish:web)
+    const publishActions = [
+      "deploy",
+      "publish",
+      "release",
+      "go_live",
+      "make_public",
+      "pages_deploy",
+      "github_pages",
+    ];
+    if (publishActions.some((action) => lowerToolName.includes(action))) {
+      return { mappedService: "web", mappedPermissionLevel: PERMISSION_LEVELS.Publish };
+    }
+
+    // Public content creation actions (create:public_content)
+    const createActions = [
+      "post",
+      "tweet",
+      "status",
+      "update",
+      "share",
+      "comment",
+      "reply",
+      "commit", // Public commits are immediately visible
+    ];
+    if (createActions.some((action) => lowerToolName.includes(action))) {
+      return { mappedService: "public_content", mappedPermissionLevel: PERMISSION_LEVELS.Create };
+    }
+
+    // Service-based mapping
+    // GitHub Pages deployments
+    if (lowerService === "github" && lowerToolName.includes("pages")) {
+      return { mappedService: "web", mappedPermissionLevel: PERMISSION_LEVELS.Publish };
+    }
+
+    // Social media services (typically create:public_content)
+    const socialMediaServices = ["twitter", "x", "facebook", "linkedin", "instagram"];
+    if (socialMediaServices.includes(lowerService)) {
+      return { mappedService: "public_content", mappedPermissionLevel: PERMISSION_LEVELS.Create };
+    }
+
+    // Blog/CMS services - check action type
+    const blogServices = ["wordpress", "medium", "blogger", "ghost"];
+    if (blogServices.includes(lowerService)) {
+      // If it's a publish action, use publish:web; otherwise create:public_content
+      if (publishActions.some((action) => lowerToolName.includes(action))) {
+        return { mappedService: "web", mappedPermissionLevel: PERMISSION_LEVELS.Publish };
+      }
+      // Default to create:public_content for blog posts (err on side of caution)
+      return { mappedService: "public_content", mappedPermissionLevel: PERMISSION_LEVELS.Create };
+    }
+
+    // Default: return original service and permission level
+    return { mappedService: service, mappedPermissionLevel: permissionLevel };
+  }
+
   function deriveService(toolName: string): string {
     if (config.extractService !== undefined) {
       return config.extractService(toolName);
@@ -433,29 +513,40 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
 
   return {
     async intercept(toolCall: McpToolCall, handler: McpToolHandler): Promise<McpAdapterResult> {
-      const service = deriveService(toolCall.toolName);
+      const derivedService = deriveService(toolCall.toolName);
       const action = deriveAction(toolCall.toolName);
-      const requestedScope: Scope = { service, permissionLevel };
+
+      // Map publishing platform services to publish:web or create:public_content
+      const { mappedService, mappedPermissionLevel } = mapPublishingService(
+        derivedService,
+        toolCall.toolName,
+      );
+
+      const requestedScope: Scope = {
+        service: mappedService,
+        permissionLevel: mappedPermissionLevel,
+      };
 
       const validation = validateScopeAccess(config.grantedScopes, requestedScope);
 
       if (!validation.allowed) {
-        await recordAction(service, action, ACTION_STATUSES.Blocked);
+        await recordAction(mappedService, action, ACTION_STATUSES.Blocked);
 
         return {
           blocked: true,
           reason:
             validation.reason ??
-            `Action blocked: "${config.agentId}" does not have "${permissionLevel}" permission for "${service}".`,
+            `Action blocked: "${config.agentId}" does not have "${mappedPermissionLevel}" permission for "${mappedService}".`,
           toolName: toolCall.toolName,
-          service,
+          service: mappedService,
           action,
         };
       }
 
       // Check if this is a public content action that requires review
       const needsReview =
-        requiresContentReview(requestedScope) || isPublicContentAction(toolCall.toolName, service);
+        requiresContentReview(requestedScope) ||
+        isPublicContentAction(toolCall.toolName, mappedService);
 
       if (needsReview) {
         // Check if agent has auto-approval enabled
@@ -475,7 +566,7 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
           if (config.logger) {
             await config.logger.logAction({
               agent: config.agentId,
-              service,
+              service: mappedService,
               actionType: action,
               status: ACTION_STATUSES.RequiresApproval,
               metadata,
@@ -488,14 +579,14 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
               `Action requires content review before execution. ` +
               `The action has been queued for review. Check your dashboard to approve or block it.`,
             toolName: toolCall.toolName,
-            service,
+            service: mappedService,
             action,
           };
         }
         // If auto-approve is enabled, continue to normal execution
       }
 
-      await recordAction(service, action, ACTION_STATUSES.Approved);
+      await recordAction(mappedService, action, ACTION_STATUSES.Approved);
       return handler(toolCall);
     },
   };
