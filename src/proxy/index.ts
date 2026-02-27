@@ -266,7 +266,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     actionLogger = createActionLogger({
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
-      batchMode: { enabled: true, maxSize: 20, flushIntervalMs: 5000 },
+      batchMode: { enabled: false },
       onError: (err) => {
         config.logger.warn("Action log failed.", { error: err.message });
       },
