@@ -16,6 +16,7 @@ import { PassThrough } from "node:stream";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createProxyServer, type ProxyServer } from "../index.js";
 import { createLogger } from "../logger.js";
+import { deriveDashboardUrl } from "../consent.js";
 import { startMockMcpServer } from "../__fixtures__/mockMcpServer.js";
 import {
   startMockMulticornService,
@@ -112,6 +113,7 @@ describe("proxy blocking", () => {
       apiKey: "test-key",
       agentName: "test-agent",
       baseUrl,
+      dashboardUrl: deriveDashboardUrl(baseUrl),
       logger: createLogger("error"),
       ...(options.spendingLimits !== undefined && { spendingLimits: options.spendingLimits }),
       ...(options.scopeRefreshIntervalMs !== undefined && {

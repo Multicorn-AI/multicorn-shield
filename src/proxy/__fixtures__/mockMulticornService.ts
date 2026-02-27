@@ -95,7 +95,7 @@ function scopesToPermissions(scopes: readonly Scope[]): readonly Record<string, 
       read: levels.read,
       write: levels.write,
       execute: levels.execute,
-      revokedAt: null,
+      revoked_at: null,
     });
   }
 

@@ -16,6 +16,7 @@ import { PassThrough } from "node:stream";
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { createProxyServer, type ProxyServer } from "../index.js";
 import { createLogger } from "../logger.js";
+import { deriveDashboardUrl } from "../consent.js";
 import { startMockMcpServer } from "../__fixtures__/mockMcpServer.js";
 import {
   startMockMulticornService,
@@ -124,6 +125,7 @@ describe("proxy happy path", () => {
       apiKey: "test-key",
       agentName: "test-agent",
       baseUrl,
+      dashboardUrl: deriveDashboardUrl(baseUrl),
       logger: createLogger("error"),
     });
 
@@ -227,7 +229,7 @@ describe("proxy happy path", () => {
     expect(payload).toBeDefined();
     expect(payload?.["agent"]).toBe("test-agent");
     expect(payload?.["service"]).toBe("gmail");
-    expect(payload?.["actionType"]).toBe("send_email");
+    expect(payload?.["action_type"]).toBe("send_email");
     expect(payload?.["status"]).toBe("approved");
   });
 

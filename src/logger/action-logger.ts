@@ -293,7 +293,27 @@ export function createActionLogger(config: ActionLoggerConfig): ActionLogger {
   async function sendActions(actions: readonly ActionPayload[]): Promise<void> {
     if (actions.length === 0) return;
 
-    const payload = batchEnabled ? { actions } : actions[0];
+    // Convert ActionPayload to backend's expected snake_case format
+    const convertAction = (
+      action: ActionPayload,
+    ): {
+      agent: string;
+      service: string;
+      action_type: string;
+      status: ActionStatus;
+      cost?: number;
+      metadata?: Readonly<Record<string, string | number | boolean>>;
+    } => ({
+      agent: action.agent,
+      service: action.service,
+      action_type: action.actionType,
+      status: action.status,
+      ...(action.cost !== undefined ? { cost: action.cost } : {}),
+      ...(action.metadata !== undefined ? { metadata: action.metadata } : {}),
+    });
+
+    const convertedActions = actions.map(convertAction);
+    const payload = batchEnabled ? { actions: convertedActions } : convertedActions[0];
 
     let lastError: Error | undefined;
 
