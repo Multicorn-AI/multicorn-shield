@@ -488,8 +488,8 @@ describe("MulticornShield.logAction", () => {
     expect(actionsCall).toBeDefined();
     const [url, init] = actionsCall as [string, RequestInit];
     expect(url).toContain("/actions");
-    const body = JSON.parse(init.body as string) as { actionType: string };
-    expect(body.actionType).toBe("read_message");
+    const body = JSON.parse(init.body as string) as { action_type: string };
+    expect(body.action_type).toBe("read_message");
   });
 
   it("includes optional cost and metadata in the payload", async () => {
