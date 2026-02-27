@@ -24,6 +24,12 @@ import {
   getServiceDisplayName,
   getServiceIcon,
 } from "./scope-labels.js";
+import { formatScope } from "../scopes/scope-parser.js";
+import {
+  isHighRiskScope,
+  getScopeWarning,
+  requiresExplicitOptIn,
+} from "../scopes/scope-metadata.js";
 import { consentStyles } from "./consent-styles.js";
 import { createFocusTrap, type FocusTrap } from "./focus-trap.js";
 
@@ -217,10 +223,22 @@ export class MulticornConsent extends LitElement {
 
   /**
    * Initialize the granted scopes set with all requested scopes.
+   * High-risk scopes that require explicit opt-in are defaulted to OFF.
    */
   private _initializeGrantedScopes(): void {
     const scopes = Array.isArray(this.scopes) ? this.scopes : [];
-    this._grantedScopes = new Set(scopes.map(scopeKey));
+    const granted = new Set<string>();
+
+    for (const scope of scopes) {
+      const scopeStr = formatScope(scope);
+      // Only include non-high-risk scopes or high-risk scopes that don't require explicit opt-in
+      if (!requiresExplicitOptIn(scopeStr)) {
+        granted.add(scopeKey(scope));
+      }
+      // High-risk scopes that require explicit opt-in are excluded (default OFF)
+    }
+
+    this._grantedScopes = granted;
     this._adjustedSpendLimit = this.spendLimit;
   }
 
@@ -439,6 +457,14 @@ export class MulticornConsent extends LitElement {
     const groupedScopes = groupScopesByService(parsedScopes);
     const isModal = this.mode === "modal" && this._isOpen;
 
+    // Check for high-risk scopes and get warning message
+    const highRiskScopes = parsedScopes.filter((scope) => isHighRiskScope(formatScope(scope)));
+    const firstHighRiskScope = highRiskScopes[0];
+    const warningMessage =
+      firstHighRiskScope !== undefined
+        ? getScopeWarning(formatScope(firstHighRiskScope))
+        : undefined;
+
     const content: HTMLTemplateResult = html`
       <div
         class="card"
@@ -464,6 +490,16 @@ export class MulticornConsent extends LitElement {
             </div>
           </div>
         </div>
+
+        <!-- High-Risk Warning -->
+        ${warningMessage
+          ? (html`
+              <div class="high-risk-warning">
+                <div class="warning-icon">⚠️</div>
+                <div class="warning-text">${warningMessage}</div>
+              </div>
+            ` as HTMLTemplateResult)
+          : (html`` as HTMLTemplateResult)}
 
         <!-- Permissions -->
         <div class="permissions">

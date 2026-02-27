@@ -32,11 +32,15 @@ export type AgentStatus = (typeof AGENT_STATUSES)[keyof typeof AGENT_STATUSES];
  * - `read`: observe data without modification
  * - `write`: create or modify data
  * - `execute`: trigger side-effects (e.g. send an email, make a payment)
+ * - `publish`: make existing content publicly accessible (e.g. deploy, publish, make live)
+ * - `create`: create new content that is immediately public (e.g. tweet, public commit, forum post)
  */
 export const PERMISSION_LEVELS = {
   Read: "read",
   Write: "write",
   Execute: "execute",
+  Publish: "publish",
+  Create: "create",
 } as const;
 
 export type PermissionLevel = (typeof PERMISSION_LEVELS)[keyof typeof PERMISSION_LEVELS];
@@ -132,6 +136,8 @@ export interface Permission {
   readonly read: boolean;
   readonly write: boolean;
   readonly execute: boolean;
+  readonly publish: boolean;
+  readonly create: boolean;
 }
 
 /**
