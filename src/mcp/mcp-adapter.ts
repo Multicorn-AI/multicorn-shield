@@ -52,6 +52,7 @@ import { PERMISSION_LEVELS, ACTION_STATUSES } from "../types/index.js";
 import type { Scope, PermissionLevel, ActionStatus } from "../types/index.js";
 import { validateScopeAccess } from "../scopes/scope-validator.js";
 import type { ActionLogger } from "../logger/action-logger.js";
+import { requiresContentReview, isPublicContentAction } from "../scopes/content-review-detector.js";
 
 // ---------------------------------------------------------------------------
 // MCP tool call types
@@ -224,6 +225,26 @@ export interface McpAdapterConfig {
    * ```
    */
   readonly extractAction?: (toolName: string) => string;
+
+  /**
+   * Optional function to check if an agent has auto-approval enabled for public content.
+   * If provided and returns true, public content actions will bypass the review queue.
+   *
+   * If not provided, public content actions will always require review.
+   */
+  readonly checkAutoApprove?: (agentId: string) => Promise<boolean> | boolean;
+
+  /**
+   * Optional base URL for making API calls to check agent settings.
+   * Used with apiKey to fetch auto-approval status if checkAutoApprove is not provided.
+   */
+  readonly baseUrl?: string;
+
+  /**
+   * Optional API key for making API calls to check agent settings.
+   * Used with baseUrl to fetch auto-approval status if checkAutoApprove is not provided.
+   */
+  readonly apiKey?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -361,6 +382,55 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
     });
   }
 
+  async function checkAutoApproveStatus(): Promise<boolean> {
+    if (config.checkAutoApprove !== undefined) {
+      const result: Promise<boolean> | boolean = config.checkAutoApprove(config.agentId);
+      return result instanceof Promise ? await result : result;
+    }
+
+    // If baseUrl and apiKey are provided, try to fetch agent settings
+    if (config.baseUrl && config.apiKey) {
+      try {
+        const agentId = config.agentId;
+        const endpoint = `${config.baseUrl}/api/v1/agents/${encodeURIComponent(agentId)}`;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+        }, 5000);
+
+        try {
+          const response = await fetch(endpoint, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Multicorn-Key": config.apiKey,
+            },
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+
+          if (response.ok) {
+            const data = (await response.json()) as {
+              data?: { public_content_auto_approve?: boolean };
+            };
+            return data.data?.public_content_auto_approve ?? false;
+          }
+        } catch {
+          clearTimeout(timeoutId);
+          // If fetch fails, default to requiring review
+          return false;
+        }
+      } catch {
+        // If fetch fails, default to requiring review
+        return false;
+      }
+    }
+
+    // Default: require review
+    return false;
+  }
+
   return {
     async intercept(toolCall: McpToolCall, handler: McpToolHandler): Promise<McpAdapterResult> {
       const service = deriveService(toolCall.toolName);
@@ -381,6 +451,48 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
           service,
           action,
         };
+      }
+
+      // Check if this is a public content action that requires review
+      const needsReview =
+        requiresContentReview(requestedScope) || isPublicContentAction(toolCall.toolName, service);
+
+      if (needsReview) {
+        // Check if agent has auto-approval enabled
+        const autoApprove = await checkAutoApproveStatus();
+
+        if (!autoApprove) {
+          // Log action with REQUIRES_APPROVAL status
+          // Include full tool call arguments in metadata for content preview
+          const metadata: Readonly<Record<string, string | number | boolean>> = {
+            toolName: toolCall.toolName,
+            arguments: JSON.stringify(toolCall.arguments),
+            requiresReview: true,
+          };
+
+          // Log action with requires_approval status
+          // The metadata will be stored and used to create the content review
+          if (config.logger) {
+            await config.logger.logAction({
+              agent: config.agentId,
+              service,
+              actionType: action,
+              status: ACTION_STATUSES.RequiresApproval,
+              metadata,
+            });
+          }
+
+          return {
+            blocked: true,
+            reason:
+              `Action requires content review before execution. ` +
+              `The action has been queued for review. Check your dashboard to approve or block it.`,
+            toolName: toolCall.toolName,
+            service,
+            action,
+          };
+        }
+        // If auto-approve is enabled, continue to normal execution
       }
 
       await recordAction(service, action, ACTION_STATUSES.Approved);

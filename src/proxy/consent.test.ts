@@ -34,9 +34,9 @@ const agentDetailResponse = {
     id: "agent-uuid-1",
     name: "my-mcp-server",
     permissions: [
-      { service: "gmail", read: true, write: false, execute: true, revokedAt: null },
-      { service: "calendar", read: true, write: true, execute: false, revokedAt: null },
-      { service: "slack", read: false, write: false, execute: false, revokedAt: "2024-01-01" },
+      { service: "gmail", read: true, write: false, execute: true, revoked_at: null },
+      { service: "calendar", read: true, write: true, execute: false, revoked_at: null },
+      { service: "slack", read: false, write: false, execute: false, revoked_at: "2024-01-01" },
     ],
   },
 };
@@ -238,7 +238,7 @@ describe("fetchGrantedScopes", () => {
                 read: false,
                 write: false,
                 execute: false,
-                revokedAt: null,
+                revoked_at: null,
               },
             ],
           },

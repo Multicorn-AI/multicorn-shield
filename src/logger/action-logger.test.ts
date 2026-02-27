@@ -190,7 +190,12 @@ describe("createActionLogger", () => {
       });
 
       const body: unknown = JSON.parse(options?.body as string);
-      expect(body).toEqual(action);
+      expect(body).toEqual({
+        agent: action.agent,
+        service: action.service,
+        action_type: action.actionType,
+        status: action.status,
+      });
     });
 
     it("sends action with cost and metadata", async () => {
@@ -212,7 +217,14 @@ describe("createActionLogger", () => {
 
       expect(fetchMock.calls).toHaveLength(1);
       const body: unknown = JSON.parse(fetchMock.calls[0]?.options.body as string);
-      expect(body).toEqual(action);
+      expect(body).toEqual({
+        agent: action.agent,
+        service: action.service,
+        action_type: action.actionType,
+        status: action.status,
+        cost: action.cost,
+        metadata: action.metadata,
+      });
     });
 
     it("sends multiple actions independently", async () => {

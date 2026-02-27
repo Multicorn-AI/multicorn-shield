@@ -13,6 +13,7 @@
 import { loadConfig, runInit } from "../src/proxy/config.js";
 import { createProxyServer } from "../src/proxy/index.js";
 import { createLogger, isValidLogLevel, type LogLevel } from "../src/proxy/logger.js";
+import { deriveDashboardUrl } from "../src/proxy/consent.js";
 
 interface CliArgs {
   readonly subcommand: "init" | "wrap" | "help";
@@ -20,6 +21,7 @@ interface CliArgs {
   readonly wrapArgs: readonly string[];
   readonly logLevel: LogLevel;
   readonly baseUrl: string;
+  readonly dashboardUrl: string;
   readonly agentName: string;
 }
 
@@ -31,6 +33,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let wrapArgs: string[] = [];
   let logLevel: LogLevel = "info";
   let baseUrl = "https://api.multicorn.ai";
+  let dashboardUrl = "";
   let agentName = "";
 
   for (let i = 0; i < args.length; i++) {
@@ -63,6 +66,12 @@ function parseArgs(argv: readonly string[]): CliArgs {
         baseUrl = next;
         i++;
       }
+    } else if (arg === "--dashboard-url") {
+      const next = args[i + 1];
+      if (next !== undefined) {
+        dashboardUrl = next;
+        i++;
+      }
     } else if (arg === "--agent-name") {
       const next = args[i + 1];
       if (next !== undefined) {
@@ -72,7 +81,12 @@ function parseArgs(argv: readonly string[]): CliArgs {
     }
   }
 
-  return { subcommand, wrapCommand, wrapArgs, logLevel, baseUrl, agentName };
+  // Derive dashboard URL from baseUrl if not explicitly provided
+  if (dashboardUrl === "") {
+    dashboardUrl = deriveDashboardUrl(baseUrl);
+  }
+
+  return { subcommand, wrapCommand, wrapArgs, logLevel, baseUrl, dashboardUrl, agentName };
 }
 
 function printHelp(): void {
@@ -91,6 +105,7 @@ function printHelp(): void {
       "Options:",
       "  --log-level <level>   Log level: debug | info | warn | error  (default: info)",
       "  --base-url <url>      Multicorn API base URL  (default: https://api.multicorn.ai)",
+      "  --dashboard-url <url> Dashboard URL for consent page  (default: derived from --base-url)",
       "  --agent-name <name>   Override agent name derived from the wrapped command",
       "",
       "Examples:",
@@ -127,12 +142,17 @@ async function main(): Promise<void> {
 
   const agentName = cli.agentName.length > 0 ? cli.agentName : deriveAgentName(cli.wrapCommand);
 
+  const finalBaseUrl = cli.baseUrl !== "https://api.multicorn.ai" ? cli.baseUrl : config.baseUrl;
+  const finalDashboardUrl =
+    cli.dashboardUrl !== "" ? cli.dashboardUrl : deriveDashboardUrl(finalBaseUrl);
+
   const proxy = createProxyServer({
     command: cli.wrapCommand,
     commandArgs: cli.wrapArgs,
     apiKey: config.apiKey,
     agentName,
-    baseUrl: cli.baseUrl !== "https://api.multicorn.ai" ? cli.baseUrl : config.baseUrl,
+    baseUrl: finalBaseUrl,
+    dashboardUrl: finalDashboardUrl,
     logger,
   });
 
