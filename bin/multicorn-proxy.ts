@@ -81,11 +81,6 @@ function parseArgs(argv: readonly string[]): CliArgs {
     }
   }
 
-  // Derive dashboard URL from baseUrl if not explicitly provided
-  if (dashboardUrl === "") {
-    dashboardUrl = deriveDashboardUrl(baseUrl);
-  }
-
   return { subcommand, wrapCommand, wrapArgs, logLevel, baseUrl, dashboardUrl, agentName };
 }
 

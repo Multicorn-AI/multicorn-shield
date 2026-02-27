@@ -38,8 +38,6 @@ vi.mock("node:fs/promises", () => {
   return { default: exports, ...exports };
 });
 
-const DASHBOARD_URL = "https://app.multicorn.ai";
-
 function waitFor(predicate: () => boolean, timeout = 5000, interval = 50): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -252,7 +250,14 @@ describe("proxy blocking", () => {
     const error = response["error"] as Record<string, unknown>;
     expect(error["code"]).toBe(-32001);
     expect(typeof error["message"]).toBe("string");
-    expect(String(error["message"])).toContain(DASHBOARD_URL);
+    const message = String(error["message"]);
+    // Calculate expected URL from mock service base URL
+    const baseUrl = mockService.baseUrl.replace("127.0.0.1", "localhost");
+    const expectedUrl = deriveDashboardUrl(baseUrl);
+    // Normalize URLs (remove trailing slashes) for comparison
+    const normalizedExpected = expectedUrl.replace(/\/$/, "");
+    const normalizedMessage = message.replace(/\/$/, "");
+    expect(normalizedMessage).toContain(normalizedExpected);
   });
 
   it("blocks tool call after scope is revoked mid-session", async () => {
@@ -328,7 +333,13 @@ describe("proxy blocking", () => {
     const line = getStdoutLines()[0] ?? "";
     const response = JSON.parse(line) as Record<string, unknown>;
     const error = response["error"] as Record<string, unknown>;
-
-    expect(String(error["message"])).toContain(DASHBOARD_URL);
+    const message = String(error["message"]);
+    // Calculate expected URL from mock service base URL
+    const baseUrl = mockService.baseUrl.replace("127.0.0.1", "localhost");
+    const expectedUrl = deriveDashboardUrl(baseUrl);
+    // Normalize URLs (remove trailing slashes) for comparison
+    const normalizedExpected = expectedUrl.replace(/\/$/, "");
+    const normalizedMessage = message.replace(/\/$/, "");
+    expect(normalizedMessage).toContain(normalizedExpected);
   });
 });

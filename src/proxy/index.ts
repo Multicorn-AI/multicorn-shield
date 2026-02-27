@@ -132,12 +132,16 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
 
     if (!validation.allowed) {
       if (actionLogger !== null) {
-        await actionLogger.logAction({
-          agent: config.agentName,
-          service,
-          actionType: action,
-          status: "blocked",
-        });
+        if (!config.agentName || config.agentName.trim().length === 0) {
+          process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
+        } else {
+          await actionLogger.logAction({
+            agent: config.agentName,
+            service,
+            actionType: action,
+            status: "blocked",
+          });
+        }
       }
 
       const blocked = buildBlockedResponse(request.id, service, "execute", config.dashboardUrl);
@@ -150,12 +154,18 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         const spendResult = spendingChecker.checkSpend(costCents);
         if (!spendResult.allowed) {
           if (actionLogger !== null) {
-            await actionLogger.logAction({
-              agent: config.agentName,
-              service,
-              actionType: action,
-              status: "blocked",
-            });
+            if (!config.agentName || config.agentName.trim().length === 0) {
+              process.stderr.write(
+                "[multicorn-proxy] Cannot log action: agent name not resolved\n",
+              );
+            } else {
+              await actionLogger.logAction({
+                agent: config.agentName,
+                service,
+                actionType: action,
+                status: "blocked",
+              });
+            }
           }
 
           const blocked = buildSpendingBlockedResponse(
@@ -170,12 +180,16 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     }
 
     if (actionLogger !== null) {
-      await actionLogger.logAction({
-        agent: config.agentName,
-        service,
-        actionType: action,
-        status: "approved",
-      });
+      if (!config.agentName || config.agentName.trim().length === 0) {
+        process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
+      } else {
+        await actionLogger.logAction({
+          agent: config.agentName,
+          service,
+          actionType: action,
+          status: "approved",
+        });
+      }
     }
 
     return null;
@@ -252,7 +266,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     actionLogger = createActionLogger({
       apiKey: config.apiKey,
       baseUrl: config.baseUrl,
-      batchMode: { enabled: true, maxSize: 20, flushIntervalMs: 5000 },
+      batchMode: { enabled: false },
       onError: (err) => {
         config.logger.warn("Action log failed.", { error: err.message });
       },

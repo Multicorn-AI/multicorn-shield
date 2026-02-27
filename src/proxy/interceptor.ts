@@ -68,7 +68,7 @@ export function buildBlockedResponse(
   id: string | number | null,
   service: string,
   permissionLevel: string,
-  dashboardUrl = "https://app.multicorn.ai",
+  dashboardUrl: string,
 ): JsonRpcResponse {
   const displayService = capitalize(service);
   const message =
@@ -88,7 +88,7 @@ export function buildBlockedResponse(
 export function buildSpendingBlockedResponse(
   id: string | number | null,
   reason: string,
-  dashboardUrl = "https://app.multicorn.ai",
+  dashboardUrl: string,
 ): JsonRpcResponse {
   const message =
     `Action blocked by Multicorn Shield: ${reason}. ` + `Review spending limits at ${dashboardUrl}`;
