@@ -6,7 +6,10 @@ import { validateScopeAccess, validateAllScopesAccess, hasScope } from "./scope-
 // Helpers
 // ---------------------------------------------------------------------------
 
-function scope(permissionLevel: "read" | "write" | "execute", service: string): Scope {
+function scope(
+  permissionLevel: "read" | "write" | "execute" | "publish" | "create",
+  service: string,
+): Scope {
   return { service, permissionLevel };
 }
 
@@ -21,6 +24,18 @@ describe("validateScopeAccess", () => {
       const result = validateScopeAccess(granted, scope("read", "gmail"));
       expect(result.allowed).toBe(true);
       expect(result).not.toHaveProperty("reason");
+    });
+
+    it("allows when publish scope is granted", () => {
+      const granted = [scope("publish", "web")];
+      const result = validateScopeAccess(granted, scope("publish", "web"));
+      expect(result.allowed).toBe(true);
+    });
+
+    it("allows when create scope is granted", () => {
+      const granted = [scope("create", "public_content")];
+      const result = validateScopeAccess(granted, scope("create", "public_content"));
+      expect(result.allowed).toBe(true);
     });
 
     it("allows when the scope is one of several granted", () => {
@@ -96,6 +111,22 @@ describe("validateScopeAccess", () => {
       const granted = [scope("execute", "payments")];
       expect(validateScopeAccess(granted, scope("read", "payments")).allowed).toBe(false);
       expect(validateScopeAccess(granted, scope("write", "payments")).allowed).toBe(false);
+    });
+
+    it("publish does NOT imply read, write, execute, or create", () => {
+      const granted = [scope("publish", "web")];
+      expect(validateScopeAccess(granted, scope("read", "web")).allowed).toBe(false);
+      expect(validateScopeAccess(granted, scope("write", "web")).allowed).toBe(false);
+      expect(validateScopeAccess(granted, scope("execute", "web")).allowed).toBe(false);
+      expect(validateScopeAccess(granted, scope("create", "web")).allowed).toBe(false);
+    });
+
+    it("create does NOT imply read, write, execute, or publish", () => {
+      const granted = [scope("create", "public_content")];
+      expect(validateScopeAccess(granted, scope("read", "public_content")).allowed).toBe(false);
+      expect(validateScopeAccess(granted, scope("write", "public_content")).allowed).toBe(false);
+      expect(validateScopeAccess(granted, scope("execute", "public_content")).allowed).toBe(false);
+      expect(validateScopeAccess(granted, scope("publish", "public_content")).allowed).toBe(false);
     });
 
     it("grants on one service do NOT carry over to another", () => {

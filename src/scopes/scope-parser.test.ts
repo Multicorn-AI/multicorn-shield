@@ -38,6 +38,22 @@ describe("parseScope", () => {
       });
     });
 
+    it('parses "publish:web"', () => {
+      const scope = parseScope("publish:web");
+      expect(scope).toEqual({
+        service: "web",
+        permissionLevel: "publish",
+      });
+    });
+
+    it('parses "create:public_content"', () => {
+      const scope = parseScope("create:public_content");
+      expect(scope).toEqual({
+        service: "public_content",
+        permissionLevel: "create",
+      });
+    });
+
     it("parses a custom service name with hyphens", () => {
       const scope = parseScope("read:my-custom-service");
       expect(scope).toEqual({
@@ -178,6 +194,21 @@ describe("parseScopes", () => {
     ]);
   });
 
+  it("parses scopes including publish and create", () => {
+    const scopes = parseScopes([
+      "read:gmail",
+      "publish:web",
+      "create:public_content",
+      "execute:payments",
+    ]);
+    expect(scopes).toEqual([
+      { service: "gmail", permissionLevel: "read" },
+      { service: "web", permissionLevel: "publish" },
+      { service: "public_content", permissionLevel: "create" },
+      { service: "payments", permissionLevel: "execute" },
+    ]);
+  });
+
   it("returns an empty array for empty input", () => {
     const scopes = parseScopes([]);
     expect(scopes).toEqual([]);
@@ -240,6 +271,13 @@ describe("formatScope", () => {
     expect(formatScope(scope)).toBe(original);
   });
 
+  it("formats publish and create scopes", () => {
+    expect(formatScope({ service: "web", permissionLevel: "publish" })).toBe("publish:web");
+    expect(formatScope({ service: "public_content", permissionLevel: "create" })).toBe(
+      "create:public_content",
+    );
+  });
+
   it("formats a custom service scope", () => {
     expect(formatScope({ service: "my-custom", permissionLevel: "write" })).toBe("write:my-custom");
   });
@@ -254,6 +292,8 @@ describe("isValidScopeString", () => {
     expect(isValidScopeString("read:gmail")).toBe(true);
     expect(isValidScopeString("write:calendar")).toBe(true);
     expect(isValidScopeString("execute:payments")).toBe(true);
+    expect(isValidScopeString("publish:web")).toBe(true);
+    expect(isValidScopeString("create:public_content")).toBe(true);
   });
 
   it("returns false for invalid scope strings", () => {
