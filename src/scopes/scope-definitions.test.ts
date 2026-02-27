@@ -16,9 +16,19 @@ describe("BUILT_IN_SERVICES", () => {
   it("contains the expected built-in services", () => {
     const names = Object.keys(BUILT_IN_SERVICES);
     expect(names).toEqual(
-      expect.arrayContaining(["gmail", "calendar", "slack", "drive", "payments", "github", "jira"]),
+      expect.arrayContaining([
+        "gmail",
+        "calendar",
+        "slack",
+        "drive",
+        "payments",
+        "github",
+        "jira",
+        "web",
+        "public_content",
+      ]),
     );
-    expect(names).toHaveLength(7);
+    expect(names).toHaveLength(9);
   });
 
   it.each(serviceEntries)('"%s" has a name matching its key', (key, definition) => {
