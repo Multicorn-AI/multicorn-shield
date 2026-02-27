@@ -38,8 +38,6 @@ vi.mock("node:fs/promises", () => {
   return { default: exports, ...exports };
 });
 
-const DASHBOARD_URL = "https://app.multicorn.ai";
-
 function waitFor(predicate: () => boolean, timeout = 5000, interval = 50): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -66,6 +64,7 @@ describe("proxy blocking", () => {
   let stdoutBuffer: string;
   let proxy: ProxyServer;
   let startPromise: Promise<void>;
+  let expectedDashboardUrl: string;
   const originalStdin = process.stdin;
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
 
@@ -82,6 +81,7 @@ describe("proxy blocking", () => {
 
     mockService = await startMockMulticornService(options.serviceConfig);
     const baseUrl = mockService.baseUrl.replace("127.0.0.1", "localhost");
+    expectedDashboardUrl = deriveDashboardUrl(baseUrl);
 
     const mockServer = startMockMcpServer();
     const mcpCommand = mockServer.command;
@@ -252,7 +252,7 @@ describe("proxy blocking", () => {
     const error = response["error"] as Record<string, unknown>;
     expect(error["code"]).toBe(-32001);
     expect(typeof error["message"]).toBe("string");
-    expect(String(error["message"])).toContain(DASHBOARD_URL);
+    expect(String(error["message"])).toContain(expectedDashboardUrl);
   });
 
   it("blocks tool call after scope is revoked mid-session", async () => {
@@ -329,6 +329,6 @@ describe("proxy blocking", () => {
     const response = JSON.parse(line) as Record<string, unknown>;
     const error = response["error"] as Record<string, unknown>;
 
-    expect(String(error["message"])).toContain(DASHBOARD_URL);
+    expect(String(error["message"])).toContain(expectedDashboardUrl);
   });
 });

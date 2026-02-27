@@ -193,7 +193,7 @@ describe("createActionLogger", () => {
       expect(body).toEqual({
         agent: action.agent,
         service: action.service,
-        action_type: action.actionType,
+        actionType: action.actionType,
         status: action.status,
       });
     });
@@ -220,7 +220,7 @@ describe("createActionLogger", () => {
       expect(body).toEqual({
         agent: action.agent,
         service: action.service,
-        action_type: action.actionType,
+        actionType: action.actionType,
         status: action.status,
         cost: action.cost,
         metadata: action.metadata,
