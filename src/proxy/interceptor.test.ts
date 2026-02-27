@@ -110,34 +110,36 @@ describe("extractToolCallParams", () => {
 });
 
 describe("buildBlockedResponse", () => {
+  const testDashboardUrl = "https://app.multicorn.ai";
+
   it("returns a JSON-RPC error response with the blocked message", () => {
-    const response = buildBlockedResponse(1, "gmail", "execute");
+    const response = buildBlockedResponse(1, "gmail", "execute", testDashboardUrl);
 
     expect(response.jsonrpc).toBe("2.0");
     expect(response.id).toBe(1);
     expect(response.error).toBeDefined();
     expect(response.error?.message).toContain("Action blocked by Multicorn Shield");
     expect(response.error?.message).toContain("Gmail");
-    expect(response.error?.message).toContain("https://app.multicorn.ai");
+    expect(response.error?.message).toContain(testDashboardUrl);
   });
 
   it("preserves the request ID in the error response", () => {
-    const response = buildBlockedResponse("req-42", "slack", "execute");
+    const response = buildBlockedResponse("req-42", "slack", "execute", testDashboardUrl);
     expect(response.id).toBe("req-42");
   });
 
   it("includes the permission level in the message", () => {
-    const response = buildBlockedResponse(1, "gmail", "write");
+    const response = buildBlockedResponse(1, "gmail", "write", testDashboardUrl);
     expect(response.error?.message).toContain("write access");
   });
 
   it("capitalises the service name in the message", () => {
-    const response = buildBlockedResponse(1, "calendar", "execute");
+    const response = buildBlockedResponse(1, "calendar", "execute", testDashboardUrl);
     expect(response.error?.message).toContain("Calendar");
   });
 
   it("uses error code -32000", () => {
-    const response = buildBlockedResponse(1, "gmail", "execute");
+    const response = buildBlockedResponse(1, "gmail", "execute", testDashboardUrl);
     expect(response.error?.code).toBe(-32000);
   });
 });
