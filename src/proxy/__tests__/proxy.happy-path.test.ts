@@ -6,7 +6,7 @@
  * 2. Allowed tool calls are logged to the Multicorn service
  * 3. tools/list passthrough returns all tools unmodified
  * 4. Agent auto-registration on first connection
- * 5. Scope caching — scopes fetched once on startup, not per tool call
+ * 5. Scope caching: scopes fetched once on startup, not per tool call
  *
  * @vitest-environment node
  * @module proxy/__tests__/proxy.happy-path.test
@@ -25,7 +25,7 @@ import {
 } from "../__fixtures__/mockMulticornService.js";
 
 // ---------------------------------------------------------------------------
-// Mock node:fs/promises — prevents disk I/O to ~/.multicorn/
+// Mock node:fs/promises to prevent disk I/O to ~/.multicorn/
 // ---------------------------------------------------------------------------
 
 const readFileMock = vi.hoisted(() => vi.fn());
@@ -88,7 +88,7 @@ describe("proxy happy path", () => {
     mkdirMock.mockResolvedValue(undefined);
 
     mockService = await startMockMulticornService(serviceConfig);
-    // The action logger requires https:// or http://localhost — translate.
+    // The action logger requires https:// or http://localhost. Translate.
     const baseUrl = mockService.baseUrl.replace("127.0.0.1", "localhost");
 
     // Obtain the command/args for the mock MCP server, then stop the instance.

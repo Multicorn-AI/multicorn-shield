@@ -10,7 +10,7 @@
  *
  * **Design principles:**
  * - Blocks are enforced, not advisory. Blocked tool calls never reach the server.
- * - Every intercepted call is logged — permitted and blocked alike.
+ * - Every intercepted call is logged, permitted and blocked alike.
  * - Structured block results carry a descriptive reason so callers can surface
  *   meaningful feedback rather than opaque errors.
  * - Naming conventions are configurable: bring your own service/action extractor
@@ -78,7 +78,7 @@ export interface McpToolCall {
    * The MCP tool name identifying which tool the agent wants to invoke.
    *
    * By default, Shield splits on the first underscore to derive the service
-   * name — e.g. `"gmail_send_email"` → service `"gmail"`, action `"send_email"`.
+   * name, e.g. `"gmail_send_email"` → service `"gmail"`, action `"send_email"`.
    * Override this with {@link McpAdapterConfig.extractService} and
    * {@link McpAdapterConfig.extractAction} for non-standard naming conventions.
    */
@@ -99,7 +99,7 @@ export interface McpToolResult {
   readonly content: unknown;
 
   /**
-   * When `true`, the tool itself encountered an error — distinct from a
+   * When `true`, the tool itself encountered an error, distinct from a
    * Shield block or a network failure.
    */
   readonly isError?: boolean;
@@ -118,7 +118,7 @@ export interface McpToolResult {
  * ```
  */
 export interface McpBlockedResult {
-  /** Always `true` — use this as the discriminant in type narrowing. */
+  /** Always `true`. Use this as the discriminant in type narrowing. */
   readonly blocked: true;
 
   /** Human-readable explanation of why the action was blocked. */
@@ -137,8 +137,8 @@ export interface McpBlockedResult {
 /**
  * The result of passing a tool call through {@link McpAdapter.intercept}.
  *
- * - {@link McpToolResult} — the action was permitted and the handler ran.
- * - {@link McpBlockedResult} — Shield blocked the action before it reached the handler.
+ * - {@link McpToolResult}: the action was permitted and the handler ran.
+ * - {@link McpBlockedResult}: Shield blocked the action before it reached the handler.
  *
  * Use {@link isBlockedResult} to narrow the type safely.
  */
@@ -194,7 +194,7 @@ export interface McpAdapterConfig {
 
   /**
    * The permission level required for MCP tool calls.
-   * Defaults to `"execute"` — MCP tools trigger side-effects by design.
+   * Defaults to `"execute"`. MCP tools trigger side-effects by design.
    *
    * Override this when your tools only require `"read"` or `"write"` access.
    */

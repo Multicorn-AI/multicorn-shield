@@ -1,5 +1,5 @@
 /**
- * MulticornShield — the primary SDK entry point.
+ * MulticornShield: the primary SDK entry point.
  *
  * Orchestrates agent permission consent, action logging, scope validation, and
  * spending controls into a single cohesive API.
@@ -111,7 +111,7 @@ export interface MulticornShieldConfig {
   /**
    * Your Multicorn API key.
    * Must start with `mcs_` and be at least 16 characters.
-   * Stored in memory only — never written to localStorage, cookies, or DOM.
+   * Stored in memory only. Never written to localStorage, cookies, or DOM.
    */
   readonly apiKey: string;
 
@@ -156,7 +156,7 @@ export interface ConsentOptions {
 
   /**
    * Scope strings the agent is requesting.
-   * Format: `"permission:service"` — e.g. `"read:gmail"`, `"write:calendar"`.
+   * Format: `"permission:service"`, e.g. `"read:gmail"`, `"write:calendar"`.
    */
   readonly scopes: readonly string[];
 
@@ -188,7 +188,7 @@ export interface ConsentOptions {
  * ```
  */
 export interface ActionInput {
-  /** Agent identifier — must match the `agent` value used in `requestConsent`. */
+  /** Agent identifier. Must match the `agent` value used in `requestConsent`. */
   readonly agent: string;
 
   /** The service the agent accessed (e.g. `"gmail"`, `"calendar"`). */
@@ -249,7 +249,7 @@ export type SpendCheckResult = SpendingCheckResult;
  */
 export class MulticornShield {
   // Private class fields for true runtime privacy.
-  // #apiKey is unreachable outside this class at the JS level — not just compile time.
+  // #apiKey is unreachable outside this class at the JS level, not just compile time.
   readonly #apiKey: string;
   readonly #baseUrl: string;
   readonly #logger: ActionLogger;
@@ -272,7 +272,7 @@ export class MulticornShield {
   constructor(config: MulticornShieldConfig) {
     validateApiKey(config.apiKey);
 
-    // Held in a private field — unreachable outside this class instance.
+    // Held in a private field, unreachable outside this class instance.
     this.#apiKey = config.apiKey;
     this.#baseUrl = config.baseUrl ?? "https://api.multicorn.ai";
 
@@ -313,7 +313,7 @@ export class MulticornShield {
   async requestConsent(options: ConsentOptions): Promise<ConsentDecision> {
     this.#assertNotDestroyed();
 
-    // Parse and validate all scope strings up front — fail fast with clear errors.
+    // Parse and validate all scope strings up front to fail fast with clear errors.
     const parsedScopes = parseScopes(options.scopes);
 
     const scopeRequest: ScopeRequest = {
@@ -426,7 +426,7 @@ export class MulticornShield {
    *
    * Verifies that the agent has a granted permission for the target service
    * before submitting the log entry. Throws with a descriptive error if
-   * access was never granted or has been revoked — actions are never silently
+   * access was never granted or has been revoked. Actions are never silently
    * discarded.
    *
    * @param action - The action to log.
@@ -592,7 +592,7 @@ export class MulticornShield {
   /**
    * Pre-check whether a proposed spend would be allowed for an agent.
    *
-   * This is a read-only check — it does **not** record the spend.
+   * This is a read-only check. It does **not** record the spend.
    * Call this before executing a transaction to surface limit violations
    * early. If no spending limit was configured via {@link requestConsent},
    * all amounts are allowed.
@@ -635,7 +635,7 @@ export class MulticornShield {
    * DOM if it is still open, and marks the instance as destroyed. All
    * subsequent method calls will throw after `destroy()` is called.
    *
-   * Safe to call multiple times — subsequent calls are no-ops.
+   * Safe to call multiple times. Subsequent calls are no-ops.
    *
    * @example
    * ```ts
@@ -649,7 +649,7 @@ export class MulticornShield {
 
     // Flush pending logs and release the timer (if batch mode is active).
     this.#logger.shutdown().catch(() => {
-      // Errors during shutdown are intentionally swallowed — we're cleaning up.
+      // Errors during shutdown are intentionally swallowed. We're cleaning up.
     });
 
     if (this.#consentContainer !== null) {

@@ -1,5 +1,5 @@
 /**
- * `<multicorn-consent>` — Lit web component for agent permission consent.
+ * `<multicorn-consent>`: Lit web component for agent permission consent.
  *
  * This is the OAuth-style popup that users see when an agent requests access.
  * It displays requested scopes with human-readable labels, allows granular

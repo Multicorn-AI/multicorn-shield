@@ -24,7 +24,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
    docs/short-description
    chore/short-description
    ```
-3. **Make your changes.** Keep PRs focused — one logical change per PR.
+3. **Make your changes.** Keep PRs focused: one logical change per PR.
 4. **Write tests.** New code needs tests. The SDK targets 85% minimum coverage.
 5. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/):
    ```
@@ -70,9 +70,9 @@ pnpm build
 
 ### TypeScript
 
-- Strict mode is always on. No `any` types — use `unknown` with type guards.
+- Strict mode is always on. No `any` types. Use `unknown` with type guards.
 - No `!` non-null assertions. Handle nulls explicitly.
-- No `enum` — use `as const` objects with type inference.
+- No `enum`. Use `as const` objects with type inference.
 - Prefer `interface` over `type` for object shapes.
 - Named exports only (no default exports).
 - All async functions must have error handling.
@@ -109,10 +109,10 @@ pnpm build
 
 Include these sections in every PR description:
 
-1. **What** — one-sentence summary of the change
-2. **Why** — what problem this solves or what value it adds
-3. **How** — brief technical approach
-4. **Testing** — what was tested and how to verify
+1. **What**: one-sentence summary of the change
+2. **Why**: what problem this solves or what value it adds
+3. **How**: brief technical approach
+4. **Testing**: what was tested and how to verify
 
 ### What Reviewers Look For
 
@@ -137,9 +137,9 @@ Include these sections in every PR description:
 
 This project follows [Semantic Versioning](https://semver.org/):
 
-- **Patch** (0.0.x) — bug fixes, no API changes
-- **Minor** (0.x.0) — new features, backwards compatible
-- **Major** (x.0.0) — breaking changes to the public API
+- **Patch** (0.0.x): bug fixes, no API changes
+- **Minor** (0.x.0): new features, backwards compatible
+- **Major** (x.0.0): breaking changes to the public API
 
 Releases are triggered by maintainers. The [CHANGELOG](CHANGELOG.md) is updated with every release using [Keep a Changelog](https://keepachangelog.com/) format.
 

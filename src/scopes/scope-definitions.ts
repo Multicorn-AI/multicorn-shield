@@ -21,7 +21,7 @@ import { type PermissionLevel, type Scope, PERMISSION_LEVELS } from "../types/in
  * ```ts
  * const myService: ServiceDefinition = {
  *   name: "analytics",
- *   description: "Internal analytics platform — dashboards and reports",
+ *   description: "Internal analytics platform: dashboards and reports",
  *   capabilities: ["read", "write"],
  * };
  * ```
@@ -44,7 +44,7 @@ export interface ServiceDefinition {
  *
  * Each service declares the permission levels it supports. For example,
  * `payments` supports `read` and `execute` but **not** `write` because
- * payment data is immutable — you can view transactions or initiate new
+ * payment data is immutable. You can view transactions or initiate new
  * ones, but not edit past records.
  *
  * @example
@@ -59,37 +59,37 @@ export interface ServiceDefinition {
 export const BUILT_IN_SERVICES = {
   gmail: {
     name: "gmail",
-    description: "Google Gmail — email reading, composing, and sending",
+    description: "Google Gmail: email reading, composing, and sending",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   calendar: {
     name: "calendar",
-    description: "Google Calendar — event viewing, creation, and management",
+    description: "Google Calendar: event viewing, creation, and management",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   slack: {
     name: "slack",
-    description: "Slack — message reading, posting, and workflow triggers",
+    description: "Slack: message reading, posting, and workflow triggers",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   drive: {
     name: "drive",
-    description: "Google Drive — file browsing, uploading, and sharing",
+    description: "Google Drive: file browsing, uploading, and sharing",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write],
   },
   payments: {
     name: "payments",
-    description: "Payment processing — balance enquiries and transaction execution",
+    description: "Payment processing: balance enquiries and transaction execution",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Execute],
   },
   github: {
     name: "github",
-    description: "GitHub — repository access, issues, and pull requests",
+    description: "GitHub: repository access, issues, and pull requests",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Execute],
   },
   jira: {
     name: "jira",
-    description: "Jira — issue tracking, sprint management, and reporting",
+    description: "Jira: issue tracking, sprint management, and reporting",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write],
   },
 } as const satisfies Record<string, ServiceDefinition>;
