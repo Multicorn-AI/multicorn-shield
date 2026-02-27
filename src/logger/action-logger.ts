@@ -293,20 +293,20 @@ export function createActionLogger(config: ActionLoggerConfig): ActionLogger {
   async function sendActions(actions: readonly ActionPayload[]): Promise<void> {
     if (actions.length === 0) return;
 
-    // Convert ActionPayload to backend's expected snake_case format
+    // Convert ActionPayload to backend's expected format
     const convertAction = (
       action: ActionPayload,
     ): {
       agent: string;
       service: string;
-      action_type: string;
+      actionType: string;
       status: ActionStatus;
       cost?: number;
       metadata?: Readonly<Record<string, string | number | boolean>>;
     } => ({
       agent: action.agent,
       service: action.service,
-      action_type: action.actionType,
+      actionType: action.actionType,
       status: action.status,
       ...(action.cost !== undefined ? { cost: action.cost } : {}),
       ...(action.metadata !== undefined ? { metadata: action.metadata } : {}),

@@ -34,9 +34,10 @@ export function deriveDashboardUrl(baseUrl: string): string {
   try {
     const url = new URL(baseUrl);
 
-    // Local development: API on 8080, dashboard on 5173
-    if (url.hostname === "localhost" && url.port === "8080") {
+    // Local development: localhost or 127.0.0.1 (any port) -> dashboard on 5173
+    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
       url.port = "5173";
+      url.protocol = "http:";
       return url.toString();
     }
 
@@ -52,7 +53,14 @@ export function deriveDashboardUrl(baseUrl: string): string {
       return url.toString();
     }
 
-    // Fallback: default production dashboard
+    // For other production-like URLs (https with non-localhost), derive from base URL
+    if (url.protocol === "https:" && url.hostname !== "localhost" && url.hostname !== "127.0.0.1") {
+      // Fallback: default production dashboard for production-like URLs
+      return "https://app.multicorn.ai";
+    }
+
+    // For other cases (http with non-localhost), try to derive
+    // If we can't derive, fall back to production (shouldn't happen in practice)
     return "https://app.multicorn.ai";
   } catch {
     // If baseUrl is invalid, fall back to production dashboard
