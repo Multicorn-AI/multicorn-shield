@@ -220,11 +220,26 @@ describe("proxy happy path", () => {
     expect(actionRequests.length).toBeGreaterThanOrEqual(1);
 
     // The logger sends batched payloads: { actions: [...] }
-    const body = actionRequests[0]?.body as Record<string, unknown> | undefined;
-    expect(body).toBeDefined();
+    // Find the request that contains our action
+    let payload: Record<string, unknown> | undefined;
+    for (const request of actionRequests) {
+      const body = request.body as Record<string, unknown> | undefined;
+      if (!body) continue;
 
-    const actions = body?.["actions"] as Record<string, unknown>[] | undefined;
-    const payload = actions?.[0] ?? body;
+      // Check if it's a batched payload
+      const actions = body["actions"] as Record<string, unknown>[] | undefined;
+      if (actions && Array.isArray(actions) && actions.length > 0) {
+        const action = actions.find((a) => a["agent"] === "test-agent" && a["service"] === "gmail");
+        if (action) {
+          payload = action;
+          break;
+        }
+      } else if (body["agent"] === "test-agent" && body["service"] === "gmail") {
+        // Single action (non-batched)
+        payload = body;
+        break;
+      }
+    }
 
     expect(payload).toBeDefined();
     expect(payload?.["agent"]).toBe("test-agent");
