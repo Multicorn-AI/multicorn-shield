@@ -3,9 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createActionLogger, type ActionLogger, type ActionPayload } from "./action-logger.js";
 import { ACTION_STATUSES, type ActionStatus } from "../types/index.js";
 
-// ---------------------------------------------------------------------------
 // Test utilities
-// ---------------------------------------------------------------------------
 
 /**
  * Mock fetch for testing HTTP interactions.
@@ -85,9 +83,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// ---------------------------------------------------------------------------
 // Test suite
-// ---------------------------------------------------------------------------
 
 describe("createActionLogger", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -103,9 +99,7 @@ describe("createActionLogger", () => {
     globalThis.fetch = originalFetch;
   });
 
-  // ---------------------------------------------------------------------------
   // Configuration validation
-  // ---------------------------------------------------------------------------
 
   describe("configuration validation", () => {
     it("throws if API key is missing", () => {
@@ -149,9 +143,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Successful logging (immediate mode)
-  // ---------------------------------------------------------------------------
 
   describe("successful logging (immediate mode)", () => {
     let logger: ActionLogger;
@@ -248,9 +240,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Action validation
-  // ---------------------------------------------------------------------------
 
   describe("action validation", () => {
     let logger: ActionLogger;
@@ -309,9 +299,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Error handling (4xx)
-  // ---------------------------------------------------------------------------
 
   describe("error handling (4xx client errors)", () => {
     let logger: ActionLogger;
@@ -397,9 +385,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Error handling (5xx)
-  // ---------------------------------------------------------------------------
 
   describe("error handling (5xx server errors)", () => {
     let logger: ActionLogger;
@@ -491,9 +477,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Network errors
-  // ---------------------------------------------------------------------------
 
   describe("network errors", () => {
     let logger: ActionLogger;
@@ -622,9 +606,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Timeout handling
-  // ---------------------------------------------------------------------------
 
   describe("timeout handling", () => {
     let logger: ActionLogger;
@@ -676,9 +658,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Batch mode
-  // ---------------------------------------------------------------------------
 
   describe("batch mode", () => {
     let logger: ActionLogger;
@@ -914,9 +894,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Fire-and-forget behaviour
-  // ---------------------------------------------------------------------------
 
   describe("fire-and-forget behaviour", () => {
     it("does not block on network errors", async () => {
@@ -965,9 +943,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Error propagation from onError callback
-  // ---------------------------------------------------------------------------
 
   describe("error propagation from onError callback", () => {
     it("swallows errors when onError callback itself throws in immediate mode", async () => {
@@ -1054,9 +1030,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // API key security
-  // ---------------------------------------------------------------------------
 
   describe("API key security", () => {
     it("includes API key in X-Multicorn-Key header", async () => {
@@ -1107,9 +1081,7 @@ describe("createActionLogger", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Custom base URL
-  // ---------------------------------------------------------------------------
 
   describe("custom base URL", () => {
     it("uses custom base URL for API requests", async () => {

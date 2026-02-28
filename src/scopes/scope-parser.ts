@@ -12,9 +12,7 @@
 import { type PermissionLevel, type Scope, PERMISSION_LEVELS } from "../types/index.js";
 import { SERVICE_NAME_PATTERN } from "./scope-definitions.js";
 
-// ---------------------------------------------------------------------------
 // Constants
-// ---------------------------------------------------------------------------
 
 /**
  * Set of valid permission level strings for fast membership checks.
@@ -28,9 +26,7 @@ const VALID_PERMISSION_LEVELS: ReadonlySet<string> = new Set(Object.values(PERMI
  */
 const PERMISSION_LEVEL_LIST: string = [...VALID_PERMISSION_LEVELS].join(", ");
 
-// ---------------------------------------------------------------------------
 // Error class
-// ---------------------------------------------------------------------------
 
 /**
  * Error thrown when a scope string cannot be parsed.
@@ -61,9 +57,7 @@ export class ScopeParseError extends Error {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Result type for tryParseScope
-// ---------------------------------------------------------------------------
 
 /**
  * Discriminated union returned by {@link tryParseScope}.
@@ -75,9 +69,7 @@ export type ScopeParseResult =
   | { readonly success: true; readonly scope: Scope }
   | { readonly success: false; readonly error: string };
 
-// ---------------------------------------------------------------------------
 // Core parsing logic (private)
-// ---------------------------------------------------------------------------
 
 /**
  * Validates and parses a scope string, returning either a Scope or an error message.
@@ -180,9 +172,7 @@ function doParse(input: string): ScopeParseResult {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Public API
-// ---------------------------------------------------------------------------
 
 /**
  * Parse a scope string into a structured {@link Scope} object.

@@ -10,9 +10,7 @@ import type {
   ConsentDeniedEventDetail,
 } from "./consent/consent-events.js";
 
-// ---------------------------------------------------------------------------
 // Test helpers
-// ---------------------------------------------------------------------------
 
 const VALID_KEY = "mcs_testkey123456";
 
@@ -75,9 +73,7 @@ function denyConsent(
   );
 }
 
-// ---------------------------------------------------------------------------
 // Constructor
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield constructor", () => {
   afterEach(() => {
@@ -192,9 +188,7 @@ describe("MulticornShield constructor", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // requestConsent
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield.requestConsent", () => {
   let shield: MulticornShield;
@@ -444,9 +438,7 @@ describe("MulticornShield.requestConsent", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // logAction
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield.logAction", () => {
   let shield: MulticornShield;
@@ -544,9 +536,7 @@ describe("MulticornShield.logAction", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // revokeScope
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield.revokeScope", () => {
   let shield: MulticornShield;
@@ -712,9 +702,7 @@ describe("MulticornShield.revokeScope", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // getGrantedScopes
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield.getGrantedScopes", () => {
   let shield: MulticornShield;
@@ -771,9 +759,7 @@ describe("MulticornShield.getGrantedScopes", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // checkSpending
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield.checkSpending", () => {
   let shield: MulticornShield;
@@ -884,9 +870,7 @@ describe("MulticornShield.checkSpending", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // destroy
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield.destroy", () => {
   afterEach(() => {
@@ -998,9 +982,7 @@ describe("MulticornShield.destroy", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // Full lifecycle: construct → consent → log → revoke → blocked → destroy
-// ---------------------------------------------------------------------------
 
 describe("MulticornShield full lifecycle", () => {
   afterEach(() => {

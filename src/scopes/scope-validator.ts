@@ -15,9 +15,7 @@
 import { type Scope } from "../types/index.js";
 import { formatScope } from "./scope-parser.js";
 
-// ---------------------------------------------------------------------------
 // Result type
-// ---------------------------------------------------------------------------
 
 /**
  * The outcome of a scope validation check.
@@ -44,9 +42,7 @@ export interface ValidationResult {
   readonly reason?: string;
 }
 
-// ---------------------------------------------------------------------------
 // Single-scope validation
-// ---------------------------------------------------------------------------
 
 /**
  * Check whether a single requested scope is covered by the granted set.
@@ -115,9 +111,7 @@ export function validateScopeAccess(
   };
 }
 
-// ---------------------------------------------------------------------------
 // Multi-scope validation
-// ---------------------------------------------------------------------------
 
 /**
  * Check whether **all** requested scopes are covered by the granted set.
@@ -168,9 +162,7 @@ export function validateAllScopesAccess(
   return { allowed: true };
 }
 
-// ---------------------------------------------------------------------------
 // Convenience boolean helper
-// ---------------------------------------------------------------------------
 
 /**
  * Quick boolean check for whether a single scope is granted.

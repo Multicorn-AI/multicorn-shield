@@ -7,9 +7,7 @@ import {
   centsToDollars,
 } from "./spending-checker.js";
 
-// ---------------------------------------------------------------------------
 // Test utilities
-// ---------------------------------------------------------------------------
 
 /**
  * Default spending limits for tests: $200 / $1,000 / $5,000
@@ -35,14 +33,10 @@ function restoreDate(): void {
   vi.useRealTimers();
 }
 
-// ---------------------------------------------------------------------------
 // Test suite
-// ---------------------------------------------------------------------------
 
 describe("createSpendingChecker", () => {
-  // ---------------------------------------------------------------------------
   // Configuration validation
-  // ---------------------------------------------------------------------------
 
   describe("configuration validation", () => {
     it("accepts valid configuration", () => {
@@ -138,9 +132,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Per-transaction limits
-  // ---------------------------------------------------------------------------
 
   describe("per-transaction limits", () => {
     let checker: SpendingChecker;
@@ -203,9 +195,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Per-day limits
-  // ---------------------------------------------------------------------------
 
   describe("per-day limits", () => {
     let checker: SpendingChecker;
@@ -304,9 +294,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Per-month limits
-  // ---------------------------------------------------------------------------
 
   describe("per-month limits", () => {
     let checker: SpendingChecker;
@@ -401,9 +389,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Cumulative tracking across multiple actions
-  // ---------------------------------------------------------------------------
 
   describe("cumulative tracking", () => {
     let checker: SpendingChecker;
@@ -485,9 +471,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Reset behavior
-  // ---------------------------------------------------------------------------
 
   describe("reset behavior", () => {
     let checker: SpendingChecker;
@@ -652,9 +636,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Remaining budget calculation
-  // ---------------------------------------------------------------------------
 
   describe("remaining budget calculation", () => {
     let checker: SpendingChecker;
@@ -720,9 +702,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Error messages
-  // ---------------------------------------------------------------------------
 
   describe("error messages", () => {
     let checker: SpendingChecker;
@@ -805,9 +785,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Currency safety
-  // ---------------------------------------------------------------------------
 
   describe("currency safety", () => {
     let checker: SpendingChecker;
@@ -880,9 +858,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Integration scenarios
-  // ---------------------------------------------------------------------------
 
   describe("integration scenarios", () => {
     it("multiple checkers operate independently", () => {
@@ -968,9 +944,7 @@ describe("createSpendingChecker", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // Utility functions
-  // ---------------------------------------------------------------------------
 
   describe("utility functions", () => {
     describe("dollarsToCents", () => {

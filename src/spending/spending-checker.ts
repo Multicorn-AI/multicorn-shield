@@ -19,9 +19,7 @@
  * @module spending/spending-checker
  */
 
-// ---------------------------------------------------------------------------
 // Configuration types
-// ---------------------------------------------------------------------------
 
 /**
  * Spending limits for an agent in integer cents.
@@ -82,9 +80,7 @@ export interface SpendingTrackerConfig {
   readonly limits: SpendingLimits;
 }
 
-// ---------------------------------------------------------------------------
 // Result types
-// ---------------------------------------------------------------------------
 
 /**
  * Remaining budget across all three limit types.
@@ -171,9 +167,7 @@ export interface SpendingCheckResult {
   readonly remainingBudget: RemainingBudget;
 }
 
-// ---------------------------------------------------------------------------
 // Spending Checker Client
-// ---------------------------------------------------------------------------
 
 /**
  * Client-side spending checker for pre-validating agent transactions.
@@ -290,9 +284,7 @@ export interface SpendingChecker {
   reset(): void;
 }
 
-// ---------------------------------------------------------------------------
 // Factory function
-// ---------------------------------------------------------------------------
 
 /**
  * Create a new spending checker client.
@@ -325,9 +317,7 @@ export function createSpendingChecker(config: SpendingTrackerConfig): SpendingCh
   let lastDailyReset = new Date();
   let lastMonthlyReset = new Date();
 
-  // ---------------------------------------------------------------------------
   // Internal helpers
-  // ---------------------------------------------------------------------------
 
   /**
    * Validate that an amount is a non-negative integer.
@@ -410,9 +400,7 @@ export function createSpendingChecker(config: SpendingTrackerConfig): SpendingCh
     };
   }
 
-  // ---------------------------------------------------------------------------
   // Public API
-  // ---------------------------------------------------------------------------
 
   return {
     checkSpend(amountCents: number): SpendingCheckResult {
@@ -496,9 +484,7 @@ export function createSpendingChecker(config: SpendingTrackerConfig): SpendingCh
   };
 }
 
-// ---------------------------------------------------------------------------
 // Validation helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Validate spending limits configuration.
@@ -527,9 +513,7 @@ function validateLimits(limits: SpendingLimits): void {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Utility exports
-// ---------------------------------------------------------------------------
 
 /**
  * Convert dollars to cents for use with the spending checker.
