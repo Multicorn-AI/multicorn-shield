@@ -2,9 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { Scope } from "../types/index.js";
 import { validateScopeAccess, validateAllScopesAccess, hasScope } from "./scope-validator.js";
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 function scope(
   permissionLevel: "read" | "write" | "execute" | "publish" | "create",
@@ -13,9 +11,7 @@ function scope(
   return { service, permissionLevel };
 }
 
-// ---------------------------------------------------------------------------
 // validateScopeAccess
-// ---------------------------------------------------------------------------
 
 describe("validateScopeAccess", () => {
   describe("exact match", () => {
@@ -150,9 +146,7 @@ describe("validateScopeAccess", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // validateAllScopesAccess
-// ---------------------------------------------------------------------------
 
 describe("validateAllScopesAccess", () => {
   it("allows when all requested scopes are granted", () => {
@@ -199,9 +193,7 @@ describe("validateAllScopesAccess", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // hasScope
-// ---------------------------------------------------------------------------
 
 describe("hasScope", () => {
   it("returns true when scope is granted", () => {

@@ -64,9 +64,7 @@ import type {
   ConsentDeniedEventDetail,
 } from "./consent/consent-events.js";
 
-// ---------------------------------------------------------------------------
 // Constants
-// ---------------------------------------------------------------------------
 
 const API_KEY_PREFIX = "mcs_";
 
@@ -91,9 +89,7 @@ function formatScopes(scopes: readonly Scope[]): readonly string[] {
  */
 const MIN_API_KEY_LENGTH = 16;
 
-// ---------------------------------------------------------------------------
 // Public types
-// ---------------------------------------------------------------------------
 
 /**
  * Configuration for creating a {@link MulticornShield} instance.
@@ -133,6 +129,20 @@ export interface MulticornShieldConfig {
    * sent immediately.
    */
   readonly batchMode?: BatchModeConfig;
+
+  /**
+   * Optional error handler for non-fatal SDK errors (e.g. failed backend
+   * consent storage). When omitted, errors are silently swallowed.
+   *
+   * @example
+   * ```ts
+   * const shield = new MulticornShield({
+   *   apiKey: 'mcs_your_key_here',
+   *   onError: (err) => myLogger.warn(err.message),
+   * });
+   * ```
+   */
+  readonly onError?: (error: Error) => void;
 }
 
 /**
@@ -218,9 +228,7 @@ export interface ActionInput {
  */
 export type SpendCheckResult = SpendingCheckResult;
 
-// ---------------------------------------------------------------------------
 // Main class
-// ---------------------------------------------------------------------------
 
 /**
  * The main entry point for the Multicorn Shield SDK.
@@ -253,6 +261,7 @@ export class MulticornShield {
   readonly #apiKey: string;
   readonly #baseUrl: string;
   readonly #logger: ActionLogger;
+  readonly #onError: ((error: Error) => void) | undefined;
   readonly #grantedScopes = new Map<string, Scope[]>();
   readonly #spendingCheckers = new Map<string, SpendingChecker>();
   #consentContainer: HTMLElement | null = null;
@@ -275,6 +284,7 @@ export class MulticornShield {
     // Held in a private field, unreachable outside this class instance.
     this.#apiKey = config.apiKey;
     this.#baseUrl = config.baseUrl ?? "https://api.multicorn.ai";
+    this.#onError = config.onError;
 
     this.#logger = createActionLogger({
       apiKey: this.#apiKey,
@@ -359,13 +369,9 @@ export class MulticornShield {
           detail.spendLimit,
           detail.timestamp,
         ).catch((error: unknown) => {
-          // Log error but don't block the consent resolution
-          // The user has already granted consent, so we resolve the promise
-          // even if the backend call fails (fire-and-forget pattern)
-          console.warn(
-            "[MulticornShield] Failed to store consent to backend:",
-            error instanceof Error ? error.message : String(error),
-          );
+          // The user already granted consent, so we don't block resolution.
+          // Surface the error via onError if the caller opted in.
+          this.#onError?.(error instanceof Error ? error : new Error(String(error)));
         });
 
         cleanup();
@@ -391,11 +397,7 @@ export class MulticornShield {
           detail.spendLimit,
           detail.timestamp,
         ).catch((error: unknown) => {
-          // Log error but don't block the consent resolution
-          console.warn(
-            "[MulticornShield] Failed to store consent to backend:",
-            error instanceof Error ? error.message : String(error),
-          );
+          this.#onError?.(error instanceof Error ? error : new Error(String(error)));
         });
 
         cleanup();
@@ -658,9 +660,7 @@ export class MulticornShield {
     }
   }
 
-  // ---------------------------------------------------------------------------
   // Private helpers
-  // ---------------------------------------------------------------------------
 
   #assertNotDestroyed(): void {
     if (this.#isDestroyed) {
@@ -688,9 +688,7 @@ export class MulticornShield {
   }
 }
 
-// ---------------------------------------------------------------------------
 // API key validation
-// ---------------------------------------------------------------------------
 
 function validateApiKey(apiKey: string): void {
   if (!apiKey.startsWith(API_KEY_PREFIX)) {

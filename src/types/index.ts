@@ -7,9 +7,7 @@
  * @module types
  */
 
-// ---------------------------------------------------------------------------
 // Constants (prefer `as const` objects over enums for better tree-shaking)
-// ---------------------------------------------------------------------------
 
 /**
  * Possible operational states for an agent.
@@ -64,9 +62,7 @@ export const ACTION_STATUSES = {
 
 export type ActionStatus = (typeof ACTION_STATUSES)[keyof typeof ACTION_STATUSES];
 
-// ---------------------------------------------------------------------------
 // Domain interfaces
-// ---------------------------------------------------------------------------
 
 /**
  * An AI agent registered with Multicorn Shield.
