@@ -96,6 +96,8 @@
     "ai",
     "agents",
     "permissions",
+    "sdk",
+    "typescript",
     "consent",
     "spending-limits",
     "audit-log",

@@ -16,9 +16,7 @@
 
 import { type ActionStatus } from "../types/index.js";
 
-// ---------------------------------------------------------------------------
 // Configuration types
-// ---------------------------------------------------------------------------
 
 /**
  * Configuration options for the action logger client.
@@ -93,9 +91,7 @@ export interface BatchModeConfig {
   readonly flushIntervalMs?: number;
 }
 
-// ---------------------------------------------------------------------------
 // Action payload types
-// ---------------------------------------------------------------------------
 
 /**
  * A single action event to be logged.
@@ -141,18 +137,14 @@ export interface ActionPayload {
   readonly metadata?: Readonly<Record<string, string | number | boolean>>;
 }
 
-// ---------------------------------------------------------------------------
 // Internal queue item
-// ---------------------------------------------------------------------------
 
 interface QueuedAction {
   readonly payload: ActionPayload;
   readonly timestamp: number;
 }
 
-// ---------------------------------------------------------------------------
 // Action Logger Client
-// ---------------------------------------------------------------------------
 
 /**
  * HTTP client for logging agent actions to the Multicorn Shield API.
@@ -230,9 +222,7 @@ export interface ActionLogger {
   shutdown(): Promise<void>;
 }
 
-// ---------------------------------------------------------------------------
 // Factory function
-// ---------------------------------------------------------------------------
 
 /**
  * Create a new action logger client.
@@ -279,9 +269,7 @@ export function createActionLogger(config: ActionLoggerConfig): ActionLogger {
   let flushTimer: ReturnType<typeof setInterval> | undefined;
   let isShutdown = false;
 
-  // ---------------------------------------------------------------------------
   // Internal helpers
-  // ---------------------------------------------------------------------------
 
   /**
    * Send actions to the API with retry logic.
@@ -454,9 +442,7 @@ export function createActionLogger(config: ActionLoggerConfig): ActionLogger {
     startFlushTimer();
   }
 
-  // ---------------------------------------------------------------------------
   // Public API
-  // ---------------------------------------------------------------------------
 
   return {
     logAction(action: ActionPayload): Promise<void> {
@@ -520,9 +506,7 @@ export function createActionLogger(config: ActionLoggerConfig): ActionLogger {
   };
 }
 
-// ---------------------------------------------------------------------------
 // Utilities
-// ---------------------------------------------------------------------------
 
 /**
  * Sleep for a given number of milliseconds.

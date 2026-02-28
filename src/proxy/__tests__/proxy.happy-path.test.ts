@@ -24,9 +24,7 @@ import {
   type MockServiceConfig,
 } from "../__fixtures__/mockMulticornService.js";
 
-// ---------------------------------------------------------------------------
 // Mock node:fs/promises to prevent disk I/O to ~/.multicorn/
-// ---------------------------------------------------------------------------
 
 const readFileMock = vi.hoisted(() => vi.fn());
 const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -41,9 +39,7 @@ vi.mock("node:fs/promises", () => {
   return { default: exports, ...exports };
 });
 
-// ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
 
 /**
  * Poll a predicate until it returns true or the timeout elapses.
@@ -64,9 +60,7 @@ function waitFor(predicate: () => boolean, timeout = 5000, interval = 50): Promi
   });
 }
 
-// ---------------------------------------------------------------------------
 // Test suite
-// ---------------------------------------------------------------------------
 
 describe("proxy happy path", () => {
   let mockService: MockMulticornService;
@@ -164,8 +158,6 @@ describe("proxy happy path", () => {
     await mockService.stop();
   });
 
-  // ---- AC 1 ---------------------------------------------------------------
-
   it("passes allowed tool calls through and returns the correct result", async () => {
     await setupProxy();
 
@@ -192,8 +184,6 @@ describe("proxy happy path", () => {
     const firstEntry = content[0];
     expect(firstEntry?.["text"]).toBe("Email sent to user@example.com");
   });
-
-  // ---- AC 2 ---------------------------------------------------------------
 
   it("logs allowed tool calls to the mock service via POST /api/v1/actions", async () => {
     await setupProxy();
@@ -248,8 +238,6 @@ describe("proxy happy path", () => {
     expect(payload?.["status"]).toBe("approved");
   });
 
-  // ---- AC 3 ---------------------------------------------------------------
-
   it("passes tools/list through and returns all tools unmodified", async () => {
     await setupProxy();
 
@@ -278,8 +266,6 @@ describe("proxy happy path", () => {
     expect(names).toContain("payments_charge");
   });
 
-  // ---- AC 4 ---------------------------------------------------------------
-
   it("auto-registers the agent on first connection when it does not exist", async () => {
     await setupProxy({
       agents: [],
@@ -296,8 +282,6 @@ describe("proxy happy path", () => {
     expect(body).toBeDefined();
     expect(body?.["name"]).toBe("test-agent");
   });
-
-  // ---- AC 5 ---------------------------------------------------------------
 
   it("fetches scopes only once on startup, not on every tool call", async () => {
     await setupProxy();
