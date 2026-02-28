@@ -37,8 +37,12 @@ export async function loadConfig(): Promise<ProxyConfig | null> {
 }
 
 export async function saveConfig(config: ProxyConfig): Promise<void> {
-  await mkdir(CONFIG_DIR, { recursive: true });
-  await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf8");
+  await mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
+  // Mode 0o600: owner read/write only. Prevents other users from reading the API key.
+  await writeFile(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 export async function validateApiKey(

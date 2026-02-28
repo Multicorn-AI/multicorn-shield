@@ -122,6 +122,7 @@ describe("saveConfig", () => {
 
     expect(mkdirMock).toHaveBeenCalledWith(expect.stringContaining(".multicorn"), {
       recursive: true,
+      mode: 0o700,
     });
   });
 });

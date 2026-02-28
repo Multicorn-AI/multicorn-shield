@@ -126,6 +126,19 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Validate base URL before any network calls that send the API key.
+  if (
+    !cli.baseUrl.startsWith("https://") &&
+    !cli.baseUrl.startsWith("http://localhost") &&
+    !cli.baseUrl.startsWith("http://127.0.0.1")
+  ) {
+    process.stderr.write(
+      `Error: --base-url must use HTTPS. Received: "${cli.baseUrl}"\n` +
+        "Use https:// or http://localhost for local development.\n",
+    );
+    process.exit(1);
+  }
+
   // --wrap mode
   const config = await loadConfig();
   if (config === null) {
