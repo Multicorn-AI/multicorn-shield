@@ -591,22 +591,33 @@
         );
       }
 
-      function buildScopesHtml(detail) {
-        const parts = [];
+      function buildScopesFragment(detail) {
+        const frag = document.createDocumentFragment();
         if (detail.spendLimit != null) {
-          parts.push(`<span style="color: #c4b5fd;">Spend limit: $${detail.spendLimit}</span>`);
+          const span = document.createElement("span");
+          span.style.color = "#c4b5fd";
+          span.textContent = `Spend limit: $${detail.spendLimit}`;
+          frag.appendChild(span);
         }
         if (detail.grantedScopes?.length > 0) {
           detail.grantedScopes.forEach((s) => {
-            parts.push(`<span class="scope-granted">✓ ${s.service}:${s.permissionLevel}</span>`);
+            if (frag.childNodes.length > 0) frag.appendChild(document.createElement("br"));
+            const span = document.createElement("span");
+            span.className = "scope-granted";
+            span.textContent = `✓ ${s.service}:${s.permissionLevel}`;
+            frag.appendChild(span);
           });
         }
         if (detail.deniedScopes?.length > 0) {
           detail.deniedScopes.forEach((s) => {
-            parts.push(`<span class="scope-denied">✗ ${s.service}:${s.permissionLevel}</span>`);
+            if (frag.childNodes.length > 0) frag.appendChild(document.createElement("br"));
+            const span = document.createElement("span");
+            span.className = "scope-denied";
+            span.textContent = `✗ ${s.service}:${s.permissionLevel}`;
+            frag.appendChild(span);
           });
         }
-        return parts.join("<br/>");
+        return frag;
       }
 
       function addEvent(list, badge, eventName, detail, getCount) {
@@ -616,13 +627,30 @@
         const type = eventName.replace("consent-", "");
         const entry = document.createElement("div");
         entry.className = "event-entry";
-        entry.innerHTML = `
-          <div class="event-pip ${type}"></div>
-          <div class="event-info">
-            <span class="event-name">${eventName}<span class="event-time">${formatTime(detail.timestamp)}</span></span>
-            <div class="event-scopes">${buildScopesHtml(detail)}</div>
-          </div>
-        `;
+
+        const pip = document.createElement("div");
+        pip.className = `event-pip ${type}`;
+        entry.appendChild(pip);
+
+        const info = document.createElement("div");
+        info.className = "event-info";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "event-name";
+        nameSpan.textContent = eventName;
+
+        const timeSpan = document.createElement("span");
+        timeSpan.className = "event-time";
+        timeSpan.textContent = formatTime(detail.timestamp);
+        nameSpan.appendChild(timeSpan);
+        info.appendChild(nameSpan);
+
+        const scopesDiv = document.createElement("div");
+        scopesDiv.className = "event-scopes";
+        scopesDiv.appendChild(buildScopesFragment(detail));
+        info.appendChild(scopesDiv);
+
+        entry.appendChild(info);
         list.insertBefore(entry, list.firstChild);
 
         const count = getCount();
@@ -631,8 +659,15 @@
       }
 
       function clearActivity(list, badge) {
-        list.innerHTML =
-          '<div class="activity-empty"><span class="empty-icon">📭</span>No events yet</div>';
+        list.textContent = "";
+        const emptyDiv = document.createElement("div");
+        emptyDiv.className = "activity-empty";
+        const icon = document.createElement("span");
+        icon.className = "empty-icon";
+        icon.textContent = "📭";
+        emptyDiv.appendChild(icon);
+        emptyDiv.appendChild(document.createTextNode("No events yet"));
+        list.appendChild(emptyDiv);
         badge.textContent = "0";
         badge.classList.remove("visible");
       }

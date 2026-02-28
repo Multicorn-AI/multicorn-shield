@@ -281,9 +281,12 @@ export class MulticornShield {
   constructor(config: MulticornShieldConfig) {
     validateApiKey(config.apiKey);
 
+    const baseUrl = config.baseUrl ?? "https://api.multicorn.ai";
+    validateBaseUrl(baseUrl);
+
     // Held in a private field, unreachable outside this class instance.
     this.#apiKey = config.apiKey;
-    this.#baseUrl = config.baseUrl ?? "https://api.multicorn.ai";
+    this.#baseUrl = baseUrl;
     this.#onError = config.onError;
 
     this.#logger = createActionLogger({
@@ -528,9 +531,12 @@ export class MulticornShield {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        const errorText = await response.text().catch(() => "Unknown error");
+        const rawBody = await response.text().catch(() => "");
+        // Truncate server response to avoid leaking internal details
+        const safeBody = rawBody.length > 200 ? rawBody.slice(0, 200) + "…" : rawBody;
         throw new Error(
-          `Failed to store consent: ${String(response.status)} ${response.statusText}. ${errorText}`,
+          `Failed to store consent: HTTP ${String(response.status)}.` +
+            (safeBody.length > 0 ? ` Server response: ${safeBody}` : ""),
         );
       }
     } catch (error) {
@@ -684,6 +690,17 @@ export class MulticornShield {
           perMonth: limitCents * 100,
         },
       }),
+    );
+  }
+}
+
+// URL validation
+
+function validateBaseUrl(baseUrl: string): void {
+  if (!baseUrl.startsWith("https://") && !baseUrl.startsWith("http://localhost")) {
+    throw new Error(
+      `[MulticornShield] Base URL must use HTTPS for security. Received: "${baseUrl}". ` +
+        "Use https:// or http://localhost for local development.",
     );
   }
 }

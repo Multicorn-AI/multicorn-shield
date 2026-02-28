@@ -53,6 +53,9 @@ export const consentStyles: CSSResult = css`
       "Segoe UI",
       Roboto,
       sans-serif;
+    /* SECURITY: Every unsafeCSS() call below uses compile-time constants from
+       SHIELD_COLORS. Never pass user input or dynamic values to unsafeCSS() as
+       it bypasses Lit's CSS sanitisation and would create a CSS injection vector. */
     color: ${unsafeCSS(SHIELD_COLORS.text)};
     --shield-bg: ${unsafeCSS(SHIELD_COLORS.bg)};
     --shield-surface: ${unsafeCSS(SHIELD_COLORS.surface)};

@@ -59,6 +59,19 @@ export interface ProxyServer {
 }
 
 export function createProxyServer(config: ProxyServerConfig): ProxyServer {
+  // Enforce HTTPS on the base URL to prevent API key transmission over cleartext.
+  // Allow http://localhost and http://127.0.0.1 for local development only.
+  if (
+    !config.baseUrl.startsWith("https://") &&
+    !config.baseUrl.startsWith("http://localhost") &&
+    !config.baseUrl.startsWith("http://127.0.0.1")
+  ) {
+    throw new Error(
+      `[multicorn-proxy] Base URL must use HTTPS. Received: "${config.baseUrl}". ` +
+        "Use https:// or http://localhost for local development.",
+    );
+  }
+
   let child: ChildProcess | null = null;
   let actionLogger: ActionLogger | null = null;
   let spendingChecker: SpendingChecker | null = null;
