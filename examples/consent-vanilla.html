@@ -169,19 +169,45 @@
       function logEvent(element, eventName, detail) {
         const eventDiv = document.createElement("div");
         eventDiv.className = `event ${eventName.replace("consent-", "")}`;
-        eventDiv.innerHTML = `
-          <strong>${eventName}</strong><br/>
-          <span style="color: #8888a0">Time:</span> ${new Date(detail.timestamp).toLocaleTimeString()}<br/>
-          ${detail.grantedScopes ? `<span style="color: #8888a0">Granted:</span> ${detail.grantedScopes.length} scope(s)<br/>` : ""}
-          ${detail.deniedScopes ? `<span style="color: #8888a0">Denied:</span> ${detail.deniedScopes.length} scope(s)<br/>` : ""}
-        `;
+
+        const nameEl = document.createElement("strong");
+        nameEl.textContent = eventName;
+        eventDiv.appendChild(nameEl);
+        eventDiv.appendChild(document.createElement("br"));
+
+        const timeLabel = document.createElement("span");
+        timeLabel.style.color = "#8888a0";
+        timeLabel.textContent = "Time:";
+        eventDiv.appendChild(timeLabel);
+        eventDiv.appendChild(
+          document.createTextNode(` ${new Date(detail.timestamp).toLocaleTimeString()}`),
+        );
+        eventDiv.appendChild(document.createElement("br"));
+
+        if (detail.grantedScopes) {
+          const grantedLabel = document.createElement("span");
+          grantedLabel.style.color = "#8888a0";
+          grantedLabel.textContent = "Granted:";
+          eventDiv.appendChild(grantedLabel);
+          eventDiv.appendChild(document.createTextNode(` ${detail.grantedScopes.length} scope(s)`));
+          eventDiv.appendChild(document.createElement("br"));
+        }
+        if (detail.deniedScopes) {
+          const deniedLabel = document.createElement("span");
+          deniedLabel.style.color = "#8888a0";
+          deniedLabel.textContent = "Denied:";
+          eventDiv.appendChild(deniedLabel);
+          eventDiv.appendChild(document.createTextNode(` ${detail.deniedScopes.length} scope(s)`));
+          eventDiv.appendChild(document.createElement("br"));
+        }
+
         element.appendChild(eventDiv);
         element.scrollTop = element.scrollHeight;
       }
 
       openModalBtn.addEventListener("click", () => {
         modalConsent.style.display = "block";
-        modalEvents.innerHTML = ""; // Clear previous events
+        modalEvents.textContent = ""; // Clear previous events
       });
 
       modalConsent.addEventListener("consent-granted", (e) => {
