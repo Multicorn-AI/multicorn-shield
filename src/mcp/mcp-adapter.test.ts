@@ -10,9 +10,7 @@ import type { ActionLogger } from "../logger/action-logger.js";
 import type { Scope } from "../types/index.js";
 import { PERMISSION_LEVELS } from "../types/index.js";
 
-// ---------------------------------------------------------------------------
 // Test helpers
-// ---------------------------------------------------------------------------
 
 interface MockLogger {
   readonly logger: ActionLogger;
@@ -49,14 +47,10 @@ const GMAIL_SEND_CALL: McpToolCall = {
   arguments: { to: "user@example.com", subject: "Hello" },
 };
 
-// ---------------------------------------------------------------------------
 // Tests
-// ---------------------------------------------------------------------------
 
 describe("createMcpAdapter", () => {
-  // -------------------------------------------------------------------------
   // Allowed tool calls
-  // -------------------------------------------------------------------------
 
   describe("allowed tool calls", () => {
     it("forwards the tool call to the handler when the scope is granted", async () => {
@@ -103,9 +97,7 @@ describe("createMcpAdapter", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Blocked tool calls
-  // -------------------------------------------------------------------------
 
   describe("blocked tool calls", () => {
     it("returns a blocked result when no scope is granted for the service", async () => {
@@ -190,9 +182,7 @@ describe("createMcpAdapter", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Service and action extraction
-  // -------------------------------------------------------------------------
 
   describe("service and action extraction", () => {
     it("extracts the service as the segment before the first underscore", async () => {
@@ -273,9 +263,7 @@ describe("createMcpAdapter", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Scope validation
-  // -------------------------------------------------------------------------
 
   describe("scope validation", () => {
     it("allows access when the exact scope is in the granted set", async () => {
@@ -354,9 +342,7 @@ describe("createMcpAdapter", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Logging
-  // -------------------------------------------------------------------------
 
   describe("logging", () => {
     it("works without a logger when the action is permitted", async () => {
@@ -393,9 +379,7 @@ describe("createMcpAdapter", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Malformed tool calls
-  // -------------------------------------------------------------------------
 
   describe("malformed tool calls", () => {
     it("treats an empty tool name as both the service and falls back to 'call' action", async () => {
@@ -516,9 +500,7 @@ describe("createMcpAdapter", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // Publishing platform mapping
-  // -------------------------------------------------------------------------
 
   describe("publishing platform mapping", () => {
     describe("publish:web mapping", () => {
@@ -799,9 +781,7 @@ describe("createMcpAdapter", () => {
     });
   });
 
-  // -------------------------------------------------------------------------
   // isBlockedResult type guard
-  // -------------------------------------------------------------------------
 
   describe("isBlockedResult", () => {
     it("returns true for a blocked result", async () => {

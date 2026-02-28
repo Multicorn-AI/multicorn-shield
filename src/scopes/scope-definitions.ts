@@ -10,9 +10,7 @@
 
 import { type PermissionLevel, type Scope, PERMISSION_LEVELS } from "../types/index.js";
 
-// ---------------------------------------------------------------------------
 // Service definition types
-// ---------------------------------------------------------------------------
 
 /**
  * Describes a service integration and its supported permission capabilities.
@@ -35,9 +33,7 @@ export interface ServiceDefinition {
   readonly capabilities: readonly PermissionLevel[];
 }
 
-// ---------------------------------------------------------------------------
 // Built-in service definitions
-// ---------------------------------------------------------------------------
 
 /**
  * Pre-defined service integrations shipped with the Multicorn Shield SDK.
@@ -115,9 +111,7 @@ export const BUILT_IN_SERVICES = {
  */
 export type BuiltInServiceName = keyof typeof BUILT_IN_SERVICES;
 
-// ---------------------------------------------------------------------------
 // Scope registry
-// ---------------------------------------------------------------------------
 
 /**
  * Pattern that valid service names must match.

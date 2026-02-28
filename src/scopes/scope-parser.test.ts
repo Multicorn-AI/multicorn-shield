@@ -8,9 +8,7 @@ import {
   ScopeParseError,
 } from "./scope-parser.js";
 
-// ---------------------------------------------------------------------------
 // parseScope: valid inputs
-// ---------------------------------------------------------------------------
 
 describe("parseScope", () => {
   describe("valid scope strings", () => {
@@ -84,9 +82,7 @@ describe("parseScope", () => {
     });
   });
 
-  // ---------------------------------------------------------------------------
   // parseScope: invalid inputs
-  // ---------------------------------------------------------------------------
 
   describe("invalid scope strings", () => {
     it("throws on empty string", () => {
@@ -180,9 +176,7 @@ describe("parseScope", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // parseScopes
-// ---------------------------------------------------------------------------
 
 describe("parseScopes", () => {
   it("parses multiple valid scope strings", () => {
@@ -219,9 +213,7 @@ describe("parseScopes", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // tryParseScope
-// ---------------------------------------------------------------------------
 
 describe("tryParseScope", () => {
   it("returns success for a valid scope string", () => {
@@ -256,9 +248,7 @@ describe("tryParseScope", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // formatScope
-// ---------------------------------------------------------------------------
 
 describe("formatScope", () => {
   it("formats a scope to permission:service", () => {
@@ -283,9 +273,7 @@ describe("formatScope", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // isValidScopeString
-// ---------------------------------------------------------------------------
 
 describe("isValidScopeString", () => {
   it("returns true for valid scope strings", () => {

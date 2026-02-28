@@ -6,9 +6,7 @@ import {
 } from "./scope-definitions.js";
 import { PERMISSION_LEVELS } from "../types/index.js";
 
-// ---------------------------------------------------------------------------
 // BUILT_IN_SERVICES
-// ---------------------------------------------------------------------------
 
 describe("BUILT_IN_SERVICES", () => {
   const serviceEntries = Object.entries(BUILT_IN_SERVICES);
@@ -66,9 +64,7 @@ describe("BUILT_IN_SERVICES", () => {
   });
 });
 
-// ---------------------------------------------------------------------------
 // SERVICE_NAME_PATTERN
-// ---------------------------------------------------------------------------
 
 describe("SERVICE_NAME_PATTERN", () => {
   it.each(["gmail", "my-service", "my_service", "analytics2", "a"])(
@@ -86,9 +82,7 @@ describe("SERVICE_NAME_PATTERN", () => {
   );
 });
 
-// ---------------------------------------------------------------------------
 // createScopeRegistry
-// ---------------------------------------------------------------------------
 
 describe("createScopeRegistry", () => {
   describe("built-in services", () => {

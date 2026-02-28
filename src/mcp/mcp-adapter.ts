@@ -54,9 +54,7 @@ import { validateScopeAccess } from "../scopes/scope-validator.js";
 import type { ActionLogger } from "../logger/action-logger.js";
 import { requiresContentReview, isPublicContentAction } from "../scopes/content-review-detector.js";
 
-// ---------------------------------------------------------------------------
 // MCP tool call types
-// ---------------------------------------------------------------------------
 
 /**
  * An MCP tool call received from an AI agent.
@@ -157,9 +155,7 @@ export type McpAdapterResult = McpToolResult | McpBlockedResult;
  */
 export type McpToolHandler = (call: McpToolCall) => Promise<McpToolResult>;
 
-// ---------------------------------------------------------------------------
 // Adapter configuration
-// ---------------------------------------------------------------------------
 
 /**
  * Configuration for {@link createMcpAdapter}.
@@ -247,9 +243,7 @@ export interface McpAdapterConfig {
   readonly apiKey?: string;
 }
 
-// ---------------------------------------------------------------------------
 // Adapter interface
-// ---------------------------------------------------------------------------
 
 /**
  * The MCP adapter produced by {@link createMcpAdapter}.
@@ -287,9 +281,7 @@ export interface McpAdapter {
   intercept(toolCall: McpToolCall, handler: McpToolHandler): Promise<McpAdapterResult>;
 }
 
-// ---------------------------------------------------------------------------
 // Type guard
-// ---------------------------------------------------------------------------
 
 /**
  * Type guard to narrow an {@link McpAdapterResult} to a {@link McpBlockedResult}.
@@ -312,9 +304,7 @@ export function isBlockedResult(result: McpAdapterResult): result is McpBlockedR
   return "blocked" in result;
 }
 
-// ---------------------------------------------------------------------------
 // Factory
-// ---------------------------------------------------------------------------
 
 /**
  * Create an MCP adapter that enforces Shield's permission layer on tool calls.
