@@ -39,6 +39,26 @@ import { createFocusTrap, type FocusTrap } from "./focus-trap.js";
 export const CONSENT_ELEMENT_TAG = "multicorn-consent";
 
 /**
+ * Default agent icon color (Multicorn purple).
+ */
+const DEFAULT_AGENT_COLOR = "#8b5cf6";
+
+/**
+ * Pattern for validating hex color values.
+ * Accepts 3, 4, 6, or 8 hex digit colors (e.g. #fff, #ff00ff, #ff00ff80).
+ * Rejects anything else to prevent CSS injection via the style attribute.
+ */
+const HEX_COLOR_PATTERN = /^#[\da-fA-F]{3,8}$/;
+
+/**
+ * Sanitise a color value to prevent CSS injection.
+ * Returns the color if it matches the hex pattern, otherwise falls back to the default.
+ */
+function sanitizeColor(color: string): string {
+  return HEX_COLOR_PATTERN.test(color) ? color : DEFAULT_AGENT_COLOR;
+}
+
+/**
  * Group scopes by service for display.
  *
  * @param scopes - Array of scopes to group.
@@ -109,7 +129,7 @@ export class MulticornConsent extends LitElement {
    * @attr agent-color
    */
   @property({ type: String, attribute: "agent-color" })
-  agentColor = "#8b5cf6";
+  agentColor = DEFAULT_AGENT_COLOR;
 
   /**
    * The requested scopes as a JSON string or array.
@@ -480,7 +500,9 @@ export class MulticornConsent extends LitElement {
           <div class="agent-info">
             <div
               class="agent-icon"
-              style="background: linear-gradient(135deg, ${this.agentColor}, #6d28d9);"
+              style="background: linear-gradient(135deg, ${sanitizeColor(
+                this.agentColor,
+              )}, #6d28d9);"
             >
               🤖
             </div>

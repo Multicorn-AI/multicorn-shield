@@ -100,7 +100,7 @@ export async function saveCachedScopes(
   agentId: string,
   scopes: readonly Scope[],
 ): Promise<void> {
-  await mkdir(MULTICORN_DIR, { recursive: true });
+  await mkdir(MULTICORN_DIR, { recursive: true, mode: 0o700 });
 
   let existing: ScopesCacheFile = {};
   try {
@@ -120,7 +120,11 @@ export async function saveCachedScopes(
     },
   };
 
-  await writeFile(SCOPES_PATH, JSON.stringify(updated, null, 2) + "\n", "utf8");
+  // Mode 0o600: owner read/write only. Scope cache contains agent metadata.
+  await writeFile(SCOPES_PATH, JSON.stringify(updated, null, 2) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
 
 export async function findAgentByName(
