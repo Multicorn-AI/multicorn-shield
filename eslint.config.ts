@@ -70,6 +70,6 @@ export default tseslint.config(
     },
   },
   {
-    ignores: ["dist/", "coverage/", "node_modules/", "docs/", "*.config.*", "scripts/"],
+    ignores: ["dist/**", "coverage/**", "node_modules/**", "docs/**", "scripts/**", "*.config.*"],
   },
 );
