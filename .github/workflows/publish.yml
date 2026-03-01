@@ -47,9 +47,90 @@ jobs:
       - name: Build
         run: pnpm build
 
+  update-changelog:
+    name: Update Changelog
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout multicorn-shield
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG_NAME#v}"
+          CHANGELOG_JSON=$(node scripts/generate-changelog.mjs json "$TAG_NAME")
+          CHANGELOG_MD=$(node scripts/generate-changelog.mjs markdown "$TAG_NAME")
+          echo "json<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG_JSON" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "markdown<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG_MD" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout multicorn-learn
+        uses: actions/checkout@v4
+        with:
+          repository: Multicorn-AI/multicorn-learn
+          token: ${{ secrets.MULTICORN_LEARN_TOKEN }}
+          path: multicorn-learn
+
+      - name: Update changelog.json
+        working-directory: multicorn-learn
+        run: |
+          NEW_ENTRY='${{ steps.changelog.outputs.json }}'
+          echo "$NEW_ENTRY" > /tmp/new-entry.json
+          if [ -f content/changelog.json ]; then
+            node -e "
+              const fs = require('fs');
+              const newEntry = JSON.parse(fs.readFileSync('/tmp/new-entry.json', 'utf-8'));
+              const existing = JSON.parse(fs.readFileSync('content/changelog.json', 'utf-8'));
+              const updated = [newEntry, ...existing];
+              fs.writeFileSync('content/changelog.json', JSON.stringify(updated, null, 2) + '\n');
+            "
+          else
+            node -e "
+              const fs = require('fs');
+              const newEntry = JSON.parse(fs.readFileSync('/tmp/new-entry.json', 'utf-8'));
+              fs.writeFileSync('content/changelog.json', JSON.stringify([newEntry], null, 2) + '\n');
+            "
+          fi
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v5
+        with:
+          path: multicorn-learn
+          token: ${{ secrets.MULTICORN_LEARN_TOKEN }}
+          commit-message: 'chore(changelog): add ${{ steps.changelog.outputs.version }} release notes'
+          title: 'chore(changelog): add ${{ steps.changelog.outputs.version }} release notes'
+          body: |
+            Auto-generated changelog entry from conventional commits.
+
+            This PR was automatically created by the release workflow in multicorn-shield.
+          branch: chore/changelog-${{ steps.changelog.outputs.version }}
+          delete-branch: true
+
   publish:
     name: Publish to npm
-    needs: ci
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-test')
+    needs: [ci, update-changelog]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -82,3 +163,45 @@ jobs:
         run: pnpm publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: [ci, update-changelog]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch tags
+        run: git fetch --tags
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Generate changelog markdown
+        id: changelog
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          CHANGELOG_MD=$(node scripts/generate-changelog.mjs markdown "$TAG_NAME")
+          VERSION=$(echo "$TAG_NAME" | sed 's/^v//')
+          echo "body<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGELOG_MD" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: v${{ steps.changelog.outputs.version }}
+          body: ${{ steps.changelog.outputs.body }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
