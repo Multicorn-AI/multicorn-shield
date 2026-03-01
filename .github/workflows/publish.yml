@@ -118,8 +118,8 @@ jobs:
         with:
           path: multicorn-learn
           token: ${{ secrets.MULTICORN_LEARN_TOKEN }}
-          commit-message: 'chore(changelog): add ${{ steps.changelog.outputs.version }} release notes'
-          title: 'chore(changelog): add ${{ steps.changelog.outputs.version }} release notes'
+          commit-message: "chore(changelog): add ${{ steps.changelog.outputs.version }} release notes"
+          title: "chore(changelog): add ${{ steps.changelog.outputs.version }} release notes"
           body: |
             Auto-generated changelog entry from conventional commits.
 
