@@ -13,6 +13,7 @@ coverage/
 # Environment variables
 .env
 .env.local
+.env.dev
 .env.*.local
 
 # OS files

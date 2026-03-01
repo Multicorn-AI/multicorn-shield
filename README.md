@@ -409,6 +409,29 @@ pnpm build
 | `pnpm typecheck`     | Type-check without emitting                |
 | `pnpm docs`          | Generate API docs with TypeDoc             |
 
+### Local Environment Variables
+
+For local development and testing, you can create a `.env.dev` file (gitignored) with the following variables:
+
+```bash
+# GitHub Personal Access Token for cross-repo operations
+# Required only if testing the full changelog workflow locally (creating PRs in multicorn-learn)
+# Create a fine-grained PAT with write access to multicorn-learn repository
+MULTICORN_LEARN_TOKEN=your_token_here
+
+# npm token for publishing packages
+# Required only if testing npm publish locally
+NPM_TOKEN=your_token_here
+```
+
+**Note:** The changelog generation script (`scripts/generate-changelog.mjs`) does NOT require these tokens for local testing. It only reads git history and generates JSON/Markdown output. These tokens are only needed for:
+
+- Testing PR creation in multicorn-learn
+- Testing npm publish
+- Full end-to-end workflow testing
+
+In production (GitHub Actions), these are stored as repository secrets and automatically used by the workflow.
+
 ## Project Structure
 
 ```
