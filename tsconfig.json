@@ -31,5 +31,5 @@
     "resolveJsonModule": true
   },
   "include": ["src", "bin"],
-  "exclude": ["node_modules", "dist", "coverage"]
+  "exclude": ["node_modules", "dist", "coverage", "scripts"]
 }
