@@ -253,6 +253,78 @@ describe("beforeToolCall", () => {
       expect.any(String),
     );
   });
+
+  it("handles pending approval and polls until approved", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({
+      status: "pending",
+      approvalId: "approval-123",
+    });
+    pollApprovalStatusMock.mockResolvedValue("approved");
+
+    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    expect(result).toBeUndefined();
+    expect(checkActionPermissionMock).toHaveBeenCalled();
+    expect(pollApprovalStatusMock).toHaveBeenCalledWith(
+      "approval-123",
+      expect.any(String),
+      expect.any(String),
+      expect.anything(),
+    );
+  });
+
+  it("blocks tool call when approval is rejected", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({
+      status: "pending",
+      approvalId: "approval-123",
+    });
+    pollApprovalStatusMock.mockResolvedValue("rejected");
+
+    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    expect(result).toEqual({
+      block: true,
+      blockReason: expect.stringContaining("reviewed and rejected") as string,
+    });
+  });
+
+  it("blocks tool call when approval expires", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({
+      status: "pending",
+      approvalId: "approval-123",
+    });
+    pollApprovalStatusMock.mockResolvedValue("expired");
+
+    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    expect(result).toEqual({
+      block: true,
+      blockReason: "Approval request expired before a decision was made.",
+    });
+  });
+
+  it("blocks tool call when approval times out", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({
+      status: "pending",
+      approvalId: "approval-123",
+    });
+    pollApprovalStatusMock.mockResolvedValue("timeout");
+
+    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    expect(result).toEqual({
+      block: true,
+      blockReason: "Approval request timed out after 5 minutes.",
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------
