@@ -32,6 +32,7 @@ import {
   fetchGrantedScopes,
   logAction,
   checkActionPermission,
+  pollApprovalStatus,
   type AgentRecord,
 } from "../shield-client.js";
 import { waitForConsent } from "../consent.js";
@@ -371,28 +372,41 @@ async function beforeToolCall(
   }
 
   if (permissionResult.status === "pending" && permissionResult.approvalId !== undefined) {
-    // Action pending approval - return immediately with user-facing message
-    // User approves in dashboard, then agent retries naturally
+    // Action pending approval - poll for status
     pluginLogger?.info(
-      `Multicorn Shield: action pending approval (ID: ${permissionResult.approvalId}). Blocking and asking user to approve in dashboard.`,
+      `Multicorn Shield: action pending approval (ID: ${permissionResult.approvalId}). Polling for status...`,
     );
 
-    // Derive dashboard URL from baseUrl
-    // For localhost, use localhost:5173 (dashboard default port)
-    // For production, replace api.multicorn.ai with dashboard URL or use base URL without /api
-    let dashboardUrl: string;
-    if (config.baseUrl.includes("localhost")) {
-      dashboardUrl = "http://localhost:5173";
-    } else if (config.baseUrl.includes("api.multicorn.ai")) {
-      dashboardUrl = config.baseUrl.replace("api.multicorn.ai", "dashboard.multicorn.ai");
-    } else {
-      // For other base URLs, remove /api path if present
-      dashboardUrl = config.baseUrl.replace(/\/api.*$/, "");
+    const pollResult = await pollApprovalStatus(
+      permissionResult.approvalId,
+      config.apiKey,
+      config.baseUrl,
+      pluginLogger ?? undefined,
+    );
+
+    if (pollResult === "approved") {
+      // Approval granted, allow tool call to proceed
+      return undefined;
     }
 
+    if (pollResult === "rejected") {
+      return {
+        block: true,
+        blockReason: "Action was reviewed and rejected.",
+      };
+    }
+
+    if (pollResult === "expired") {
+      return {
+        block: true,
+        blockReason: "Approval request expired before a decision was made.",
+      };
+    }
+
+    // pollResult must be "timeout" at this point
     return {
       block: true,
-      blockReason: `Action pending approval in Multicorn Shield. Visit ${dashboardUrl}/approvals to approve or reject, then try again.`,
+      blockReason: "Approval request timed out after 5 minutes.",
     };
   }
 
