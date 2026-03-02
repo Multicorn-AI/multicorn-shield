@@ -31,6 +31,8 @@ import {
   findOrRegisterAgent,
   fetchGrantedScopes,
   logAction,
+  checkActionPermission,
+  pollApprovalStatus,
   type AgentRecord,
 } from "../shield-client.js";
 import { waitForConsent } from "../consent.js";
@@ -171,14 +173,6 @@ async function ensureConsent(agentName: string, apiKey: string, baseUrl: string)
   }
 }
 
-function isScopePermitted(toolName: string): boolean {
-  const mapping = mapToolToScope(toolName);
-  return grantedScopes.some(
-    (scope) =>
-      scope.service === mapping.service && scope.permissionLevel === mapping.permissionLevel,
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Plugin hooks
 // ---------------------------------------------------------------------------
@@ -216,43 +210,73 @@ async function beforeToolCall(
   await ensureConsent(agentName, config.apiKey, config.baseUrl);
 
   const mapping = mapToolToScope(event.toolName);
-  const permitted = isScopePermitted(event.toolName);
 
-  if (!permitted) {
-    const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
-    const reason =
-      `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-      "Visit the Multicorn Shield dashboard to manage permissions.";
-
-    // Log the blocked action (fire-and-forget)
-    void logAction(
-      {
-        agent: agentName,
-        service: mapping.service,
-        actionType: event.toolName,
-        status: "blocked",
-      },
-      config.apiKey,
-      config.baseUrl,
-    );
-
-    return { block: true, blockReason: reason };
-  }
-
-  // Log the approved action (fire-and-forget, done in before so it's recorded
-  // even if the tool itself errors out)
-  void logAction(
+  // Check permission via POST /api/v1/actions (server is source of truth)
+  const permissionResult = await checkActionPermission(
     {
       agent: agentName,
       service: mapping.service,
       actionType: event.toolName,
-      status: "approved",
+      status: "approved", // Status doesn't matter for permission check
     },
     config.apiKey,
     config.baseUrl,
   );
 
-  return undefined;
+  if (permissionResult.status === "approved") {
+    // Action approved, allow tool call to proceed
+    return undefined;
+  }
+
+  if (permissionResult.status === "pending" && permissionResult.approvalId !== undefined) {
+    // Action pending approval - poll until decision
+    pluginLogger?.info(
+      `Multicorn Shield: action pending approval (ID: ${permissionResult.approvalId}). Waiting for user decision...`,
+    );
+
+    // Poll for approval decision (this will block until decision or timeout)
+    const approvalStatus = await pollApprovalStatus(
+      permissionResult.approvalId,
+      config.apiKey,
+      config.baseUrl,
+      pluginLogger ?? undefined,
+    );
+
+    if (approvalStatus === "approved") {
+      pluginLogger?.info("Multicorn Shield: action approved. Proceeding.");
+      return undefined; // Allow tool call to proceed
+    }
+
+    if (approvalStatus === "rejected") {
+      pluginLogger?.info("Multicorn Shield: action rejected by user.");
+      const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
+      return {
+        block: true,
+        blockReason: `The agent owner reviewed and rejected this action: ${event.toolName} on ${capitalizedService}. The action has not been performed.`,
+      };
+    }
+
+    if (approvalStatus === "expired") {
+      return {
+        block: true,
+        blockReason: "Approval request expired before a decision was made.",
+      };
+    }
+
+    // Timeout
+    return {
+      block: true,
+      blockReason: "Approval request timed out after 5 minutes.",
+    };
+  }
+
+  // Action blocked (no approval available)
+  const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
+  const reason =
+    `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
+    "Visit the Multicorn Shield dashboard to manage permissions.";
+
+  return { block: true, blockReason: reason };
 }
 
 function afterToolCall(
