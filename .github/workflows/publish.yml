@@ -92,6 +92,15 @@ jobs:
           token: ${{ secrets.MULTICORN_LEARN_TOKEN }}
           path: multicorn-learn
 
+      - name: Setup pnpm for multicorn-learn
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install multicorn-learn dependencies
+        working-directory: multicorn-learn
+        run: pnpm install --frozen-lockfile
+
       - name: Update changelog.json
         working-directory: multicorn-learn
         run: |
@@ -112,6 +121,14 @@ jobs:
               fs.writeFileSync('content/changelog.json', JSON.stringify([newEntry], null, 2) + '\n');
             "
           fi
+
+      - name: Format changelog with Prettier
+        working-directory: multicorn-learn
+        run: pnpm prettier --write content/changelog.json
+
+      - name: Stage formatted changelog
+        working-directory: multicorn-learn
+        run: git add content/changelog.json
 
       - name: Create Pull Request
         uses: peter-evans/create-pull-request@v5
