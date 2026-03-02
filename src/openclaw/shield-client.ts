@@ -13,9 +13,13 @@
  */
 
 import type { Scope, ActionStatus } from "../types/index.js";
+import type { PluginLogger } from "./plugin-sdk.types.js";
 
 const REQUEST_TIMEOUT_MS = 5000;
 const AUTH_HEADER = "X-Multicorn-Key";
+const POLL_INTERVAL_MS = 3000;
+const MAX_POLLS = 100;
+const POLL_TIMEOUT_MS = POLL_INTERVAL_MS * MAX_POLLS;
 
 /**
  * Payload for logging an action to the Shield API.
@@ -34,6 +38,23 @@ export interface ActionLogPayload {
 export interface AgentRecord {
   readonly id: string;
   readonly name: string;
+}
+
+/**
+ * Response from GET /api/v1/approvals/:id
+ */
+export interface ApprovalResponse {
+  readonly id: string;
+  readonly status: "pending" | "approved" | "rejected" | "expired";
+  readonly decided_at: string | null;
+}
+
+/**
+ * Result of checking action permission via POST /api/v1/actions
+ */
+export interface ActionPermissionResult {
+  readonly status: "approved" | "pending" | "blocked";
+  readonly approvalId?: string;
 }
 
 /**
@@ -90,6 +111,17 @@ function isPermissionEntry(value: unknown): value is PermissionEntry {
     typeof obj["write"] === "boolean" &&
     typeof obj["execute"] === "boolean" &&
     (obj["revoked_at"] === null || typeof obj["revoked_at"] === "string")
+  );
+}
+
+function isApprovalResponse(value: unknown): value is ApprovalResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj["id"] === "string" &&
+    typeof obj["status"] === "string" &&
+    ["pending", "approved", "rejected", "expired"].includes(obj["status"]) &&
+    (obj["decided_at"] === null || typeof obj["decided_at"] === "string")
   );
 }
 
@@ -220,6 +252,163 @@ export async function fetchGrantedScopes(
   } catch {
     return [];
   }
+}
+
+/**
+ * Check action permission via POST /api/v1/actions.
+ *
+ * Returns the permission status and approval ID if pending.
+ * The service returns:
+ * - 201: Action approved, proceed
+ * - 202: Action pending approval (approvalId in response)
+ * - 403: Action blocked (no approval available)
+ *
+ * @returns Permission result with status and optional approvalId
+ */
+export async function checkActionPermission(
+  payload: ActionLogPayload,
+  apiKey: string,
+  baseUrl: string,
+): Promise<ActionPermissionResult> {
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/actions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [AUTH_HEADER]: apiKey,
+      },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+
+    if (response.status === 201) {
+      return { status: "approved" };
+    }
+
+    if (response.status === 202) {
+      const body: unknown = await response.json();
+      if (!isApiSuccess(body)) {
+        return { status: "blocked" };
+      }
+
+      const data = body.data as Record<string, unknown>;
+      const approvalId = typeof data["approvalId"] === "string" ? data["approvalId"] : undefined;
+
+      if (approvalId === undefined) {
+        return { status: "blocked" };
+      }
+
+      return { status: "pending", approvalId };
+    }
+
+    // 403 or any other error status
+    return { status: "blocked" };
+  } catch {
+    return { status: "blocked" };
+  }
+}
+
+/**
+ * Poll approval status via GET /api/v1/approvals/:id.
+ *
+ * Polls every 3 seconds for up to 5 minutes (100 polls).
+ * Handles network errors with exponential backoff (up to 3 retries per poll).
+ *
+ * @returns Final approval status: 'approved', 'rejected', 'expired', or 'timeout'
+ */
+export async function pollApprovalStatus(
+  approvalId: string,
+  apiKey: string,
+  baseUrl: string,
+  logger?: PluginLogger,
+): Promise<"approved" | "rejected" | "expired" | "timeout"> {
+  const startTime = Date.now();
+
+  const logDebug = logger?.debug?.bind(logger) as ((msg: string) => void) | undefined;
+
+  for (let pollCount = 0; pollCount < MAX_POLLS; pollCount++) {
+    // Check if we've exceeded the total timeout
+    if (Date.now() - startTime >= POLL_TIMEOUT_MS) {
+      return "timeout";
+    }
+
+    // Try to fetch approval status with retries
+    let approval: ApprovalResponse | null = null;
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        const response = await fetch(`${baseUrl}/api/v1/approvals/${approvalId}`, {
+          headers: { [AUTH_HEADER]: apiKey },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+
+        if (!response.ok) {
+          // Log at debug level - failed polls are expected during normal operation
+          logDebug?.(
+            `Poll ${String(pollCount + 1)} failed: HTTP ${String(response.status)}. Retrying...`,
+          );
+          // Exponential backoff: 1s, 2s, 4s
+          if (retry < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+          }
+          continue;
+        }
+
+        const body: unknown = await response.json();
+        if (!isApiSuccess(body)) {
+          logDebug?.(`Poll ${String(pollCount + 1)} failed: invalid response format. Retrying...`);
+          if (retry < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+          }
+          continue;
+        }
+
+        const approvalData = body.data;
+        if (!isApprovalResponse(approvalData)) {
+          logDebug?.(`Poll ${String(pollCount + 1)} failed: invalid approval data. Retrying...`);
+          if (retry < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+          }
+          continue;
+        }
+
+        approval = approvalData;
+        break; // Successfully got a response, exit retry loop
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logDebug?.(`Poll ${String(pollCount + 1)} failed: ${errorMessage}. Retrying...`);
+        // Exponential backoff: 1s, 2s, 4s
+        if (retry < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+        }
+      }
+    }
+
+    // If we got a valid approval response, check its status
+    if (approval !== null) {
+      if (approval.status === "approved") {
+        return "approved";
+      }
+      if (approval.status === "rejected") {
+        return "rejected";
+      }
+      if (approval.status === "expired") {
+        return "expired";
+      }
+      // Still pending, wait before next poll
+      if (pollCount < MAX_POLLS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+    } else {
+      // All retries failed, log and continue to next poll
+      logDebug?.(`All retries failed for poll ${String(pollCount + 1)}. Continuing...`);
+      if (pollCount < MAX_POLLS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+    }
+  }
+
+  // Exceeded max polls
+  return "timeout";
 }
 
 /**
