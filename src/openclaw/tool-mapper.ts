@@ -57,6 +57,22 @@ const TOOL_MAP: Readonly<Record<string, ToolScopeMapping>> = {
 } as const;
 
 /**
+ * Check if an exec command is destructive and requires write permission.
+ *
+ * Destructive commands include: rm, mv, sudo, chmod, chown, dd, truncate, shred.
+ * These commands can modify or delete files, so they require write permission
+ * instead of execute permission to ensure separate approval.
+ *
+ * @param command - The command string to check.
+ * @returns `true` if the command is destructive.
+ */
+export function isDestructiveExecCommand(command: string): boolean {
+  const destructiveCommands = ["rm", "mv", "sudo", "chmod", "chown", "dd", "truncate", "shred"];
+  const normalized = command.toLowerCase();
+  return destructiveCommands.some((destructive) => normalized.includes(destructive));
+}
+
+/**
  * Map an OpenClaw tool name to its Shield service and permission level.
  *
  * Known tools (read, write, edit, exec, browser, message, process,
@@ -67,10 +83,14 @@ const TOOL_MAP: Readonly<Record<string, ToolScopeMapping>> = {
  * For integration tools (gmail, slack, etc.), tools with prefixes like
  * "slack_send_message" map to the base service "slack".
  *
+ * For exec commands, if a command string is provided and it's destructive,
+ * returns terminal:write instead of terminal:execute to require separate approval.
+ *
  * @param toolName - The OpenClaw tool name from the event context.
+ * @param command - Optional command string for exec tool to check if destructive.
  * @returns The Shield service and permission level for this tool.
  */
-export function mapToolToScope(toolName: string): ToolScopeMapping {
+export function mapToolToScope(toolName: string, command?: string): ToolScopeMapping {
   const normalized = toolName.trim().toLowerCase();
 
   if (normalized.length === 0) {
@@ -80,6 +100,10 @@ export function mapToolToScope(toolName: string): ToolScopeMapping {
   // Check exact matches first
   const known = TOOL_MAP[normalized];
   if (known !== undefined) {
+    // Special handling for exec: if command is provided and destructive, use write instead of execute
+    if (normalized === "exec" && command !== undefined && isDestructiveExecCommand(command)) {
+      return { service: "terminal", permissionLevel: "write" };
+    }
     return known;
   }
 

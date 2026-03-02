@@ -174,6 +174,120 @@ async function ensureConsent(agentName: string, apiKey: string, baseUrl: string)
 }
 
 // ---------------------------------------------------------------------------
+// Description builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a human-readable description for an approval request.
+ *
+ * Formats tool arguments with priority ordering: important keys (path, command, etc.)
+ * appear first, followed by other keys. Internal/noise keys are skipped.
+ * The description is truncated at 200 characters to fit in the dashboard.
+ */
+function buildApprovalDescription(
+  agentName: string,
+  permissionLevel: string,
+  service: string,
+  toolName: string,
+  toolArgs: Record<string, unknown>,
+): string {
+  const priorityKeys = ["path", "paths", "command", "files", "url", "query"];
+  const skipKeys = new Set(["sessionId", "requestId", "traceId", "timestamp"]);
+
+  // Separate priority and other keys
+  const priorityEntries: [string, unknown][] = [];
+  const otherEntries: [string, unknown][] = [];
+
+  for (const [key, value] of Object.entries(toolArgs)) {
+    // Skip null, undefined, and noise keys
+    if (value === null || value === undefined || skipKeys.has(key)) {
+      continue;
+    }
+
+    if (priorityKeys.includes(key)) {
+      priorityEntries.push([key, value]);
+    } else {
+      otherEntries.push([key, value]);
+    }
+  }
+
+  // Combine: priority first, then others
+  const allEntries = [...priorityEntries, ...otherEntries];
+
+  // Build arguments string
+  const argParts: string[] = [];
+  for (const [key, value] of allEntries) {
+    const valueStr = typeof value === "string" ? value : JSON.stringify(value);
+    argParts.push(`${key}: ${valueStr}`);
+  }
+
+  // Special handling for exec tool - parse command and return plain-English summary
+  if (toolName === "exec" && typeof toolArgs["command"] === "string") {
+    const cmd = toolArgs["command"];
+    const destructiveCommands = ["rm", "mv", "sudo", "chmod", "chown", "dd", "truncate", "shred"];
+    const isDestructive = destructiveCommands.some((destructive) =>
+      cmd.toLowerCase().includes(destructive),
+    );
+
+    if (isDestructive) {
+      // For destructive commands, provide a clear warning
+      if (cmd.includes("rm")) {
+        // Try to extract file count or path for better description
+        const rmMatch = /rm\s+.*?(\d+)\s+files?/i.exec(cmd) ?? /rm\s+-rf?\s+(.+)/i.exec(cmd);
+        if (rmMatch?.[1]) {
+          return `${agentName} wants to delete ${rmMatch[1].includes("files") ? rmMatch[1] : `files from ${rmMatch[1]}`}`;
+        }
+        return `${agentName} wants to delete files in your inbox`;
+      }
+      return `${agentName} wants to run a destructive terminal command: ${cmd.slice(0, 80)}`;
+    }
+
+    // Safe read-only commands
+    if (cmd.includes("ls") || cmd.includes("wc")) {
+      return `${agentName} wants to list files in your inbox`;
+    }
+    if (cmd.includes("head") || cmd.includes("cat")) {
+      return `${agentName} wants to preview files in your inbox`;
+    }
+    return `${agentName} wants to run a terminal command: ${cmd.slice(0, 80)}`;
+  }
+
+  const argsStr = argParts.length > 0 ? argParts.join(", ") : "";
+
+  // Build full description
+  const baseDescription = `${agentName} is requesting ${service} ${permissionLevel} access. Tool: ${toolName}.`;
+  const fullDescription = argsStr.length > 0 ? `${baseDescription} ${argsStr}` : baseDescription;
+
+  // Truncate at 200 characters
+  if (fullDescription.length <= 200) {
+    return fullDescription;
+  }
+
+  // Truncate, trying to preserve complete key:value pairs
+  let truncated = baseDescription;
+  const remainingChars = 200 - truncated.length - 1; // -1 for space
+
+  if (remainingChars > 0 && argsStr.length > 0) {
+    // Try to include as many complete arguments as possible
+    let includedArgs = "";
+    for (const arg of argParts) {
+      const candidate = includedArgs.length === 0 ? arg : `${includedArgs}, ${arg}`;
+      if (candidate.length <= remainingChars) {
+        includedArgs = candidate;
+      } else {
+        break;
+      }
+    }
+
+    if (includedArgs.length > 0) {
+      truncated = `${truncated} ${includedArgs}`;
+    }
+  }
+
+  return truncated;
+}
+
+// ---------------------------------------------------------------------------
 // Plugin hooks
 // ---------------------------------------------------------------------------
 
@@ -209,15 +323,44 @@ async function beforeToolCall(
   // If no scopes and we have an agent record, trigger consent
   await ensureConsent(agentName, config.apiKey, config.baseUrl);
 
-  const mapping = mapToolToScope(event.toolName);
+  // Map tool to scope, passing command for exec to detect destructive commands
+  const command =
+    event.toolName === "exec" && typeof event.params["command"] === "string"
+      ? event.params["command"]
+      : undefined;
+  const mapping = mapToolToScope(event.toolName, command);
+
+  // Log the mapping to verify correct scope is being used
+  pluginLogger?.info(
+    `Multicorn Shield: tool=${event.toolName}, service=${mapping.service}, permissionLevel=${mapping.permissionLevel}`,
+  );
+
+  // For destructive exec commands, use actionType that backend will recognize as requiring write permission
+  // Backend checks if actionType contains "_delete" or "_write" to determine write permission needed
+  const actionType =
+    mapping.permissionLevel === "write" && event.toolName === "exec"
+      ? "exec_write"
+      : event.toolName;
+
+  // Build description for approval requests
+  const description = buildApprovalDescription(
+    agentName,
+    mapping.permissionLevel,
+    mapping.service,
+    event.toolName,
+    event.params,
+  );
 
   // Check permission via POST /api/v1/actions (server is source of truth)
   const permissionResult = await checkActionPermission(
     {
       agent: agentName,
       service: mapping.service,
-      actionType: event.toolName,
+      actionType: actionType,
       status: "approved", // Status doesn't matter for permission check
+      metadata: {
+        description,
+      },
     },
     config.apiKey,
     config.baseUrl,
@@ -229,41 +372,38 @@ async function beforeToolCall(
   }
 
   if (permissionResult.status === "pending" && permissionResult.approvalId !== undefined) {
-    // Action pending approval - poll until decision
+    // Action pending approval - poll for status
     pluginLogger?.info(
-      `Multicorn Shield: action pending approval (ID: ${permissionResult.approvalId}). Waiting for user decision...`,
+      `Multicorn Shield: action pending approval (ID: ${permissionResult.approvalId}). Polling for status...`,
     );
 
-    // Poll for approval decision (this will block until decision or timeout)
-    const approvalStatus = await pollApprovalStatus(
+    const pollResult = await pollApprovalStatus(
       permissionResult.approvalId,
       config.apiKey,
       config.baseUrl,
       pluginLogger ?? undefined,
     );
 
-    if (approvalStatus === "approved") {
-      pluginLogger?.info("Multicorn Shield: action approved. Proceeding.");
-      return undefined; // Allow tool call to proceed
+    if (pollResult === "approved") {
+      // Approval granted, allow tool call to proceed
+      return undefined;
     }
 
-    if (approvalStatus === "rejected") {
-      pluginLogger?.info("Multicorn Shield: action rejected by user.");
-      const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
+    if (pollResult === "rejected") {
       return {
         block: true,
-        blockReason: `The agent owner reviewed and rejected this action: ${event.toolName} on ${capitalizedService}. The action has not been performed.`,
+        blockReason: "Action was reviewed and rejected.",
       };
     }
 
-    if (approvalStatus === "expired") {
+    if (pollResult === "expired") {
       return {
         block: true,
         blockReason: "Approval request expired before a decision was made.",
       };
     }
 
-    // Timeout
+    // pollResult must be "timeout" at this point
     return {
       block: true,
       blockReason: "Approval request timed out after 5 minutes.",
