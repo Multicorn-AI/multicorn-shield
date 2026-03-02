@@ -267,12 +267,15 @@ describe("beforeToolCall", () => {
 
     expect(result).toBeUndefined();
     expect(checkActionPermissionMock).toHaveBeenCalled();
-    expect(pollApprovalStatusMock).toHaveBeenCalledWith(
-      "approval-123",
-      expect.any(String),
-      expect.any(String),
-      expect.anything(),
-    );
+    expect(pollApprovalStatusMock).toHaveBeenCalledTimes(1);
+    const callArgs = pollApprovalStatusMock.mock.calls[0];
+    if (callArgs === undefined) {
+      throw new Error("pollApprovalStatusMock was not called");
+    }
+    expect(callArgs[0]).toBe("approval-123");
+    expect(typeof callArgs[1]).toBe("string");
+    expect(typeof callArgs[2]).toBe("string");
+    expect(callArgs.length).toBe(4);
   });
 
   it("blocks tool call when approval is rejected", async () => {
