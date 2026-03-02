@@ -228,7 +228,7 @@ if (!currentTag.startsWith("v")) {
 const release = generateChangelog(currentTag);
 
 if (command === "json") {
-  console.log(JSON.stringify(release, null, 2));
+  console.log(JSON.stringify(release, null, 2) + "\n");
 } else if (command === "markdown") {
   console.log(formatMarkdown(release));
 } else {
