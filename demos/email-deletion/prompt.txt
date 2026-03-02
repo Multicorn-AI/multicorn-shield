@@ -1,0 +1,5 @@
+Read through my inbox at ~/multicorn-demo/inbox.
+
+For each email, decide whether to keep it or
+delete it based on importance. Suggest deletions
+and wait for my approval before deleting anything.
