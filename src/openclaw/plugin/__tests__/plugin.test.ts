@@ -12,6 +12,8 @@ import { plugin, beforeToolCall, afterToolCall, resetState } from "../index.js";
 const findOrRegisterAgentMock = vi.hoisted(() => vi.fn());
 const fetchGrantedScopesMock = vi.hoisted(() => vi.fn());
 const logActionMock = vi.hoisted(() => vi.fn());
+const checkActionPermissionMock = vi.hoisted(() => vi.fn());
+const pollApprovalStatusMock = vi.hoisted(() => vi.fn());
 const loadCachedScopesMock = vi.hoisted(() => vi.fn());
 const saveCachedScopesMock = vi.hoisted(() => vi.fn());
 const waitForConsentMock = vi.hoisted(() => vi.fn());
@@ -20,6 +22,8 @@ vi.mock("../../shield-client.js", () => ({
   findOrRegisterAgent: findOrRegisterAgentMock,
   fetchGrantedScopes: fetchGrantedScopesMock,
   logAction: logActionMock,
+  checkActionPermission: checkActionPermissionMock,
+  pollApprovalStatus: pollApprovalStatusMock,
 }));
 
 vi.mock("../../scope-cache.js", () => ({
@@ -55,6 +59,8 @@ beforeEach(() => {
   findOrRegisterAgentMock.mockReset();
   fetchGrantedScopesMock.mockReset();
   logActionMock.mockReset().mockResolvedValue(undefined);
+  checkActionPermissionMock.mockReset();
+  pollApprovalStatusMock.mockReset();
   loadCachedScopesMock.mockReset().mockResolvedValue(null);
   saveCachedScopesMock.mockReset().mockResolvedValue(undefined);
   waitForConsentMock.mockReset();
@@ -120,20 +126,18 @@ describe("beforeToolCall", () => {
   it("returns undefined (allow) when the scope is granted", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     expect(result).toBeUndefined();
-    expect(logActionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "approved", service: "terminal" }),
-      expect.any(String),
-      expect.any(String),
-    );
+    expect(checkActionPermissionMock).toHaveBeenCalled();
   });
 
   it("returns { block: true } when the scope is not granted", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "filesystem", permissionLevel: "read" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "blocked" });
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
@@ -141,17 +145,14 @@ describe("beforeToolCall", () => {
       block: true,
       blockReason: expect.stringContaining("Terminal execute access is not allowed") as string,
     });
-    expect(logActionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ status: "blocked", service: "terminal" }),
-      expect.any(String),
-      expect.any(String),
-    );
+    expect(checkActionPermissionMock).toHaveBeenCalled();
   });
 
   it("triggers consent flow when no scopes are granted", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([]);
     waitForConsentMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
@@ -204,6 +205,7 @@ describe("beforeToolCall", () => {
   it("uses cached scopes when API is unreachable", async () => {
     loadCachedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
     findOrRegisterAgentMock.mockResolvedValue(null);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
@@ -213,11 +215,12 @@ describe("beforeToolCall", () => {
   it("maps filesystem tools correctly (edit -> filesystem:write)", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "filesystem", permissionLevel: "write" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
 
     const result = await beforeToolCall(makeBeforeEvent("edit"), makeCtx({ toolName: "edit" }));
 
     expect(result).toBeUndefined();
-    expect(logActionMock).toHaveBeenCalledWith(
+    expect(checkActionPermissionMock).toHaveBeenCalledWith(
       expect.objectContaining({ service: "filesystem", actionType: "edit" }),
       expect.any(String),
       expect.any(String),
@@ -227,17 +230,20 @@ describe("beforeToolCall", () => {
   it("uses cached scopes on subsequent calls without re-fetching", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
 
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     expect(findOrRegisterAgentMock).toHaveBeenCalledTimes(1);
     expect(fetchGrantedScopesMock).toHaveBeenCalledTimes(1);
+    expect(checkActionPermissionMock).toHaveBeenCalledTimes(2);
   });
 
   it("derives agent name from session key", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "my-bot" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
 
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx({ sessionKey: "agent:my-bot:main" }));
 
