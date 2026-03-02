@@ -5,7 +5,10 @@ import {
   findOrRegisterAgent,
   fetchGrantedScopes,
   logAction,
+  checkActionPermission,
+  pollApprovalStatus,
 } from "../shield-client.js";
+import type { PluginLogger } from "../plugin-sdk.types.js";
 
 const TEST_API_KEY = "mcs_test_key_never_logged";
 const TEST_BASE_URL = "http://localhost:8080";
@@ -323,5 +326,390 @@ describe("logAction", () => {
     const callArgs = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(callArgs[1].body as string) as Record<string, unknown>;
     expect(body["metadata"]).toEqual({ path: "/tmp/test.txt" });
+  });
+});
+
+describe("checkActionPermission", () => {
+  it("returns { status: 'approved' } on 201 response", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 201,
+    });
+
+    const result = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "approved" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${TEST_BASE_URL}/api/v1/actions`,
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Multicorn-Key": TEST_API_KEY,
+        },
+      }),
+    );
+  });
+
+  it("returns { status: 'pending', approvalId } on 202 response with approvalId", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: { approvalId: "approval-123" },
+        }),
+    });
+
+    const result = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "pending", approvalId: "approval-123" });
+  });
+
+  it("returns { status: 'blocked' } on 202 response without approvalId", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {},
+        }),
+    });
+
+    const result = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked" });
+  });
+
+  it("returns { status: 'blocked' } on 202 response with invalid response format", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: () => Promise.resolve({ success: false }),
+    });
+
+    const result = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked" });
+  });
+
+  it("returns { status: 'blocked' } on 403 response", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+    });
+
+    const result = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked" });
+  });
+
+  it("returns { status: 'blocked' } on network error", async () => {
+    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const result = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked" });
+  });
+});
+
+describe("pollApprovalStatus", () => {
+  let logger: PluginLogger;
+
+  beforeEach(() => {
+    logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+  });
+
+  it("returns 'approved' when approval status is approved", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            id: "approval-123",
+            status: "approved",
+            decided_at: "2026-03-01T00:00:00Z",
+          },
+        }),
+    });
+
+    const result = await pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toBe("approved");
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${TEST_BASE_URL}/api/v1/approvals/approval-123`,
+      expect.objectContaining({
+        headers: { "X-Multicorn-Key": TEST_API_KEY },
+      }),
+    );
+  });
+
+  it("returns 'rejected' when approval status is rejected", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            id: "approval-123",
+            status: "rejected",
+            decided_at: "2026-03-01T00:00:00Z",
+          },
+        }),
+    });
+
+    const result = await pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toBe("rejected");
+  });
+
+  it("returns 'expired' when approval status is expired", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            id: "approval-123",
+            status: "expired",
+            decided_at: null,
+          },
+        }),
+    });
+
+    const result = await pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toBe("expired");
+  });
+
+  it("polls multiple times when status is pending", async () => {
+    let pollCount = 0;
+    fetchMock.mockImplementation(() => {
+      pollCount++;
+      if (pollCount === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: {
+                id: "approval-123",
+                status: "pending",
+                decided_at: null,
+              },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              id: "approval-123",
+              status: "approved",
+              decided_at: "2026-03-01T00:00:00Z",
+            },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    // Wait for first poll
+    await vi.runAllTimersAsync();
+    // Advance time for second poll
+    vi.advanceTimersByTime(3000);
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result).toBe("approved");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("returns 'timeout' after max polls", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            id: "approval-123",
+            status: "pending",
+            decided_at: null,
+          },
+        }),
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    // Advance time to exceed timeout (100 polls * 3 seconds = 300 seconds)
+    vi.advanceTimersByTime(300000);
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result).toBe("timeout");
+
+    vi.useRealTimers();
+  });
+
+  it("retries on HTTP error with exponential backoff", async () => {
+    let callCount = 0;
+    fetchMock.mockImplementation(() => {
+      callCount++;
+      if (callCount < 3) {
+        return Promise.resolve({ ok: false, status: 500 });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              id: "approval-123",
+              status: "approved",
+              decided_at: "2026-03-01T00:00:00Z",
+            },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    // Wait for retries with backoff
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(1000); // First retry backoff
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(2000); // Second retry backoff
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result).toBe("approved");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+  });
+
+  it("handles network errors gracefully and continues polling", async () => {
+    let callCount = 0;
+    fetchMock.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.reject(new Error("ECONNREFUSED"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              id: "approval-123",
+              status: "approved",
+              decided_at: "2026-03-01T00:00:00Z",
+            },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    // Wait for error retry
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000); // Next poll interval
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result).toBe("approved");
+
+    vi.useRealTimers();
+  });
+
+  it("works without logger", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: {
+            id: "approval-123",
+            status: "approved",
+            decided_at: "2026-03-01T00:00:00Z",
+          },
+        }),
+    });
+
+    const result = await pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL);
+
+    expect(result).toBe("approved");
   });
 });
