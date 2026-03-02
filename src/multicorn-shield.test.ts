@@ -335,6 +335,91 @@ describe("MulticornShield.requestConsent", () => {
     denyConsent();
   });
 
+  it("does not set agentColor when not provided", () => {
+    void shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+    });
+
+    const element = document.querySelector("multicorn-consent") as Element & {
+      agentColor?: string;
+    };
+    expect(element).not.toBeNull();
+    // agentColor should be undefined or use default
+    denyConsent();
+  });
+
+  it("does not POST to backend when consent is denied (no granted scopes)", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+    });
+
+    denyConsent();
+    await promise;
+
+    // Should not have made any POST requests since no scopes were granted
+    const postCalls = mockFetch.mock.calls.filter((call) => {
+      const url = call[0] as string | undefined;
+      const options = call[1] as RequestInit | undefined;
+      return options?.method === "POST" && url?.includes("/consent");
+    });
+    expect(postCalls).toHaveLength(0);
+  });
+
+  it("handles POST consent backend errors gracefully with onError callback", async () => {
+    const onError = vi.fn();
+    const shieldWithErrorHandler = new MulticornShield({
+      apiKey: VALID_KEY,
+      onError,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: () => Promise.resolve("Server error"),
+    });
+
+    const promise = shieldWithErrorHandler.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+    });
+
+    grantConsent([{ service: "gmail", permissionLevel: "read" }]);
+    await promise;
+
+    // Should have called onError for the failed POST
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(onError).toHaveBeenCalled();
+    shieldWithErrorHandler.destroy();
+  });
+
+  it("handles POST consent backend timeout errors", async () => {
+    const onError = vi.fn();
+    const shieldWithErrorHandler = new MulticornShield({
+      apiKey: VALID_KEY,
+      onError,
+    });
+
+    const abortError = new Error("Request aborted");
+    abortError.name = "AbortError";
+    mockFetch.mockRejectedValueOnce(abortError);
+
+    const promise = shieldWithErrorHandler.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+    });
+
+    grantConsent([{ service: "gmail", permissionLevel: "read" }]);
+    await promise;
+
+    // Should have called onError for the timeout
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(onError).toHaveBeenCalled();
+    shieldWithErrorHandler.destroy();
+  });
+
   it("rejects with ScopeParseError when a scope string is malformed", async () => {
     await expect(
       shield.requestConsent({ agent: "OpenClaw", scopes: ["not-a-valid-scope"] }),

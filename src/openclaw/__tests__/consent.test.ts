@@ -31,6 +31,10 @@ describe("deriveDashboardUrl", () => {
   it("falls back to production dashboard for invalid URLs", () => {
     expect(deriveDashboardUrl("not-a-url")).toBe("https://app.multicorn.ai");
   });
+
+  it("handles 127.0.0.1 with different ports", () => {
+    expect(deriveDashboardUrl("http://127.0.0.1:3000")).toBe("http://127.0.0.1:5173/");
+  });
 });
 
 describe("buildConsentUrl", () => {
