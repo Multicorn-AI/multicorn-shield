@@ -7,6 +7,8 @@ import { handler, resolveAgentName, resetState } from "../hook/handler.js";
 const findOrRegisterAgentMock = vi.hoisted(() => vi.fn());
 const fetchGrantedScopesMock = vi.hoisted(() => vi.fn());
 const logActionMock = vi.hoisted(() => vi.fn());
+const checkActionPermissionMock = vi.hoisted(() => vi.fn());
+const pollApprovalStatusMock = vi.hoisted(() => vi.fn());
 const loadCachedScopesMock = vi.hoisted(() => vi.fn());
 const saveCachedScopesMock = vi.hoisted(() => vi.fn());
 const waitForConsentMock = vi.hoisted(() => vi.fn());
@@ -15,6 +17,8 @@ vi.mock("../shield-client.js", () => ({
   findOrRegisterAgent: findOrRegisterAgentMock,
   fetchGrantedScopes: fetchGrantedScopesMock,
   logAction: logActionMock,
+  checkActionPermission: checkActionPermissionMock,
+  pollApprovalStatus: pollApprovalStatusMock,
 }));
 
 vi.mock("../scope-cache.js", () => ({
@@ -59,6 +63,8 @@ beforeEach(() => {
   findOrRegisterAgentMock.mockReset();
   fetchGrantedScopesMock.mockReset();
   logActionMock.mockReset().mockResolvedValue(undefined);
+  checkActionPermissionMock.mockReset();
+  pollApprovalStatusMock.mockReset();
   loadCachedScopesMock.mockReset().mockResolvedValue(null);
   saveCachedScopesMock.mockReset().mockResolvedValue(undefined);
   waitForConsentMock.mockReset();
