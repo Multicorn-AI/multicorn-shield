@@ -151,6 +151,7 @@ jobs:
     needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: npm
     permissions:
       contents: write
       id-token: write
@@ -199,9 +200,7 @@ jobs:
           pnpm size || echo "Size check completed (may show warnings if close to limit)"
 
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm publish --no-git-checks --access public --provenance
 
   create-release:
     name: Create GitHub Release
