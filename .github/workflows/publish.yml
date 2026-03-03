@@ -55,6 +55,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+    if: false  # Disabled until scripts/generate-changelog.mjs is created
 
     steps:
       - name: Checkout multicorn-shield
@@ -147,7 +148,7 @@ jobs:
   publish:
     name: Publish to npm
     if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-test')
-    needs: [ci, update-changelog]
+    needs: ci
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -204,7 +205,7 @@ jobs:
 
   create-release:
     name: Create GitHub Release
-    needs: [ci, update-changelog]
+    needs: [ci, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -216,30 +217,33 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Fetch tags
-        run: git fetch --tags
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-
-      - name: Generate changelog markdown
+      - name: Extract changelog for release
         id: changelog
         run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          CHANGELOG_MD=$(node scripts/generate-changelog.mjs markdown "$TAG_NAME")
-          VERSION=$(echo "$TAG_NAME" | sed 's/^v//')
-          echo "body<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGELOG_MD" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          # Extract changelog section for this version
+          awk "/^## \[${TAG_VERSION}\]/,/^## \[/" CHANGELOG.md | sed '$d' > release_notes.txt || \
+          awk "/^## \[${TAG_VERSION}\]/,/^## \[Unreleased\]/" CHANGELOG.md | sed '$d' > release_notes.txt || \
+          awk "/^## \[${TAG_VERSION}\]/,0" CHANGELOG.md > release_notes.txt
+          # Remove the version header line
+          sed -i '1d' release_notes.txt
+          # Trim leading/trailing whitespace
+          sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' release_notes.txt
+          # Remove empty lines at start/end
+          sed -i '/./,$!d' release_notes.txt
+          sed -i ':a;/^[[:space:]]*$/{$d;N;ba}' release_notes.txt
+
+      - name: Extract version
+        id: version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          name: v${{ steps.changelog.outputs.version }}
-          body: ${{ steps.changelog.outputs.body }}
+          name: v${{ steps.version.outputs.version }}
+          body_path: release_notes.txt
           tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: false
