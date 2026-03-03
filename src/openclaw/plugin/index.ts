@@ -470,6 +470,13 @@ const plugin: OpenClawPluginDefinition = {
 
 export { plugin };
 
+// Top-level register export for OpenClaw Plugin API v2
+export function register(api: OpenClawPluginApi): void {
+  if (plugin.register) {
+    void plugin.register(api);
+  }
+}
+
 // Exported for testing
 export { readConfig, resolveAgentName, beforeToolCall, afterToolCall };
 
