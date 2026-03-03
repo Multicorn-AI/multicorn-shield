@@ -55,7 +55,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
-    if: false  # Disabled until scripts/generate-changelog.mjs is created
+    if: false # Disabled until scripts/generate-changelog.mjs is created
 
     steps:
       - name: Checkout multicorn-shield
