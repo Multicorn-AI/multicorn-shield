@@ -53,7 +53,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: read
+      contents: write
       id-token: write
 
     steps:
@@ -75,10 +75,55 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Extract version from package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Package version: $VERSION"
+
+      - name: Verify tag matches package.json version
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          PACKAGE_VERSION="${{ steps.package-version.outputs.version }}"
+          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)"
+            exit 1
+          fi
+          echo "Version match confirmed: $PACKAGE_VERSION"
+
       - name: Build
         run: pnpm build
 
-      - name: Publish
+      - name: Check package size
+        run: |
+          pnpm size || echo "Size check completed (may show warnings if close to limit)"
+
+      - name: Publish to npm
         run: pnpm publish --no-git-checks --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Extract changelog for release
+        id: changelog
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          # Extract changelog section for this version
+          awk "/^## \[${TAG_VERSION}\]/,/^## \[/" CHANGELOG.md | sed '$d' > release_notes.txt || \
+          awk "/^## \[${TAG_VERSION}\]/,/^## \[Unreleased\]/" CHANGELOG.md | sed '$d' > release_notes.txt || \
+          awk "/^## \[${TAG_VERSION}\]/,0" CHANGELOG.md > release_notes.txt
+          # Remove the version header line
+          sed -i '1d' release_notes.txt
+          # Trim leading/trailing whitespace
+          sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' release_notes.txt
+          # Remove empty lines at start/end
+          sed -i '/./,$!d' release_notes.txt
+          sed -i ':a;/^[[:space:]]*$/{$d;N;ba}' release_notes.txt
+
+      - name: Create GitHub release
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "v${{ steps.package-version.outputs.version }}" \
+            --notes-file release_notes.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
