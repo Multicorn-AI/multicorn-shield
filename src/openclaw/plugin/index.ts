@@ -10,7 +10,8 @@
  * Configuration is read from (in priority order):
  * 1. Plugin config (plugins.entries.multicorn-shield.env in openclaw.json)
  * 2. Process environment variables
- * 3. Hooks config fallback (hooks.internal.entries.multicorn-shield.env in openclaw.json)
+ * 3. Shared config (~/.multicorn/config.json, written by npx multicorn-proxy init)
+ * 4. Hooks config fallback (hooks.internal.entries.multicorn-shield.env in openclaw.json)
  *
  * Environment variables:
  * - MULTICORN_API_KEY (required)
@@ -73,14 +74,38 @@ interface ShieldConfig {
 }
 
 /**
- * Read config from plugin config (openclaw.json), then env vars, then hooks config as fallback.
+ * Read config from plugin config (openclaw.json), then env vars, then shared config, then hooks config as fallback.
  */
 function readConfig(): ShieldConfig {
   const pc = pluginConfig ?? {};
   let resolvedApiKey = asString(pc["apiKey"]) ?? process.env["MULTICORN_API_KEY"] ?? "";
   let resolvedBaseUrl = asString(pc["baseUrl"]) ?? process.env["MULTICORN_BASE_URL"] ?? "";
 
-  // Fallback: read from hooks.internal.entries if plugin config and env vars are both empty
+  // Fallback: read from shared config (~/.multicorn/config.json) if plugin config and env vars are both empty
+  if (!resolvedApiKey) {
+    try {
+      const multicornConfigPath = path.join(os.homedir(), ".multicorn", "config.json");
+      const multicornConfigContent = fs.readFileSync(multicornConfigPath, "utf-8");
+      const multicornConfig = JSON.parse(multicornConfigContent) as {
+        apiKey?: string;
+        baseUrl?: string;
+      } | null;
+      if (
+        multicornConfig &&
+        typeof multicornConfig.apiKey === "string" &&
+        multicornConfig.apiKey.length > 0
+      ) {
+        resolvedApiKey = multicornConfig.apiKey;
+        if (!resolvedBaseUrl) {
+          resolvedBaseUrl = multicornConfig.baseUrl ?? "https://api.multicorn.ai";
+        }
+      }
+    } catch {
+      // Config file not readable or doesn't exist - continue to next fallback
+    }
+  }
+
+  // Final fallback: read from hooks.internal.entries if still no API key found
   if (!resolvedApiKey) {
     try {
       const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
@@ -579,7 +604,7 @@ const plugin: OpenClawPluginDefinition = {
     const config = readConfig();
     if (config.apiKey.length === 0) {
       api.logger.error(
-        "Multicorn Shield: No API key found. Set MULTICORN_API_KEY in your OpenClaw config (~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.env.MULTICORN_API_KEY). Get a key from your Multicorn dashboard (Settings → API Keys).",
+        "Multicorn Shield: No API key found. Run `npx multicorn-proxy init` to set up your API key, or set MULTICORN_API_KEY in your OpenClaw config (~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.env.MULTICORN_API_KEY). Get a key from your Multicorn dashboard (Settings → API Keys).",
       );
     } else {
       api.logger.info(`Multicorn Shield connecting to ${config.baseUrl}`);
