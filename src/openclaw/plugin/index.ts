@@ -381,155 +381,160 @@ async function beforeToolCall(
   event: PluginHookBeforeToolCallEvent,
   ctx: PluginHookToolContext,
 ): Promise<PluginHookBeforeToolCallResult | undefined> {
-  const config = readConfig();
+  try {
+    const config = readConfig();
 
-  if (config.apiKey.length === 0) {
-    pluginLogger?.warn(
-      "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
-    );
-    return undefined;
-  }
-
-  const agentName = resolveAgentName(ctx.sessionKey ?? "", config.agentName);
-
-  const readiness = await ensureAgent(agentName, config.apiKey, config.baseUrl, config.failMode);
-
-  if (readiness === "block") {
-    return {
-      block: true,
-      blockReason:
-        "Multicorn Shield could not verify permissions. " +
-        "The Shield API is unreachable and fail-closed mode is enabled.",
-    };
-  }
-
-  // In skip mode (fail-open, API unreachable), let the tool call through
-  if (readiness === "skip") {
-    return undefined;
-  }
-
-  // Map tool to scope FIRST, before checking permissions
-  const command =
-    event.toolName === "exec" && typeof event.params["command"] === "string"
-      ? event.params["command"]
-      : undefined;
-  const mapping = mapToolToScope(event.toolName, command);
-
-  // Log the mapping to verify correct scope is being used
-  pluginLogger?.info(
-    `Multicorn Shield: tool=${event.toolName}, service=${mapping.service}, permissionLevel=${mapping.permissionLevel}`,
-  );
-
-  // For destructive exec commands, use actionType that backend will recognize as requiring write permission
-  // Backend checks if actionType contains "_delete" or "_write" to determine write permission needed
-  const actionType =
-    mapping.permissionLevel === "write" && event.toolName === "exec"
-      ? "exec_write"
-      : event.toolName;
-
-  // Build description for approval requests
-  const description = buildApprovalDescription(
-    agentName,
-    mapping.permissionLevel,
-    mapping.service,
-    event.toolName,
-    event.params,
-  );
-
-  // Check permission via POST /api/v1/actions (server is source of truth)
-  // Do this BEFORE triggering consent to avoid double-action
-  const permissionResult = await checkActionPermission(
-    {
-      agent: agentName,
-      service: mapping.service,
-      actionType: actionType,
-      status: "approved", // Status doesn't matter for permission check
-      metadata: {
-        description,
-      },
-    },
-    config.apiKey,
-    config.baseUrl,
-    pluginLogger ?? undefined,
-  );
-
-  if (permissionResult.status === "approved") {
-    // Action approved - refresh scopes to pick up newly granted permissions
-    if (agentRecord !== null) {
-      const scopes = await fetchGrantedScopes(
-        agentRecord.id,
-        config.apiKey,
-        config.baseUrl,
-        pluginLogger ?? undefined,
+    if (config.apiKey.length === 0) {
+      pluginLogger?.warn(
+        "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
       );
-      grantedScopes = scopes;
-      lastScopeRefresh = Date.now();
-      if (scopes.length > 0) {
-        await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
-          // Cache write failure is non-fatal
-        });
-      }
+      return undefined;
     }
-    // Allow tool call to proceed
-    return undefined;
-  }
 
-  if (permissionResult.status === "pending" && permissionResult.approvalId !== undefined) {
-    // Action pending approval - poll for status
+    const agentName = resolveAgentName(ctx.sessionKey ?? "", config.agentName);
+
+    const readiness = await ensureAgent(agentName, config.apiKey, config.baseUrl, config.failMode);
+
+    if (readiness === "block") {
+      return {
+        block: true,
+        blockReason:
+          "Multicorn Shield could not verify permissions. " +
+          "The Shield API is unreachable and fail-closed mode is enabled.",
+      };
+    }
+
+    // In skip mode (fail-open, API unreachable), let the tool call through
+    if (readiness === "skip") {
+      return undefined;
+    }
+
+    // Map tool to scope FIRST, before checking permissions
+    const command =
+      event.toolName === "exec" && typeof event.params["command"] === "string"
+        ? event.params["command"]
+        : undefined;
+    const mapping = mapToolToScope(event.toolName, command);
+
+    // Log the mapping to verify correct scope is being used
     pluginLogger?.info(
-      `Multicorn Shield: action pending approval (ID: ${permissionResult.approvalId}). Polling for status...`,
+      `Multicorn Shield: tool=${event.toolName}, service=${mapping.service}, permissionLevel=${mapping.permissionLevel}`,
     );
 
-    const pollResult = await pollApprovalStatus(
-      permissionResult.approvalId,
+    // For destructive exec commands, use actionType that backend will recognize as requiring write permission
+    // Backend checks if actionType contains "_delete" or "_write" to determine write permission needed
+    const actionType =
+      mapping.permissionLevel === "write" && event.toolName === "exec"
+        ? "exec_write"
+        : event.toolName;
+
+    // Build description for approval requests
+    const description = buildApprovalDescription(
+      agentName,
+      mapping.permissionLevel,
+      mapping.service,
+      event.toolName,
+      event.params,
+    );
+
+    // Check permission via POST /api/v1/actions (server is source of truth)
+    // Do this BEFORE triggering consent to avoid double-action
+    const permissionResult = await checkActionPermission(
+      {
+        agent: agentName,
+        service: mapping.service,
+        actionType: actionType,
+        status: "approved", // Status doesn't matter for permission check
+        metadata: {
+          description,
+        },
+      },
       config.apiKey,
       config.baseUrl,
       pluginLogger ?? undefined,
     );
 
-    if (pollResult === "approved") {
-      // Approval granted, allow tool call to proceed
+    if (permissionResult.status === "approved") {
+      // Action approved - refresh scopes to pick up newly granted permissions
+      if (agentRecord !== null) {
+        const scopes = await fetchGrantedScopes(
+          agentRecord.id,
+          config.apiKey,
+          config.baseUrl,
+          pluginLogger ?? undefined,
+        );
+        grantedScopes = scopes;
+        lastScopeRefresh = Date.now();
+        if (scopes.length > 0) {
+          await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+            // Cache write failure is non-fatal
+          });
+        }
+      }
+      // Allow tool call to proceed
       return undefined;
     }
 
-    if (pollResult === "rejected") {
+    if (permissionResult.status === "pending" && permissionResult.approvalId !== undefined) {
+      // Action pending approval - poll for status
+      pluginLogger?.info(
+        `Multicorn Shield: action pending approval (ID: ${permissionResult.approvalId}). Polling for status...`,
+      );
+
+      const pollResult = await pollApprovalStatus(
+        permissionResult.approvalId,
+        config.apiKey,
+        config.baseUrl,
+        pluginLogger ?? undefined,
+      );
+
+      if (pollResult === "approved") {
+        // Approval granted, allow tool call to proceed
+        return undefined;
+      }
+
+      if (pollResult === "rejected") {
+        return {
+          block: true,
+          blockReason: "Action was reviewed and rejected.",
+        };
+      }
+
+      if (pollResult === "expired") {
+        return {
+          block: true,
+          blockReason: "Approval request expired before a decision was made.",
+        };
+      }
+
+      // pollResult must be "timeout" at this point
       return {
         block: true,
-        blockReason: "Action was reviewed and rejected.",
+        blockReason: "Approval request timed out after 5 minutes.",
       };
     }
 
-    if (pollResult === "expired") {
-      return {
-        block: true,
-        blockReason: "Approval request expired before a decision was made.",
-      };
-    }
-
-    // pollResult must be "timeout" at this point
-    return {
-      block: true,
-      blockReason: "Approval request timed out after 5 minutes.",
+    // Action blocked (no approval available)
+    // Check if the specific scope is missing and trigger consent for that scope
+    const requestedScope: Scope = {
+      service: mapping.service,
+      permissionLevel: mapping.permissionLevel,
     };
+    if (!hasScope(grantedScopes, requestedScope) && agentRecord !== null) {
+      await ensureConsent(agentName, config.apiKey, config.baseUrl, mapping);
+    }
+
+    const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
+    const dashboardUrl = deriveDashboardUrl(config.baseUrl);
+    const reason =
+      `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
+      `Check pending approvals at ${dashboardUrl}/approvals `;
+
+    return { block: true, blockReason: reason };
+  } catch (e) {
+    pluginLogger?.error("SHIELD CRASH: " + String(e));
+    return { block: true, blockReason: "Shield internal error: " + String(e) };
   }
-
-  // Action blocked (no approval available)
-  // Check if the specific scope is missing and trigger consent for that scope
-  const requestedScope: Scope = {
-    service: mapping.service,
-    permissionLevel: mapping.permissionLevel,
-  };
-  if (!hasScope(grantedScopes, requestedScope) && agentRecord !== null) {
-    await ensureConsent(agentName, config.apiKey, config.baseUrl, mapping);
-  }
-
-  const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
-  const dashboardUrl = deriveDashboardUrl(config.baseUrl);
-  const reason =
-    `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-    `Check pending approvals at ${dashboardUrl}/approvals `;
-
-  return { block: true, blockReason: reason };
 }
 
 function afterToolCall(
