@@ -7,6 +7,7 @@ import {
   logAction,
   checkActionPermission,
   pollApprovalStatus,
+  resetAuthErrorFlag,
 } from "../shield-client.js";
 import type { PluginLogger } from "../plugin-sdk.types.js";
 
@@ -20,6 +21,7 @@ beforeEach(() => {
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
   stderrSpy = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+  resetAuthErrorFlag(); // Reset auth error flag before each test
 });
 
 afterEach(() => {
@@ -79,6 +81,75 @@ describe("findAgentByName", () => {
     const result = await findAgentByName("openclaw", TEST_API_KEY, TEST_BASE_URL);
     expect(result).toBeNull();
   });
+
+  it("logs auth error once on 401 and returns null", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 401 });
+
+    const result1 = await findAgentByName("openclaw", TEST_API_KEY, TEST_BASE_URL, logger);
+    const result2 = await findAgentByName("openclaw", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result1).toBeNull();
+    expect(result2).toBeNull();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs auth error once on 403 and returns null", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+
+    const result1 = await findAgentByName("openclaw", TEST_API_KEY, TEST_BASE_URL, logger);
+    const result2 = await findAgentByName("openclaw", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result1).toBeNull();
+    expect(result2).toBeNull();
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs rate limit message on 429", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 429 });
+
+    const result = await findAgentByName("openclaw", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Rate limited by Shield API"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Rate limited"));
+  });
+
+  it("logs server error message on 5xx", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 500 });
+
+    const result = await findAgentByName("openclaw", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toBeNull();
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Shield API error (500)"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Shield API error"));
+  });
 });
 
 describe("registerAgent", () => {
@@ -121,6 +192,36 @@ describe("registerAgent", () => {
     await expect(registerAgent("openclaw", TEST_API_KEY, TEST_BASE_URL)).rejects.toThrow(
       "unexpected response format",
     );
+  });
+
+  it("logs auth error once on 401 and throws", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 401 });
+
+    await expect(registerAgent("openclaw", TEST_API_KEY, TEST_BASE_URL, logger)).rejects.toThrow();
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs auth error once on 403 and throws", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+
+    await expect(registerAgent("openclaw", TEST_API_KEY, TEST_BASE_URL, logger)).rejects.toThrow();
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
   });
 });
 
@@ -234,6 +335,41 @@ describe("fetchGrantedScopes", () => {
     const scopes = await fetchGrantedScopes("agent-1", TEST_API_KEY, TEST_BASE_URL);
     expect(scopes).toEqual([]);
   });
+
+  it("logs auth error once on 401 and returns empty array", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 401 });
+
+    const scopes1 = await fetchGrantedScopes("agent-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    const scopes2 = await fetchGrantedScopes("agent-1", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(scopes1).toEqual([]);
+    expect(scopes2).toEqual([]);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs auth error once on 403 and returns empty array", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+
+    const scopes1 = await fetchGrantedScopes("agent-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    const scopes2 = await fetchGrantedScopes("agent-1", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(scopes1).toEqual([]);
+    expect(scopes2).toEqual([]);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("logAction", () => {
@@ -269,16 +405,70 @@ describe("logAction", () => {
     );
   });
 
-  it("writes to stderr on HTTP error without throwing", async () => {
+  it("logs server error on 5xx without throwing", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
     fetchMock.mockResolvedValue({ ok: false, status: 500 });
 
     await logAction(
       { agent: "openclaw", service: "terminal", actionType: "exec", status: "approved" },
       TEST_API_KEY,
       TEST_BASE_URL,
+      logger,
     );
 
-    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Action log failed: HTTP 500"));
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Shield API error (500)"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Shield API error"));
+  });
+
+  it("logs auth error once on 401 without throwing", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 401 });
+
+    await logAction(
+      { agent: "openclaw", service: "terminal", actionType: "exec", status: "approved" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+    await logAction(
+      { agent: "openclaw", service: "terminal", actionType: "exec", status: "approved" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs rate limit message on 429", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({ ok: false, status: 429 });
+
+    await logAction(
+      { agent: "openclaw", service: "terminal", actionType: "exec", status: "approved" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Rate limited"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Rate limited"));
   });
 
   it("writes to stderr on network error without throwing", async () => {
@@ -431,10 +621,98 @@ describe("checkActionPermission", () => {
     expect(result).toEqual({ status: "blocked" });
   });
 
-  it("returns { status: 'blocked' } on 403 response", async () => {
+  it("logs auth error once on 401 and returns blocked", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+    });
+
+    const result1 = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+    const result2 = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+
+    expect(result1).toEqual({ status: "blocked" });
+    expect(result2).toEqual({ status: "blocked" });
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs auth error once on 403 and returns blocked", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
     fetchMock.mockResolvedValue({
       ok: false,
       status: 403,
+    });
+
+    const result1 = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+    const result2 = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+
+    expect(result1).toEqual({ status: "blocked" });
+    expect(result2).toEqual({ status: "blocked" });
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs rate limit message on 429 and returns blocked", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 429,
     });
 
     const result = await checkActionPermission(
@@ -446,9 +724,41 @@ describe("checkActionPermission", () => {
       },
       TEST_API_KEY,
       TEST_BASE_URL,
+      logger,
     );
 
     expect(result).toEqual({ status: "blocked" });
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Rate limited"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Rate limited"));
+  });
+
+  it("logs server error on 5xx and returns blocked", async () => {
+    const logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+    });
+
+    const result = await checkActionPermission(
+      {
+        agent: "openclaw",
+        service: "terminal",
+        actionType: "exec",
+        status: "approved",
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+      logger,
+    );
+
+    expect(result).toEqual({ status: "blocked" });
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Shield API error (500)"));
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Shield API error"));
   });
 
   it("returns { status: 'blocked' } on network error", async () => {
@@ -711,5 +1021,99 @@ describe("pollApprovalStatus", () => {
     const result = await pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL);
 
     expect(result).toBe("approved");
+  });
+
+  it("logs auth error once on 401 and returns timeout", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 401 });
+
+    const result = await pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toBe("timeout");
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs auth error once on 403 and returns timeout", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+
+    const result = await pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toBe("timeout");
+    expect(logger.error).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+  });
+
+  it("logs rate limit message on 429 and continues polling", async () => {
+    let callCount = 0;
+    fetchMock.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({ ok: false, status: 429 });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              id: "approval-123",
+              status: "approved",
+              decided_at: "2026-03-01T00:00:00Z",
+            },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(1000); // Retry delay
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000); // Poll interval
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result).toBe("approved");
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Rate limited"));
+
+    vi.useRealTimers();
+  });
+
+  it("logs server error on 5xx and continues polling", async () => {
+    let callCount = 0;
+    fetchMock.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({ ok: false, status: 500 });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              id: "approval-123",
+              status: "approved",
+              decided_at: "2026-03-01T00:00:00Z",
+            },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollApprovalStatus("approval-123", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(1000); // Retry delay
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000); // Poll interval
+    await vi.runAllTimersAsync();
+
+    const result = await resultPromise;
+    expect(result).toBe("approved");
+    expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Shield API error (500)"));
+
+    vi.useRealTimers();
   });
 });

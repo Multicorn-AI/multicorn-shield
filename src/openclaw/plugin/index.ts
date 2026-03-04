@@ -123,9 +123,11 @@ async function ensureAgent(
     if (cached !== null && cached.length > 0) {
       grantedScopes = cached;
       // Still need the agent record for logging, but don't block on it
-      void findOrRegisterAgent(agentName, apiKey, baseUrl).then((record) => {
-        if (record !== null) agentRecord = record;
-      });
+      void findOrRegisterAgent(agentName, apiKey, baseUrl, pluginLogger ?? undefined).then(
+        (record) => {
+          if (record !== null) agentRecord = record;
+        },
+      );
       lastScopeRefresh = Date.now();
       return "ready";
     }
@@ -133,7 +135,7 @@ async function ensureAgent(
 
   // Register or find the agent
   if (agentRecord === null) {
-    const record = await findOrRegisterAgent(agentName, apiKey, baseUrl);
+    const record = await findOrRegisterAgent(agentName, apiKey, baseUrl, pluginLogger ?? undefined);
     if (record === null) {
       if (failMode === "closed") {
         return "block";
@@ -145,7 +147,12 @@ async function ensureAgent(
   }
 
   // Refresh scopes from the API
-  const scopes = await fetchGrantedScopes(agentRecord.id, apiKey, baseUrl);
+  const scopes = await fetchGrantedScopes(
+    agentRecord.id,
+    apiKey,
+    baseUrl,
+    pluginLogger ?? undefined,
+  );
   grantedScopes = scopes;
   lastScopeRefresh = Date.now();
 
@@ -364,6 +371,7 @@ async function beforeToolCall(
     },
     config.apiKey,
     config.baseUrl,
+    pluginLogger ?? undefined,
   );
 
   if (permissionResult.status === "approved") {
@@ -442,6 +450,7 @@ function afterToolCall(
     },
     config.apiKey,
     config.baseUrl,
+    pluginLogger ?? undefined,
   );
 
   return Promise.resolve();
