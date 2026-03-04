@@ -76,6 +76,7 @@ export function buildConsentUrl(
  *
  * Uses platform-specific commands. If the browser can't be opened,
  * the error is caught and the URL is printed to stderr instead.
+ * In test environments, spawn is typically mocked to prevent actual browser opening.
  */
 export function openBrowser(url: string): void {
   const platform = process.platform;
