@@ -217,6 +217,7 @@ describe("beforeToolCall", () => {
       expect.any(String),
       expect.any(String),
       { service: "terminal", permissionLevel: "execute" },
+      expect.anything(), // logger parameter (optional)
     );
     // After consent grants terminal:execute, the call should be blocked (no permission yet)
     expect(result).toEqual({
@@ -313,9 +314,15 @@ describe("beforeToolCall", () => {
 
     expect(result).toBeUndefined();
     expect(checkActionPermissionMock).toHaveBeenCalledWith(
-      expect.objectContaining({ service: "filesystem", actionType: "edit" }),
+      expect.objectContaining({
+        service: "filesystem",
+        actionType: "edit",
+        agent: "main",
+        status: "approved",
+      }),
       expect.any(String),
       expect.any(String),
+      expect.anything(), // logger parameter (optional)
     );
   });
 
@@ -328,7 +335,8 @@ describe("beforeToolCall", () => {
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     expect(findOrRegisterAgentMock).toHaveBeenCalledTimes(1);
-    expect(fetchGrantedScopesMock).toHaveBeenCalledTimes(1);
+    // fetchGrantedScopes is called: once in ensureAgent, then after each approval (2 more times)
+    expect(fetchGrantedScopesMock).toHaveBeenCalledTimes(3);
     expect(checkActionPermissionMock).toHaveBeenCalledTimes(2);
   });
 
@@ -343,6 +351,7 @@ describe("beforeToolCall", () => {
       "my-bot",
       expect.any(String),
       expect.any(String),
+      expect.anything(), // logger parameter (optional)
     );
   });
 
@@ -481,15 +490,18 @@ describe("beforeToolCall", () => {
 
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
-    // Verify connection success is logged once
-    expect(logger.info).toHaveBeenCalledWith(
-      expect.stringContaining("Multicorn Shield connected. Agent: main"),
+    // Verify connection success is logged once (after ensureAgent completes)
+    const connectionLogCalls = logger.info.mock.calls.filter((call) =>
+      String(call[0]).includes("Multicorn Shield connected. Agent: main"),
     );
+    expect(connectionLogCalls.length).toBe(1);
 
     // Make another call - should not log connection again
-    const infoCallCount = logger.info.mock.calls.length;
     await beforeToolCall(makeBeforeEvent("read_file"), makeCtx());
-    expect(logger.info.mock.calls.length).toBe(infoCallCount); // No new connection log
+    const connectionLogCallsAfter = logger.info.mock.calls.filter((call) =>
+      String(call[0]).includes("Multicorn Shield connected. Agent: main"),
+    );
+    expect(connectionLogCallsAfter.length).toBe(1); // Still only one connection log
   });
 });
 
@@ -502,13 +514,13 @@ describe("afterToolCall", () => {
     await afterToolCall(makeAfterEvent("exec", { durationMs: 150 }), makeCtx());
 
     expect(logActionMock).toHaveBeenCalledWith(
-      expect.objectContaining({
+      {
         agent: "main",
         service: "terminal",
         actionType: "exec",
         status: "approved",
-        metadata: expect.objectContaining({ durationMs: 150 }) as Record<string, unknown>,
-      }) as Record<string, unknown>,
+        metadata: { durationMs: 150 },
+      },
       expect.any(String),
       expect.any(String),
       expect.anything(), // logger parameter (optional)
@@ -519,13 +531,13 @@ describe("afterToolCall", () => {
     await afterToolCall(makeAfterEvent("exec", { error: "command not found" }), makeCtx());
 
     expect(logActionMock).toHaveBeenCalledWith(
-      expect.objectContaining({
+      {
+        agent: "main",
+        service: "terminal",
+        actionType: "exec",
         status: "blocked",
-        metadata: expect.objectContaining({ error: "command not found" }) as Record<
-          string,
-          unknown
-        >,
-      }) as Record<string, unknown>,
+        metadata: { error: "command not found" },
+      },
       expect.any(String),
       expect.any(String),
       expect.anything(), // logger parameter (optional)
