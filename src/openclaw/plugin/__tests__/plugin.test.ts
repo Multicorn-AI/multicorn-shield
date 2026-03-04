@@ -214,10 +214,10 @@ describe("beforeToolCall", () => {
     expect(waitForConsentMock).toHaveBeenCalledWith(
       "agent-1",
       "main",
-      expect.any(String),
-      expect.any(String),
+      "mcs_test_key_12345678",
+      "http://localhost:8080",
       { service: "terminal", permissionLevel: "execute" },
-      expect.anything(), // logger parameter (optional)
+      undefined, // logger parameter (optional, undefined in test)
     );
     // After consent grants terminal:execute, the call should be blocked (no permission yet)
     expect(result).toEqual({
@@ -320,9 +320,9 @@ describe("beforeToolCall", () => {
         agent: "main",
         status: "approved",
       }),
-      expect.any(String),
-      expect.any(String),
-      expect.anything(), // logger parameter (optional)
+      "mcs_test_key_12345678",
+      "http://localhost:8080",
+      undefined, // logger parameter (optional, undefined in test)
     );
   });
 
@@ -349,9 +349,9 @@ describe("beforeToolCall", () => {
 
     expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
       "my-bot",
-      expect.any(String),
-      expect.any(String),
-      expect.anything(), // logger parameter (optional)
+      "mcs_test_key_12345678",
+      "http://localhost:8080",
+      undefined, // logger parameter (optional, undefined in test)
     );
   });
 
@@ -473,6 +473,7 @@ describe("beforeToolCall", () => {
   });
 
   it("logs agent name on first successful connection", async () => {
+    resetState(); // Reset state first to clear connectionLogged flag
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const api = {
       id: "multicorn-shield",
@@ -481,8 +482,7 @@ describe("beforeToolCall", () => {
       logger,
       on: vi.fn(),
     } as unknown as OpenClawPluginApi;
-    void plugin.register?.(api);
-    resetState();
+    void plugin.register?.(api); // Register after resetState to set up logger
 
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
@@ -521,9 +521,9 @@ describe("afterToolCall", () => {
         status: "approved",
         metadata: { durationMs: 150 },
       },
-      expect.any(String),
-      expect.any(String),
-      expect.anything(), // logger parameter (optional)
+      "mcs_test_key_12345678",
+      "http://localhost:8080",
+      undefined, // logger parameter (optional, undefined in test)
     );
   });
 
@@ -538,9 +538,9 @@ describe("afterToolCall", () => {
         status: "blocked",
         metadata: { error: "command not found" },
       },
-      expect.any(String),
-      expect.any(String),
-      expect.anything(), // logger parameter (optional)
+      "mcs_test_key_12345678",
+      "http://localhost:8080",
+      undefined, // logger parameter (optional, undefined in test)
     );
   });
 
