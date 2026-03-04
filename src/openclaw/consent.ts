@@ -52,10 +52,21 @@ export function deriveDashboardUrl(baseUrl: string): string {
 
 /**
  * Build the consent URL that the user visits to grant permissions.
+ *
+ * @param agentName - The agent name
+ * @param dashboardUrl - The dashboard base URL
+ * @param scope - Optional scope to include in the URL (e.g., { service: "terminal", permissionLevel: "execute" })
  */
-export function buildConsentUrl(agentName: string, dashboardUrl: string): string {
+export function buildConsentUrl(
+  agentName: string,
+  dashboardUrl: string,
+  scope?: { service: string; permissionLevel: string },
+): string {
   const base = dashboardUrl.replace(/\/+$/, "");
   const params = new URLSearchParams({ agent: agentName });
+  if (scope) {
+    params.set("scopes", `${scope.service}:${scope.permissionLevel}`);
+  }
   return `${base}/consent?${params.toString()}`;
 }
 

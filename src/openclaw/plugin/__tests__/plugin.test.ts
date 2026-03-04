@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import type {
   OpenClawPluginApi,
   PluginHookBeforeToolCallEvent,
@@ -463,6 +466,7 @@ describe("afterToolCall", () => {
       }) as Record<string, unknown>,
       expect.any(String),
       expect.any(String),
+      expect.anything(), // logger parameter (optional)
     );
   });
 
@@ -479,6 +483,7 @@ describe("afterToolCall", () => {
       }) as Record<string, unknown>,
       expect.any(String),
       expect.any(String),
+      expect.anything(), // logger parameter (optional)
     );
   });
 
@@ -488,5 +493,190 @@ describe("afterToolCall", () => {
     await afterToolCall(makeAfterEvent("exec"), makeCtx());
 
     expect(logActionMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Config fallback tests
+// ---------------------------------------------------------------------------
+
+describe("config fallback", () => {
+  let readFileSyncSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    readFileSyncSpy = vi.spyOn(fs, "readFileSync") as ReturnType<typeof vi.spyOn>;
+    vi.spyOn(os, "homedir").mockReturnValue("/home/test");
+    vi.stubEnv("MULTICORN_API_KEY", "");
+    vi.stubEnv("MULTICORN_BASE_URL", "");
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("reads API key from hooks.internal.entries when plugin config and env vars are empty", async () => {
+    const warnMock = vi.fn();
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: warnMock, error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: {}, // Empty plugin config
+    } as unknown as OpenClawPluginApi;
+
+    const mockConfig = {
+      hooks: {
+        internal: {
+          entries: {
+            "multicorn-shield": {
+              env: {
+                MULTICORN_API_KEY: "mcs_hook_key_12345",
+                MULTICORN_BASE_URL: "https://api.multicorn.ai",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    readFileSyncSpy.mockReturnValue(JSON.stringify(mockConfig));
+
+    void plugin.register?.(api);
+    resetState();
+
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    expect(readFileSyncSpy).toHaveBeenCalledWith(
+      path.join("/home/test", ".openclaw", "openclaw.json"),
+      "utf-8",
+    );
+    expect(warnMock).toHaveBeenCalledWith(
+      expect.stringContaining("Reading config from hooks.internal.entries"),
+    );
+    expect(findOrRegisterAgentMock).toHaveBeenCalled();
+  });
+
+  it("env vars take priority over openclaw.json fallback", async () => {
+    const warnMock = vi.fn();
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: warnMock, error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: {}, // Empty plugin config
+    } as unknown as OpenClawPluginApi;
+
+    vi.stubEnv("MULTICORN_API_KEY", "mcs_env_key_67890");
+    vi.stubEnv("MULTICORN_BASE_URL", "https://custom.api.multicorn.ai");
+
+    const mockConfig = {
+      hooks: {
+        internal: {
+          entries: {
+            "multicorn-shield": {
+              env: {
+                MULTICORN_API_KEY: "mcs_hook_key_12345",
+                MULTICORN_BASE_URL: "https://api.multicorn.ai",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    readFileSyncSpy.mockReturnValue(JSON.stringify(mockConfig));
+
+    void plugin.register?.(api);
+    resetState();
+
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    // Should not read from file when env vars are set
+    expect(readFileSyncSpy).not.toHaveBeenCalled();
+    expect(warnMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("Reading config from hooks.internal.entries"),
+    );
+    expect(findOrRegisterAgentMock).toHaveBeenCalled();
+  });
+
+  it("plugin config takes priority over env vars and fallback", async () => {
+    const warnMock = vi.fn();
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: warnMock, error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: {
+        apiKey: "mcs_plugin_key_11111",
+        baseUrl: "https://plugin.api.multicorn.ai",
+      },
+    } as unknown as OpenClawPluginApi;
+
+    vi.stubEnv("MULTICORN_API_KEY", "mcs_env_key_67890");
+
+    const mockConfig = {
+      hooks: {
+        internal: {
+          entries: {
+            "multicorn-shield": {
+              env: {
+                MULTICORN_API_KEY: "mcs_hook_key_12345",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    readFileSyncSpy.mockReturnValue(JSON.stringify(mockConfig));
+
+    void plugin.register?.(api);
+    resetState();
+
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    // Should not read from file when plugin config is set
+    expect(readFileSyncSpy).not.toHaveBeenCalled();
+    expect(warnMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("Reading config from hooks.internal.entries"),
+    );
+    expect(findOrRegisterAgentMock).toHaveBeenCalled();
+  });
+
+  it("handles missing config file gracefully", () => {
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: {},
+    } as unknown as OpenClawPluginApi;
+
+    readFileSyncSpy.mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory");
+    });
+
+    void plugin.register?.(api);
+    resetState();
+
+    // Should not crash, just log error about missing API key
+    expect(readFileSyncSpy).toHaveBeenCalled();
   });
 });
