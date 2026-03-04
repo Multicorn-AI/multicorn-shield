@@ -48,6 +48,7 @@ let consentInProgress = false;
 let lastScopeRefresh = 0;
 let pluginLogger: PluginLogger | null = null;
 let pluginConfig: Record<string, unknown> | undefined;
+let connectionLogged = false;
 
 const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
@@ -160,6 +161,12 @@ async function ensureAgent(
     await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
       // Cache write failure is non-fatal
     });
+  }
+
+  // Log connection success once per session
+  if (!connectionLogged) {
+    connectionLogged = true;
+    pluginLogger?.info(`Multicorn Shield connected. Agent: ${agentName}`);
   }
 
   return "ready";
@@ -474,6 +481,16 @@ const plugin: OpenClawPluginDefinition = {
     api.on("before_tool_call", beforeToolCall, { priority: 10 });
     api.on("after_tool_call", afterToolCall);
     api.logger.info("Multicorn Shield plugin registered.");
+
+    // Startup logging: check config and log connection info or error
+    const config = readConfig();
+    if (config.apiKey.length === 0) {
+      api.logger.error(
+        "Multicorn Shield: No API key found. Set MULTICORN_API_KEY in your OpenClaw config (~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.env.MULTICORN_API_KEY). Get a key from your Multicorn dashboard (Settings → API Keys).",
+      );
+    } else {
+      api.logger.info(`Multicorn Shield connecting to ${config.baseUrl}`);
+    }
   },
 };
 
@@ -499,4 +516,5 @@ export function resetState(): void {
   lastScopeRefresh = 0;
   pluginLogger = null;
   pluginConfig = undefined;
+  connectionLogged = false;
 }

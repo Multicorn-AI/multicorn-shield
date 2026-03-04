@@ -25,6 +25,24 @@ metadata:
 > openclaw gateway restart
 > ```
 >
+> **Plugin Configuration:** Configure the plugin in `~/.openclaw/openclaw.json`:
+>
+> ```json
+> {
+>   "plugins": {
+>     "entries": {
+>       "multicorn-shield": {
+>         "enabled": true,
+>         "env": {
+>           "MULTICORN_API_KEY": "mcs_your_key_here",
+>           "MULTICORN_BASE_URL": "https://api.multicorn.ai"
+>         }
+>       }
+>     }
+>   }
+> }
+> ```
+>
 > See the plugin README for full instructions.
 
 Governance layer for OpenClaw agents. Every tool call is checked against your Shield permissions before it runs. Blocked actions never reach the tool. All activity - approved and blocked - shows up in your Shield dashboard.

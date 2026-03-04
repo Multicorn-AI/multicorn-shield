@@ -104,6 +104,7 @@ describe("plugin definition", () => {
 
   it("register() logs that the plugin was registered", () => {
     const infoMock = vi.fn();
+    vi.stubEnv("MULTICORN_API_KEY", "mcs_test_key_12345678");
     const api = {
       id: "multicorn-shield",
       name: "Multicorn Shield",
@@ -115,6 +116,49 @@ describe("plugin definition", () => {
     void plugin.register?.(api);
 
     expect(infoMock).toHaveBeenCalledWith("Multicorn Shield plugin registered.");
+    expect(infoMock).toHaveBeenCalledWith(
+      expect.stringContaining("Multicorn Shield connecting to"),
+    );
+  });
+
+  it("register() logs error when API key is missing", () => {
+    const errorMock = vi.fn();
+    vi.stubEnv("MULTICORN_API_KEY", "");
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: errorMock },
+      on: vi.fn(),
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
+
+    expect(errorMock).toHaveBeenCalledWith(
+      expect.stringContaining("Multicorn Shield: No API key found"),
+    );
+    expect(errorMock).toHaveBeenCalledWith(
+      expect.stringContaining("plugins.entries.multicorn-shield.env.MULTICORN_API_KEY"),
+    );
+  });
+
+  it("register() logs connection info when API key is present", () => {
+    const infoMock = vi.fn();
+    vi.stubEnv("MULTICORN_API_KEY", "mcs_test_key_12345678");
+    vi.stubEnv("MULTICORN_BASE_URL", "https://api.multicorn.ai");
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: infoMock, warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
+
+    expect(infoMock).toHaveBeenCalledWith(
+      "Multicorn Shield connecting to https://api.multicorn.ai",
+    );
   });
 });
 
@@ -369,6 +413,35 @@ describe("beforeToolCall", () => {
     // (Actual error logging is tested in shield-client tests)
     expect(findOrRegisterAgentMock).toHaveBeenCalled();
     expect(checkActionPermissionMock).toHaveBeenCalled();
+  });
+
+  it("logs agent name on first successful connection", async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger,
+      on: vi.fn(),
+    } as unknown as OpenClawPluginApi;
+    void plugin.register?.(api);
+    resetState();
+
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    // Verify connection success is logged once
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.stringContaining("Multicorn Shield connected. Agent: main"),
+    );
+
+    // Make another call - should not log connection again
+    const infoCallCount = logger.info.mock.calls.length;
+    await beforeToolCall(makeBeforeEvent("read_file"), makeCtx());
+    expect(logger.info.mock.calls.length).toBe(infoCallCount); // No new connection log
   });
 });
 
