@@ -452,6 +452,7 @@ describe("consent edge cases", () => {
     readFileMock.mockRejectedValue(new Error("ENOENT"));
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
+    spawnMock.mockImplementation(() => ({ unref: vi.fn() }));
   });
 
   afterEach(() => {
