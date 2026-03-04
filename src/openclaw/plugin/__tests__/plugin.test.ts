@@ -34,9 +34,13 @@ vi.mock("../../scope-cache.js", () => ({
   saveCachedScopes: saveCachedScopesMock,
 }));
 
-vi.mock("../../consent.js", () => ({
-  waitForConsent: waitForConsentMock,
-}));
+vi.mock("../../consent.js", async () => {
+  const actual = await vi.importActual("../../consent.js");
+  return {
+    ...actual,
+    waitForConsent: waitForConsentMock,
+  };
+});
 
 vi.mock("node:fs", () => ({
   readFileSync: readFileSyncMock,
