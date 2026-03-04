@@ -32,7 +32,7 @@ import {
   logAction,
   type AgentRecord,
 } from "../shield-client.js";
-import { waitForConsent } from "../consent.js";
+import { waitForConsent, deriveDashboardUrl } from "../consent.js";
 import { hasScope } from "../../scopes/scope-validator.js";
 import type { Scope, PermissionLevel } from "../../types/index.js";
 
@@ -161,6 +161,19 @@ async function ensureConsent(
 ): Promise<void> {
   if (agentRecord === null) return;
 
+  // Check API-fetched scopes to determine if agent has zero permissions
+  // This ensures we don't re-trigger consent for agents with existing permissions from previous sessions
+  const apiScopes = await fetchGrantedScopes(agentRecord.id, apiKey, baseUrl);
+
+  // Only open consent screen if agent has zero permissions (first-time setup)
+  // If agent has any permissions, skip consent and let the action go through approval flow
+  if (apiScopes.length > 0) {
+    // Agent has permissions - update in-memory state and skip consent
+    grantedScopes = apiScopes;
+    lastScopeRefresh = Date.now();
+    return;
+  }
+
   // If a specific scope is requested, check if that exact scope is granted
   // If no scope is requested, check if any scopes exist (first-time setup)
   if (scope !== undefined) {
@@ -251,9 +264,10 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
 
   if (!permitted) {
     const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
+    const dashboardUrl = deriveDashboardUrl(config.baseUrl);
     event.messages.push(
       `Permission denied: ${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-        "Visit the Multicorn Shield dashboard to manage permissions.",
+        `Check pending approvals at ${dashboardUrl}/approvals`,
     );
 
     // Log the blocked action (fire-and-forget)
