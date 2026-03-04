@@ -15,6 +15,14 @@ import { createInterface } from "node:readline";
 const CONFIG_DIR = join(homedir(), ".multicorn");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
+const OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
+
+const OPENCLAW_ENOENT_MESSAGE =
+  "OpenClaw config not found at ~/.openclaw/openclaw.json. If you're using OpenClaw, install it and then re-run 'npx multicorn-proxy init' to automatically configure your API key.\n";
+const OPENCLAW_PARSE_WARNING =
+  "Multicorn Shield: Could not update ~/.openclaw/openclaw.json - please set MULTICORN_API_KEY manually.\n";
+const OPENCLAW_UPDATED_MESSAGE = "OpenClaw config updated at ~/.openclaw/openclaw.json\n";
+
 export interface ProxyConfig {
   readonly apiKey: string;
   readonly baseUrl: string;
@@ -43,6 +51,73 @@ export async function saveConfig(config: ProxyConfig): Promise<void> {
     encoding: "utf8",
     mode: 0o600,
   });
+}
+
+function isErrnoException(e: unknown): e is NodeJS.ErrnoException {
+  return typeof e === "object" && e !== null && "code" in e;
+}
+
+/**
+ * If ~/.openclaw/openclaw.json exists, set MULTICORN_API_KEY and MULTICORN_BASE_URL
+ * under hooks.internal.entries["multicorn-shield"].env. Creates that path if missing.
+ * If the file does not exist, logs a one-line message and returns. If the file is
+ * malformed JSON, logs a warning and returns without throwing.
+ */
+export async function updateOpenClawConfigIfPresent(
+  apiKey: string,
+  baseUrl: string,
+): Promise<void> {
+  let raw: string;
+  try {
+    raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      process.stderr.write(OPENCLAW_ENOENT_MESSAGE);
+      return;
+    }
+    throw e;
+  }
+
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    process.stderr.write(OPENCLAW_PARSE_WARNING);
+    return;
+  }
+
+  let hooks = obj["hooks"] as Record<string, unknown> | undefined;
+  if (hooks === undefined || typeof hooks !== "object") {
+    hooks = {};
+    obj["hooks"] = hooks;
+  }
+  let internal = hooks["internal"] as Record<string, unknown> | undefined;
+  if (internal === undefined || typeof internal !== "object") {
+    internal = { enabled: true, entries: {} };
+    hooks["internal"] = internal;
+  }
+  let entries = internal["entries"] as Record<string, unknown> | undefined;
+  if (entries === undefined || typeof entries !== "object") {
+    entries = {};
+    internal["entries"] = entries;
+  }
+  let shield = entries["multicorn-shield"] as Record<string, unknown> | undefined;
+  if (shield === undefined || typeof shield !== "object") {
+    shield = { enabled: true, env: {} };
+    entries["multicorn-shield"] = shield;
+  }
+  let env = shield["env"] as Record<string, unknown> | undefined;
+  if (env === undefined || typeof env !== "object") {
+    env = {};
+    shield["env"] = env;
+  }
+  env["MULTICORN_API_KEY"] = apiKey;
+  env["MULTICORN_BASE_URL"] = baseUrl;
+
+  await writeFile(OPENCLAW_CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n", {
+    encoding: "utf8",
+  });
+  process.stderr.write(OPENCLAW_UPDATED_MESSAGE);
 }
 
 export async function validateApiKey(
@@ -114,6 +189,14 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
 
   rl.close();
   await saveConfig(config);
+
+  try {
+    await updateOpenClawConfigIfPresent(config.apiKey, config.baseUrl);
+  } catch {
+    process.stderr.write(
+      "Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json if you use OpenClaw.\n",
+    );
+  }
 
   process.stderr.write(`\nConfig saved to ${CONFIG_PATH}\n`);
   process.stderr.write("Run your agent with: npx multicorn-proxy --wrap <your-mcp-server>\n");
