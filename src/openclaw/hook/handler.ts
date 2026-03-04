@@ -33,7 +33,8 @@ import {
   type AgentRecord,
 } from "../shield-client.js";
 import { waitForConsent } from "../consent.js";
-import type { Scope } from "../../types/index.js";
+import { hasScope } from "../../scopes/scope-validator.js";
+import type { Scope, PermissionLevel } from "../../types/index.js";
 
 // In-memory state across hook invocations within a single gateway session.
 // Populated on first tool call, then reused.
@@ -150,14 +151,31 @@ async function ensureAgent(
 }
 
 /**
- * Run the consent flow if no scopes have been granted yet.
+ * Run the consent flow if the requested scope has not been granted yet.
  */
-async function ensureConsent(agentName: string, apiKey: string, baseUrl: string): Promise<void> {
-  if (grantedScopes.length > 0 || consentInProgress || agentRecord === null) return;
+async function ensureConsent(
+  agentName: string,
+  apiKey: string,
+  baseUrl: string,
+  scope?: { service: string; permissionLevel: string },
+): Promise<void> {
+  if (agentRecord === null) return;
+
+  // If a specific scope is requested, check if that exact scope is granted
+  // If no scope is requested, check if any scopes exist (first-time setup)
+  if (scope !== undefined) {
+    const requestedScope: Scope = {
+      service: scope.service,
+      permissionLevel: scope.permissionLevel as PermissionLevel,
+    };
+    if (hasScope(grantedScopes, requestedScope) || consentInProgress) return;
+  } else {
+    if (grantedScopes.length > 0 || consentInProgress) return;
+  }
 
   consentInProgress = true;
   try {
-    const scopes = await waitForConsent(agentRecord.id, agentName, apiKey, baseUrl);
+    const scopes = await waitForConsent(agentRecord.id, agentName, apiKey, baseUrl, scope);
     grantedScopes = scopes;
     await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
       // Cache write failure is non-fatal
@@ -214,10 +232,18 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
     return;
   }
 
-  // If no scopes and we have an agent record, trigger consent
-  await ensureConsent(agentName, config.apiKey, config.baseUrl);
-
+  // Map tool to scope first, then check if that specific scope is granted
   const mapping = mapToolToScope(event.context.toolName);
+  const requestedScope: Scope = {
+    service: mapping.service,
+    permissionLevel: mapping.permissionLevel,
+  };
+
+  // Trigger consent if the specific scope is missing
+  if (!hasScope(grantedScopes, requestedScope)) {
+    await ensureConsent(agentName, config.apiKey, config.baseUrl, mapping);
+  }
+
   const permitted = isPermitted(event);
 
   if (!permitted) {

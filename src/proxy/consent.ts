@@ -240,9 +240,13 @@ export async function waitForConsent(
   baseUrl: string,
   dashboardUrl: string,
   logger: ProxyLogger,
+  scope?: { service: string; permissionLevel: string },
 ): Promise<readonly Scope[]> {
-  const detectedScopes = detectScopeHints();
-  const consentUrl = buildConsentUrl(agentName, detectedScopes, dashboardUrl);
+  // Use the provided scope if available, otherwise fall back to detected scopes
+  const scopeStrings: readonly string[] = scope
+    ? [`${scope.service}:${scope.permissionLevel}`]
+    : detectScopeHints();
+  const consentUrl = buildConsentUrl(agentName, scopeStrings, dashboardUrl);
 
   logger.info("Opening consent page in your browser.", { url: consentUrl });
   process.stderr.write(

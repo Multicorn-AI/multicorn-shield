@@ -44,7 +44,8 @@ import {
   type AgentRecord,
 } from "../shield-client.js";
 import { waitForConsent } from "../consent.js";
-import type { Scope } from "../../types/index.js";
+import { hasScope } from "../../scopes/scope-validator.js";
+import type { Scope, PermissionLevel } from "../../types/index.js";
 
 // ---------------------------------------------------------------------------
 // In-memory state (persists across hook invocations within a gateway session)
@@ -223,7 +224,19 @@ async function ensureConsent(
   baseUrl: string,
   scope?: { service: string; permissionLevel: string },
 ): Promise<void> {
-  if (grantedScopes.length > 0 || consentInProgress || agentRecord === null) return;
+  if (agentRecord === null) return;
+
+  // If a specific scope is requested, check if that exact scope is granted
+  // If no scope is requested, check if any scopes exist (first-time setup)
+  if (scope !== undefined) {
+    const requestedScope: Scope = {
+      service: scope.service,
+      permissionLevel: scope.permissionLevel as PermissionLevel,
+    };
+    if (hasScope(grantedScopes, requestedScope) || consentInProgress) return;
+  } else {
+    if (grantedScopes.length > 0 || consentInProgress) return;
+  }
 
   consentInProgress = true;
   try {
@@ -497,9 +510,12 @@ async function beforeToolCall(
   }
 
   // Action blocked (no approval available)
-  // Only trigger consent if we have no scopes at all (first-time setup)
-  // If we have some scopes but not this one, don't trigger consent - user should use Permissions page
-  if (grantedScopes.length === 0 && agentRecord !== null) {
+  // Check if the specific scope is missing and trigger consent for that scope
+  const requestedScope: Scope = {
+    service: mapping.service,
+    permissionLevel: mapping.permissionLevel,
+  };
+  if (!hasScope(grantedScopes, requestedScope) && agentRecord !== null) {
     await ensureConsent(agentName, config.apiKey, config.baseUrl, mapping);
   }
 

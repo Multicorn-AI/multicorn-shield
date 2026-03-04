@@ -17,7 +17,7 @@
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
-import { validateScopeAccess } from "../scopes/scope-validator.js";
+import { validateScopeAccess, hasScope } from "../scopes/scope-validator.js";
 import { createActionLogger } from "../logger/action-logger.js";
 import { createSpendingChecker, dollarsToCents } from "../spending/spending-checker.js";
 import type { SpendingLimits, SpendingChecker } from "../spending/spending-checker.js";
@@ -98,14 +98,25 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     }
   }
 
-  async function ensureConsent(): Promise<void> {
-    if (grantedScopes.length > 0 || consentInProgress) return;
+  async function ensureConsent(requestedScope?: Scope): Promise<void> {
     // agentId is empty when the service was unreachable at startup.
     // Consent requires the service, so skip and let the permission check block the call.
     if (agentId.length === 0) return;
 
+    // If a specific scope is requested, check if that exact scope is granted
+    // If no scope is requested, check if any scopes exist (first-time setup)
+    if (requestedScope !== undefined) {
+      if (hasScope(grantedScopes, requestedScope) || consentInProgress) return;
+    } else {
+      if (grantedScopes.length > 0 || consentInProgress) return;
+    }
+
     consentInProgress = true;
     try {
+      const scopeParam =
+        requestedScope !== undefined
+          ? { service: requestedScope.service, permissionLevel: requestedScope.permissionLevel }
+          : undefined;
       const scopes = await waitForConsent(
         agentId,
         config.agentName,
@@ -113,6 +124,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         config.baseUrl,
         config.dashboardUrl,
         config.logger,
+        scopeParam,
       );
       grantedScopes = scopes;
       await saveCachedScopes(config.agentName, agentId, scopes);
@@ -130,8 +142,6 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     const toolParams = extractToolCallParams(request);
     if (toolParams === null) return null;
 
-    await ensureConsent();
-
     const service = extractServiceFromToolName(toolParams.name);
     const action = extractActionFromToolName(toolParams.name);
     const requestedScope: Scope = { service, permissionLevel: "execute" };
@@ -143,22 +153,28 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
       allowed: validation.allowed,
     });
 
+    // Trigger consent if the specific scope is missing
     if (!validation.allowed) {
-      if (actionLogger !== null) {
-        if (!config.agentName || config.agentName.trim().length === 0) {
-          process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
-        } else {
-          await actionLogger.logAction({
-            agent: config.agentName,
-            service,
-            actionType: action,
-            status: "blocked",
-          });
+      await ensureConsent(requestedScope);
+      // Re-validate after consent attempt
+      const revalidation = validateScopeAccess(grantedScopes, requestedScope);
+      if (!revalidation.allowed) {
+        if (actionLogger !== null) {
+          if (!config.agentName || config.agentName.trim().length === 0) {
+            process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
+          } else {
+            await actionLogger.logAction({
+              agent: config.agentName,
+              service,
+              actionType: action,
+              status: "blocked",
+            });
+          }
         }
-      }
 
-      const blocked = buildBlockedResponse(request.id, service, "execute", config.dashboardUrl);
-      return JSON.stringify(blocked);
+        const blocked = buildBlockedResponse(request.id, service, "execute", config.dashboardUrl);
+        return JSON.stringify(blocked);
+      }
     }
 
     if (spendingChecker !== null) {
