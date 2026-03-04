@@ -7,7 +7,12 @@
  * - before_tool_call: checks permissions and blocks unauthorized actions
  * - after_tool_call: logs activity to the Shield dashboard (fire-and-forget)
  *
- * Configuration is read from environment variables:
+ * Configuration is read from (in priority order):
+ * 1. Plugin config (plugins.entries.multicorn-shield.env in openclaw.json)
+ * 2. Process environment variables
+ * 3. Hooks config fallback (hooks.internal.entries.multicorn-shield.env in openclaw.json)
+ *
+ * Environment variables:
  * - MULTICORN_API_KEY (required)
  * - MULTICORN_BASE_URL (default: https://api.multicorn.ai)
  * - MULTICORN_AGENT_NAME (override, default: derived from session key)
@@ -16,6 +21,9 @@
  * @module openclaw/plugin
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import * as os from "node:os";
 import type {
   OpenClawPluginApi,
   OpenClawPluginDefinition,
@@ -48,6 +56,7 @@ let consentInProgress = false;
 let lastScopeRefresh = 0;
 let pluginLogger: PluginLogger | null = null;
 let pluginConfig: Record<string, unknown> | undefined;
+let connectionLogged = false;
 
 const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
@@ -63,17 +72,54 @@ interface ShieldConfig {
 }
 
 /**
- * Read config from plugin config (openclaw.json), then env vars as fallback.
+ * Read config from plugin config (openclaw.json), then env vars, then hooks config as fallback.
  */
 function readConfig(): ShieldConfig {
   const pc = pluginConfig ?? {};
-  const apiKey = asString(pc["apiKey"]) ?? process.env["MULTICORN_API_KEY"] ?? "";
-  const baseUrl =
-    asString(pc["baseUrl"]) ?? process.env["MULTICORN_BASE_URL"] ?? "https://api.multicorn.ai";
+  let resolvedApiKey = asString(pc["apiKey"]) ?? process.env["MULTICORN_API_KEY"] ?? "";
+  let resolvedBaseUrl = asString(pc["baseUrl"]) ?? process.env["MULTICORN_BASE_URL"] ?? "";
+
+  // Fallback: read from hooks.internal.entries if plugin config and env vars are both empty
+  if (!resolvedApiKey) {
+    try {
+      const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
+      const configContent = fs.readFileSync(configPath, "utf-8");
+      const config = JSON.parse(configContent) as Record<string, unknown>;
+      const hooks = config["hooks"] as Record<string, unknown> | undefined;
+      const internal = hooks?.["internal"] as Record<string, unknown> | undefined;
+      const entries = internal?.["entries"] as Record<string, unknown> | undefined;
+      const shieldEntry = entries?.["multicorn-shield"] as
+        | { env?: Record<string, unknown> }
+        | undefined;
+      const env = shieldEntry?.env;
+
+      if (env) {
+        const hookApiKey = asString(env["MULTICORN_API_KEY"]);
+        const hookBaseUrl = asString(env["MULTICORN_BASE_URL"]);
+
+        if (hookApiKey) {
+          resolvedApiKey = hookApiKey;
+          resolvedBaseUrl = resolvedBaseUrl || (hookBaseUrl ?? "https://api.multicorn.ai");
+          pluginLogger?.warn(
+            "Multicorn Shield: Reading config from hooks.internal.entries. For cleaner setup, set MULTICORN_API_KEY as a system environment variable.",
+          );
+        } else if (hookBaseUrl) {
+          resolvedBaseUrl = resolvedBaseUrl || hookBaseUrl;
+        }
+      }
+    } catch {
+      // Config file not readable or doesn't exist — will be caught by empty apiKey check below
+    }
+  }
+
+  if (!resolvedBaseUrl) {
+    resolvedBaseUrl = "https://api.multicorn.ai";
+  }
+
   const agentName = asString(pc["agentName"]) ?? process.env["MULTICORN_AGENT_NAME"] ?? null;
   const failModeRaw = asString(pc["failMode"]) ?? process.env["MULTICORN_FAIL_MODE"] ?? "open";
   const failMode = failModeRaw === "closed" ? "closed" : "open";
-  return { apiKey, baseUrl, agentName, failMode };
+  return { apiKey: resolvedApiKey, baseUrl: resolvedBaseUrl, agentName, failMode };
 }
 
 function asString(value: unknown): string | undefined {
@@ -123,9 +169,11 @@ async function ensureAgent(
     if (cached !== null && cached.length > 0) {
       grantedScopes = cached;
       // Still need the agent record for logging, but don't block on it
-      void findOrRegisterAgent(agentName, apiKey, baseUrl).then((record) => {
-        if (record !== null) agentRecord = record;
-      });
+      void findOrRegisterAgent(agentName, apiKey, baseUrl, pluginLogger ?? undefined).then(
+        (record) => {
+          if (record !== null) agentRecord = record;
+        },
+      );
       lastScopeRefresh = Date.now();
       return "ready";
     }
@@ -133,7 +181,7 @@ async function ensureAgent(
 
   // Register or find the agent
   if (agentRecord === null) {
-    const record = await findOrRegisterAgent(agentName, apiKey, baseUrl);
+    const record = await findOrRegisterAgent(agentName, apiKey, baseUrl, pluginLogger ?? undefined);
     if (record === null) {
       if (failMode === "closed") {
         return "block";
@@ -145,7 +193,12 @@ async function ensureAgent(
   }
 
   // Refresh scopes from the API
-  const scopes = await fetchGrantedScopes(agentRecord.id, apiKey, baseUrl);
+  const scopes = await fetchGrantedScopes(
+    agentRecord.id,
+    apiKey,
+    baseUrl,
+    pluginLogger ?? undefined,
+  );
   grantedScopes = scopes;
   lastScopeRefresh = Date.now();
 
@@ -155,15 +208,33 @@ async function ensureAgent(
     });
   }
 
+  // Log connection success once per session
+  if (!connectionLogged) {
+    connectionLogged = true;
+    pluginLogger?.info(`Multicorn Shield connected. Agent: ${agentName}`);
+  }
+
   return "ready";
 }
 
-async function ensureConsent(agentName: string, apiKey: string, baseUrl: string): Promise<void> {
+async function ensureConsent(
+  agentName: string,
+  apiKey: string,
+  baseUrl: string,
+  scope?: { service: string; permissionLevel: string },
+): Promise<void> {
   if (grantedScopes.length > 0 || consentInProgress || agentRecord === null) return;
 
   consentInProgress = true;
   try {
-    const scopes = await waitForConsent(agentRecord.id, agentName, apiKey, baseUrl);
+    const scopes = await waitForConsent(
+      agentRecord.id,
+      agentName,
+      apiKey,
+      baseUrl,
+      scope,
+      pluginLogger ?? undefined,
+    );
     grantedScopes = scopes;
     await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
       // Cache write failure is non-fatal
@@ -320,10 +391,7 @@ async function beforeToolCall(
     return undefined;
   }
 
-  // If no scopes and we have an agent record, trigger consent
-  await ensureConsent(agentName, config.apiKey, config.baseUrl);
-
-  // Map tool to scope, passing command for exec to detect destructive commands
+  // Map tool to scope FIRST, before checking permissions
   const command =
     event.toolName === "exec" && typeof event.params["command"] === "string"
       ? event.params["command"]
@@ -352,6 +420,7 @@ async function beforeToolCall(
   );
 
   // Check permission via POST /api/v1/actions (server is source of truth)
+  // Do this BEFORE triggering consent to avoid double-action
   const permissionResult = await checkActionPermission(
     {
       agent: agentName,
@@ -364,10 +433,27 @@ async function beforeToolCall(
     },
     config.apiKey,
     config.baseUrl,
+    pluginLogger ?? undefined,
   );
 
   if (permissionResult.status === "approved") {
-    // Action approved, allow tool call to proceed
+    // Action approved - refresh scopes to pick up newly granted permissions
+    if (agentRecord !== null) {
+      const scopes = await fetchGrantedScopes(
+        agentRecord.id,
+        config.apiKey,
+        config.baseUrl,
+        pluginLogger ?? undefined,
+      );
+      grantedScopes = scopes;
+      lastScopeRefresh = Date.now();
+      if (scopes.length > 0) {
+        await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+          // Cache write failure is non-fatal
+        });
+      }
+    }
+    // Allow tool call to proceed
     return undefined;
   }
 
@@ -411,6 +497,12 @@ async function beforeToolCall(
   }
 
   // Action blocked (no approval available)
+  // Only trigger consent if we have no scopes at all (first-time setup)
+  // If we have some scopes but not this one, don't trigger consent - user should use Permissions page
+  if (grantedScopes.length === 0 && agentRecord !== null) {
+    await ensureConsent(agentName, config.apiKey, config.baseUrl, mapping);
+  }
+
   const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
   const reason =
     `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
@@ -442,6 +534,7 @@ function afterToolCall(
     },
     config.apiKey,
     config.baseUrl,
+    pluginLogger ?? undefined,
   );
 
   return Promise.resolve();
@@ -465,6 +558,16 @@ const plugin: OpenClawPluginDefinition = {
     api.on("before_tool_call", beforeToolCall, { priority: 10 });
     api.on("after_tool_call", afterToolCall);
     api.logger.info("Multicorn Shield plugin registered.");
+
+    // Startup logging: check config and log connection info or error
+    const config = readConfig();
+    if (config.apiKey.length === 0) {
+      api.logger.error(
+        "Multicorn Shield: No API key found. Set MULTICORN_API_KEY in your OpenClaw config (~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.env.MULTICORN_API_KEY). Get a key from your Multicorn dashboard (Settings → API Keys).",
+      );
+    } else {
+      api.logger.info(`Multicorn Shield connecting to ${config.baseUrl}`);
+    }
   },
 };
 
@@ -490,4 +593,5 @@ export function resetState(): void {
   lastScopeRefresh = 0;
   pluginLogger = null;
   pluginConfig = undefined;
+  connectionLogged = false;
 }

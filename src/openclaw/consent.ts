@@ -14,6 +14,7 @@
 import { spawn } from "node:child_process";
 import { fetchGrantedScopes } from "./shield-client.js";
 import type { Scope } from "../types/index.js";
+import type { PluginLogger } from "./plugin-sdk.types.js";
 
 const POLL_INTERVAL_MS = 3000;
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -52,10 +53,21 @@ export function deriveDashboardUrl(baseUrl: string): string {
 
 /**
  * Build the consent URL that the user visits to grant permissions.
+ *
+ * @param agentName - The agent name
+ * @param dashboardUrl - The dashboard base URL
+ * @param scope - Optional scope to include in the URL (e.g., { service: "terminal", permissionLevel: "execute" })
  */
-export function buildConsentUrl(agentName: string, dashboardUrl: string): string {
+export function buildConsentUrl(
+  agentName: string,
+  dashboardUrl: string,
+  scope?: { service: string; permissionLevel: string },
+): string {
   const base = dashboardUrl.replace(/\/+$/, "");
   const params = new URLSearchParams({ agent: agentName });
+  if (scope) {
+    params.set("scopes", `${scope.service}:${scope.permissionLevel}`);
+  }
   return `${base}/consent?${params.toString()}`;
 }
 
@@ -85,6 +97,8 @@ export function openBrowser(url: string): void {
  * @param agentName - The human-readable agent name.
  * @param apiKey - The Multicorn API key.
  * @param baseUrl - The Shield API base URL.
+ * @param scope - Optional scope to include in the consent URL (e.g., { service: "terminal", permissionLevel: "execute" })
+ * @param logger - Optional logger for error messages.
  * @returns The granted scopes once the user completes consent.
  * @throws {Error} If consent is not granted within the timeout period.
  */
@@ -93,9 +107,11 @@ export async function waitForConsent(
   agentName: string,
   apiKey: string,
   baseUrl: string,
+  scope?: { service: string; permissionLevel: string },
+  logger?: PluginLogger,
 ): Promise<readonly Scope[]> {
   const dashboardUrl = deriveDashboardUrl(baseUrl);
-  const consentUrl = buildConsentUrl(agentName, dashboardUrl);
+  const consentUrl = buildConsentUrl(agentName, dashboardUrl, scope);
 
   process.stderr.write(
     `[multicorn-shield] Opening consent page...\n${consentUrl}\n` +
@@ -109,7 +125,7 @@ export async function waitForConsent(
   while (Date.now() < deadline) {
     await sleep(POLL_INTERVAL_MS);
 
-    const scopes = await fetchGrantedScopes(agentId, apiKey, baseUrl);
+    const scopes = await fetchGrantedScopes(agentId, apiKey, baseUrl, logger);
     if (scopes.length > 0) {
       process.stderr.write("[multicorn-shield] Permissions granted.\n");
       return scopes;
