@@ -81,8 +81,10 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
   let consentInProgress = false;
   const pendingLines: string[] = [];
   let draining = false;
+  let stopped = false;
 
   async function refreshScopes(): Promise<void> {
+    if (stopped) return;
     if (agentId.length === 0) return;
     try {
       const scopes = await fetchGrantedScopes(agentId, config.apiKey, config.baseUrl);
@@ -256,6 +258,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
   }
 
   async function stop(): Promise<void> {
+    stopped = true;
     if (refreshTimer !== null) {
       clearInterval(refreshTimer);
       refreshTimer = null;
