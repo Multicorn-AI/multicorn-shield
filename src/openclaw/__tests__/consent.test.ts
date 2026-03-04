@@ -47,4 +47,25 @@ describe("buildConsentUrl", () => {
     const url = buildConsentUrl("my agent & co", "https://app.multicorn.ai");
     expect(url).toContain("agent=my+agent+%26+co");
   });
+
+  it("includes scope parameter when provided", () => {
+    const url = buildConsentUrl("openclaw", "https://app.multicorn.ai", {
+      service: "terminal",
+      permissionLevel: "execute",
+    });
+    expect(url).toBe("https://app.multicorn.ai/consent?agent=openclaw&scopes=terminal%3Aexecute");
+  });
+
+  it("includes scope parameter for filesystem service", () => {
+    const url = buildConsentUrl("main", "https://app.multicorn.ai", {
+      service: "filesystem",
+      permissionLevel: "read",
+    });
+    expect(url).toBe("https://app.multicorn.ai/consent?agent=main&scopes=filesystem%3Aread");
+  });
+
+  it("builds URL without scope when scope is undefined", () => {
+    const url = buildConsentUrl("openclaw", "https://app.multicorn.ai", undefined);
+    expect(url).toBe("https://app.multicorn.ai/consent?agent=openclaw");
+  });
 });

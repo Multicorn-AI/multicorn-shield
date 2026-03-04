@@ -199,7 +199,7 @@ describe("beforeToolCall", () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([]);
     waitForConsentMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
-    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+    checkActionPermissionMock.mockResolvedValue({ status: "blocked" });
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
@@ -208,9 +208,46 @@ describe("beforeToolCall", () => {
       "main",
       expect.any(String),
       expect.any(String),
+      { service: "terminal", permissionLevel: "execute" },
     );
-    // After consent grants terminal:execute, the call should be allowed
+    // After consent grants terminal:execute, the call should be blocked (no permission yet)
+    expect(result).toEqual({
+      block: true,
+      blockReason: expect.stringContaining("Terminal execute access is not allowed") as string,
+    });
+  });
+
+  it("skips consent when permission is already approved", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    // Should refresh scopes after approval
+    expect(fetchGrantedScopesMock).toHaveBeenCalled();
+    // Should NOT trigger consent since permission is already approved
+    expect(waitForConsentMock).not.toHaveBeenCalled();
+    // Should allow the tool call
     expect(result).toBeUndefined();
+  });
+
+  it("refreshes scopes after approval is granted", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock
+      .mockResolvedValueOnce([]) // Initial fetch (no scopes)
+      .mockResolvedValueOnce([{ service: "terminal", permissionLevel: "execute" }]); // After approval
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+    saveCachedScopesMock.mockResolvedValue(undefined);
+
+    await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    // Should fetch scopes twice: once during ensureAgent, once after approval
+    expect(fetchGrantedScopesMock).toHaveBeenCalledTimes(2);
+    // Should save refreshed scopes to cache
+    expect(saveCachedScopesMock).toHaveBeenCalledWith("main", "agent-1", [
+      { service: "terminal", permissionLevel: "execute" },
+    ]);
   });
 
   it("returns undefined when MULTICORN_API_KEY is not set", async () => {

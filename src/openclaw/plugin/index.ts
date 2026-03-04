@@ -227,7 +227,14 @@ async function ensureConsent(
 
   consentInProgress = true;
   try {
-    const scopes = await waitForConsent(agentRecord.id, agentName, apiKey, baseUrl, scope);
+    const scopes = await waitForConsent(
+      agentRecord.id,
+      agentName,
+      apiKey,
+      baseUrl,
+      scope,
+      pluginLogger ?? undefined,
+    );
     grantedScopes = scopes;
     await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
       // Cache write failure is non-fatal
