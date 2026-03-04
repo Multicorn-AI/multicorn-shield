@@ -152,6 +152,10 @@ describe("handler", () => {
       "main",
       expect.any(String),
       expect.any(String),
+      expect.objectContaining({
+        service: "terminal",
+        permissionLevel: "execute",
+      }),
     );
     expect(event.messages).toHaveLength(0);
   });

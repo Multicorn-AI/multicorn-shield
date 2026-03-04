@@ -320,11 +320,12 @@ function buildConsentUrl(
   scopes: readonly string[],
   dashboardUrl: string,
 ): string {
+  const base = dashboardUrl.replace(/\/+$/, "");
   const params = new URLSearchParams({ agent: agentName });
   if (scopes.length > 0) {
     params.set("scopes", scopes.join(","));
   }
-  return `${dashboardUrl}/consent?${params.toString()}`;
+  return `${base}/consent?${params.toString()}`;
 }
 
 function detectScopeHints(): readonly string[] {

@@ -190,6 +190,9 @@ async function ensureConsent(
  */
 function isPermitted(event: ToolCallEvent): boolean {
   const mapping = mapToolToScope(event.context.toolName);
+  // Defensive check: ensure grantedScopes is defined (can be undefined in test scenarios)
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  if (!grantedScopes || grantedScopes.length === 0) return false;
   return grantedScopes.some(
     (scope) =>
       scope.service === mapping.service && scope.permissionLevel === mapping.permissionLevel,
