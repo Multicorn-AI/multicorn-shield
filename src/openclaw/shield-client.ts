@@ -21,6 +21,16 @@ const POLL_INTERVAL_MS = 3000;
 const MAX_POLLS = 100;
 const POLL_TIMEOUT_MS = POLL_INTERVAL_MS * MAX_POLLS;
 
+// Module-level flag to track if auth error has been logged (once per session)
+let authErrorLogged = false;
+
+/**
+ * Reset the auth error logged flag. For testing only.
+ */
+export function resetAuthErrorFlag(): void {
+  authErrorLogged = false;
+}
+
 /**
  * Payload for logging an action to the Shield API.
  */
@@ -126,6 +136,66 @@ function isApprovalResponse(value: unknown): value is ApprovalResponse {
 }
 
 /**
+ * Handle HTTP error responses from the Shield API.
+ *
+ * Logs appropriate error messages based on status code:
+ * - 401/403: Authentication error (logged once per session)
+ * - 429: Rate limiting
+ * - 5xx: Server errors
+ *
+ * @param status - HTTP status code
+ * @param logger - Optional logger for error messages
+ * @param retryDelaySeconds - Optional retry delay for rate limiting (if retrying)
+ * @returns Object indicating whether the error should result in blocking (true) or fail-open (false)
+ */
+function handleHttpError(
+  status: number,
+  logger?: PluginLogger,
+  retryDelaySeconds?: number,
+): { shouldBlock: boolean } {
+  // 401/403: Authentication failures - must block, log once per session
+  if (status === 401 || status === 403) {
+    if (!authErrorLogged) {
+      authErrorLogged = true;
+      const errorMsg =
+        "[multicorn-shield] ERROR: Authentication failed. Your MULTICORN_API_KEY is invalid or expired. " +
+        "Check the key in your OpenClaw config (~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.env.MULTICORN_API_KEY). " +
+        "Get a valid key from your Multicorn dashboard (Settings → API Keys).";
+      logger?.error(errorMsg);
+      // Also log to stderr for visibility in gateway console
+      process.stderr.write(`${errorMsg}\n`);
+    }
+    return { shouldBlock: true };
+  }
+
+  // 429: Rate limiting
+  if (status === 429) {
+    if (retryDelaySeconds !== undefined) {
+      const rateLimitMsg = `[multicorn-shield] Rate limited by Shield API. Retrying in ${String(retryDelaySeconds)}s.`;
+      logger?.warn(rateLimitMsg);
+      process.stderr.write(`${rateLimitMsg}\n`);
+    } else {
+      const rateLimitMsg =
+        "[multicorn-shield] Rate limited by Shield API. Action was not checked — proceeding with fail-open.";
+      logger?.warn(rateLimitMsg);
+      process.stderr.write(`${rateLimitMsg}\n`);
+    }
+    return { shouldBlock: false };
+  }
+
+  // 5xx: Server errors - can fail-open (transient)
+  if (status >= 500 && status < 600) {
+    const serverErrorMsg = `[multicorn-shield] Shield API error (${String(status)}). Action was not checked — proceeding with fail-open.`;
+    logger?.warn(serverErrorMsg);
+    process.stderr.write(`${serverErrorMsg}\n`);
+    return { shouldBlock: false };
+  }
+
+  // Other errors - default to fail-open
+  return { shouldBlock: false };
+}
+
+/**
  * Find an agent by name via GET /api/v1/agents.
  *
  * @returns The agent record, or `null` if not found or the API is unreachable.
@@ -134,6 +204,7 @@ export async function findAgentByName(
   agentName: string,
   apiKey: string,
   baseUrl: string,
+  logger?: PluginLogger,
 ): Promise<AgentRecord | null> {
   try {
     const response = await fetch(`${baseUrl}/api/v1/agents`, {
@@ -141,7 +212,12 @@ export async function findAgentByName(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      handleHttpError(response.status, logger);
+      // 401/403 should block (return null to indicate auth failure)
+      // 5xx and other errors can fail-open (return null)
+      return null;
+    }
 
     const body: unknown = await response.json();
     if (!isApiSuccess(body)) return null;
@@ -167,6 +243,7 @@ export async function registerAgent(
   agentName: string,
   apiKey: string,
   baseUrl: string,
+  logger?: PluginLogger,
 ): Promise<string> {
   const response = await fetch(`${baseUrl}/api/v1/agents`, {
     method: "POST",
@@ -179,6 +256,9 @@ export async function registerAgent(
   });
 
   if (!response.ok) {
+    handleHttpError(response.status, logger);
+    // 401/403 should block (throw error to indicate auth failure)
+    // 5xx and other errors can fail-open (throw error)
     throw new Error(
       `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
     );
@@ -201,12 +281,13 @@ export async function findOrRegisterAgent(
   agentName: string,
   apiKey: string,
   baseUrl: string,
+  logger?: PluginLogger,
 ): Promise<AgentRecord | null> {
-  const existing = await findAgentByName(agentName, apiKey, baseUrl);
+  const existing = await findAgentByName(agentName, apiKey, baseUrl, logger);
   if (existing !== null) return existing;
 
   try {
-    const id = await registerAgent(agentName, apiKey, baseUrl);
+    const id = await registerAgent(agentName, apiKey, baseUrl, logger);
     return { id, name: agentName };
   } catch {
     return null;
@@ -224,6 +305,7 @@ export async function fetchGrantedScopes(
   agentId: string,
   apiKey: string,
   baseUrl: string,
+  logger?: PluginLogger,
 ): Promise<readonly Scope[]> {
   try {
     const response = await fetch(`${baseUrl}/api/v1/agents/${agentId}`, {
@@ -231,7 +313,12 @@ export async function fetchGrantedScopes(
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
 
-    if (!response.ok) return [];
+    if (!response.ok) {
+      handleHttpError(response.status, logger);
+      // 401/403 should block (return empty array to indicate auth failure)
+      // 5xx and other errors can fail-open (return empty array)
+      return [];
+    }
 
     const body: unknown = await response.json();
     if (!isApiSuccess(body)) return [];
@@ -269,6 +356,7 @@ export async function checkActionPermission(
   payload: ActionLogPayload,
   apiKey: string,
   baseUrl: string,
+  logger?: PluginLogger,
 ): Promise<ActionPermissionResult> {
   try {
     const response = await fetch(`${baseUrl}/api/v1/actions`, {
@@ -301,7 +389,20 @@ export async function checkActionPermission(
       return { status: "pending", approvalId };
     }
 
-    // 403 or any other error status
+    // Check for auth errors (401/403) - must block
+    if (response.status === 401 || response.status === 403) {
+      handleHttpError(response.status, logger);
+      return { status: "blocked" };
+    }
+
+    // Check for rate limiting (429) or server errors (5xx)
+    if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+      handleHttpError(response.status, logger);
+      // Fail-open for rate limiting and server errors
+      return { status: "blocked" };
+    }
+
+    // Any other error status
     return { status: "blocked" };
   } catch {
     return { status: "blocked" };
@@ -342,6 +443,19 @@ export async function pollApprovalStatus(
         });
 
         if (!response.ok) {
+          // Handle auth errors (401/403) - these should block
+          if (response.status === 401 || response.status === 403) {
+            handleHttpError(response.status, logger);
+            // Return timeout to indicate failure (auth errors are not transient)
+            return "timeout";
+          }
+
+          // Handle rate limiting (429) and server errors (5xx)
+          if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+            const retryDelay = retry < 2 ? Math.pow(2, retry) : undefined;
+            handleHttpError(response.status, logger, retryDelay);
+          }
+
           // Log at debug level - failed polls are expected during normal operation
           logDebug?.(
             `Poll ${String(pollCount + 1)} failed: HTTP ${String(response.status)}. Retrying...`,
@@ -421,6 +535,7 @@ export async function logAction(
   payload: ActionLogPayload,
   apiKey: string,
   baseUrl: string,
+  logger?: PluginLogger,
 ): Promise<void> {
   try {
     const response = await fetch(`${baseUrl}/api/v1/actions`, {
@@ -434,9 +549,8 @@ export async function logAction(
     });
 
     if (!response.ok) {
-      process.stderr.write(
-        `[multicorn-shield] Action log failed: HTTP ${String(response.status)}.\n`,
-      );
+      // Use handleHttpError for consistent error messaging
+      handleHttpError(response.status, logger);
     }
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
