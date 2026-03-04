@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import * as fs from "node:fs";
 import * as path from "node:path";
-import * as os from "node:os";
 import type {
   OpenClawPluginApi,
   PluginHookBeforeToolCallEvent,
@@ -20,6 +18,8 @@ const pollApprovalStatusMock = vi.hoisted(() => vi.fn());
 const loadCachedScopesMock = vi.hoisted(() => vi.fn());
 const saveCachedScopesMock = vi.hoisted(() => vi.fn());
 const waitForConsentMock = vi.hoisted(() => vi.fn());
+const readFileSyncMock = vi.hoisted(() => vi.fn());
+const homedirMock = vi.hoisted(() => vi.fn(() => "/home/test"));
 
 vi.mock("../../shield-client.js", () => ({
   findOrRegisterAgent: findOrRegisterAgentMock,
@@ -36,6 +36,14 @@ vi.mock("../../scope-cache.js", () => ({
 
 vi.mock("../../consent.js", () => ({
   waitForConsent: waitForConsentMock,
+}));
+
+vi.mock("node:fs", () => ({
+  readFileSync: readFileSyncMock,
+}));
+
+vi.mock("node:os", () => ({
+  homedir: homedirMock,
 }));
 
 function makeBeforeEvent(
@@ -538,11 +546,9 @@ describe("afterToolCall", () => {
 // ---------------------------------------------------------------------------
 
 describe("config fallback", () => {
-  let readFileSyncSpy: ReturnType<typeof vi.spyOn>;
-
   beforeEach(() => {
-    readFileSyncSpy = vi.spyOn(fs, "readFileSync") as ReturnType<typeof vi.spyOn>;
-    vi.spyOn(os, "homedir").mockReturnValue("/home/test");
+    readFileSyncMock.mockReset();
+    homedirMock.mockReturnValue("/home/test");
     vi.stubEnv("MULTICORN_API_KEY", "");
     vi.stubEnv("MULTICORN_BASE_URL", "");
   });
@@ -578,7 +584,7 @@ describe("config fallback", () => {
       },
     };
 
-    readFileSyncSpy.mockReturnValue(JSON.stringify(mockConfig));
+    readFileSyncMock.mockReturnValue(JSON.stringify(mockConfig));
 
     void plugin.register?.(api);
     resetState();
@@ -589,7 +595,7 @@ describe("config fallback", () => {
 
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
-    expect(readFileSyncSpy).toHaveBeenCalledWith(
+    expect(readFileSyncMock).toHaveBeenCalledWith(
       path.join("/home/test", ".openclaw", "openclaw.json"),
       "utf-8",
     );
@@ -628,7 +634,7 @@ describe("config fallback", () => {
       },
     };
 
-    readFileSyncSpy.mockReturnValue(JSON.stringify(mockConfig));
+    readFileSyncMock.mockReturnValue(JSON.stringify(mockConfig));
 
     void plugin.register?.(api);
     resetState();
@@ -640,7 +646,7 @@ describe("config fallback", () => {
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     // Should not read from file when env vars are set
-    expect(readFileSyncSpy).not.toHaveBeenCalled();
+    expect(readFileSyncMock).not.toHaveBeenCalled();
     expect(warnMock).not.toHaveBeenCalledWith(
       expect.stringContaining("Reading config from hooks.internal.entries"),
     );
@@ -677,7 +683,7 @@ describe("config fallback", () => {
       },
     };
 
-    readFileSyncSpy.mockReturnValue(JSON.stringify(mockConfig));
+    readFileSyncMock.mockReturnValue(JSON.stringify(mockConfig));
 
     void plugin.register?.(api);
     resetState();
@@ -689,7 +695,7 @@ describe("config fallback", () => {
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     // Should not read from file when plugin config is set
-    expect(readFileSyncSpy).not.toHaveBeenCalled();
+    expect(readFileSyncMock).not.toHaveBeenCalled();
     expect(warnMock).not.toHaveBeenCalledWith(
       expect.stringContaining("Reading config from hooks.internal.entries"),
     );
@@ -706,7 +712,7 @@ describe("config fallback", () => {
       pluginConfig: {},
     } as unknown as OpenClawPluginApi;
 
-    readFileSyncSpy.mockImplementation(() => {
+    readFileSyncMock.mockImplementation(() => {
       throw new Error("ENOENT: no such file or directory");
     });
 
@@ -714,6 +720,6 @@ describe("config fallback", () => {
     resetState();
 
     // Should not crash, just log error about missing API key
-    expect(readFileSyncSpy).toHaveBeenCalled();
+    expect(readFileSyncMock).toHaveBeenCalled();
   });
 });
