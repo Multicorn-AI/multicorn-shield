@@ -7,11 +7,9 @@
  * - before_tool_call: checks permissions and blocks unauthorized actions
  * - after_tool_call: logs activity to the Shield dashboard (fire-and-forget)
  *
- * Configuration is read from (in priority order):
- * 1. Plugin config (plugins.entries.multicorn-shield.env in openclaw.json)
- * 2. Process environment variables
- * 3. Shared config (~/.multicorn/config.json, written by npx multicorn-proxy init)
- * 4. Hooks config fallback (hooks.internal.entries.multicorn-shield.env in openclaw.json)
+ * API key and base URL are read from (in order): process.env, then
+ * ~/.multicorn/config.json (written by npx multicorn-proxy init).
+ * Agent name and fail mode also use plugin config and env.
  *
  * Environment variables:
  * - MULTICORN_API_KEY (required)
@@ -66,6 +64,11 @@ const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 // Configuration
 // ---------------------------------------------------------------------------
 
+interface MulticornConfig {
+  apiKey?: string;
+  baseUrl?: string;
+}
+
 interface ShieldConfig {
   apiKey: string;
   baseUrl: string;
@@ -73,74 +76,30 @@ interface ShieldConfig {
   failMode: "open" | "closed";
 }
 
+let cachedMulticornConfig: MulticornConfig | null = null;
+
+function loadMulticornConfig(): MulticornConfig | null {
+  try {
+    const configPath = path.join(os.homedir(), ".multicorn", "config.json");
+    const raw = fs.readFileSync(configPath, "utf-8");
+    return JSON.parse(raw) as MulticornConfig;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Read config from plugin config (openclaw.json), then env vars, then shared config, then hooks config as fallback.
+ * Read config. API key and base URL: env then ~/.multicorn/config.json (cached at startup).
+ * Agent name and fail mode: plugin config then env.
  */
 function readConfig(): ShieldConfig {
   const pc = pluginConfig ?? {};
-  let resolvedApiKey = asString(pc["apiKey"]) ?? process.env["MULTICORN_API_KEY"] ?? "";
-  let resolvedBaseUrl = asString(pc["baseUrl"]) ?? process.env["MULTICORN_BASE_URL"] ?? "";
-
-  // Fallback: read from shared config (~/.multicorn/config.json) if plugin config and env vars are both empty
-  if (!resolvedApiKey) {
-    try {
-      const multicornConfigPath = path.join(os.homedir(), ".multicorn", "config.json");
-      const multicornConfigContent = fs.readFileSync(multicornConfigPath, "utf-8");
-      const multicornConfig = JSON.parse(multicornConfigContent) as {
-        apiKey?: string;
-        baseUrl?: string;
-      } | null;
-      if (
-        multicornConfig &&
-        typeof multicornConfig.apiKey === "string" &&
-        multicornConfig.apiKey.length > 0
-      ) {
-        resolvedApiKey = multicornConfig.apiKey;
-        if (!resolvedBaseUrl) {
-          resolvedBaseUrl = multicornConfig.baseUrl ?? "https://api.multicorn.ai";
-        }
-      }
-    } catch {
-      // Config file not readable or doesn't exist - continue to next fallback
-    }
-  }
-
-  // Final fallback: read from hooks.internal.entries if still no API key found
-  if (!resolvedApiKey) {
-    try {
-      const configPath = path.join(os.homedir(), ".openclaw", "openclaw.json");
-      const configContent = fs.readFileSync(configPath, "utf-8");
-      const config = JSON.parse(configContent) as Record<string, unknown>;
-      const hooks = config["hooks"] as Record<string, unknown> | undefined;
-      const internal = hooks?.["internal"] as Record<string, unknown> | undefined;
-      const entries = internal?.["entries"] as Record<string, unknown> | undefined;
-      const shieldEntry = entries?.["multicorn-shield"] as
-        | { env?: Record<string, unknown> }
-        | undefined;
-      const env = shieldEntry?.env;
-
-      if (env) {
-        const hookApiKey = asString(env["MULTICORN_API_KEY"]);
-        const hookBaseUrl = asString(env["MULTICORN_BASE_URL"]);
-
-        if (hookApiKey) {
-          resolvedApiKey = hookApiKey;
-          resolvedBaseUrl = resolvedBaseUrl || (hookBaseUrl ?? "https://api.multicorn.ai");
-          pluginLogger?.warn(
-            "Multicorn Shield: Reading config from hooks.internal.entries. For cleaner setup, set MULTICORN_API_KEY as a system environment variable.",
-          );
-        } else if (hookBaseUrl) {
-          resolvedBaseUrl = resolvedBaseUrl || hookBaseUrl;
-        }
-      }
-    } catch {
-      // Config file not readable or doesn't exist — will be caught by empty apiKey check below
-    }
-  }
-
-  if (!resolvedBaseUrl) {
-    resolvedBaseUrl = "https://api.multicorn.ai";
-  }
+  const resolvedApiKey =
+    asString(process.env["MULTICORN_API_KEY"]) ?? asString(cachedMulticornConfig?.apiKey) ?? "";
+  const resolvedBaseUrl =
+    asString(process.env["MULTICORN_BASE_URL"]) ??
+    asString(cachedMulticornConfig?.baseUrl) ??
+    "https://api.multicorn.ai";
 
   const agentName = asString(pc["agentName"]) ?? process.env["MULTICORN_AGENT_NAME"] ?? null;
   const failModeRaw = asString(pc["failMode"]) ?? process.env["MULTICORN_FAIL_MODE"] ?? "open";
@@ -425,7 +384,9 @@ async function beforeToolCall(
   const config = readConfig();
 
   if (config.apiKey.length === 0) {
-    pluginLogger?.warn("MULTICORN_API_KEY is not set. Skipping permission checks.");
+    pluginLogger?.warn(
+      "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+    );
     return undefined;
   }
 
@@ -566,7 +527,7 @@ async function beforeToolCall(
   const dashboardUrl = deriveDashboardUrl(config.baseUrl);
   const reason =
     `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-    `Check pending approvals at ${dashboardUrl}/approvals`;
+    `Check pending approvals at ${dashboardUrl}/approvals `;
 
   return { block: true, blockReason: reason };
 }
@@ -615,15 +576,15 @@ const plugin: OpenClawPluginDefinition = {
   register(api: OpenClawPluginApi) {
     pluginLogger = api.logger;
     pluginConfig = api.pluginConfig;
+    cachedMulticornConfig = loadMulticornConfig();
     api.on("before_tool_call", beforeToolCall, { priority: 10 });
     api.on("after_tool_call", afterToolCall);
     api.logger.info("Multicorn Shield plugin registered.");
 
-    // Startup logging: check config and log connection info or error
     const config = readConfig();
     if (config.apiKey.length === 0) {
       api.logger.error(
-        "Multicorn Shield: No API key found. Run `npx multicorn-proxy init` to set up your API key, or set MULTICORN_API_KEY in your OpenClaw config (~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.env.MULTICORN_API_KEY). Get a key from your Multicorn dashboard (Settings → API Keys).",
+        "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
       );
     } else {
       api.logger.info(`Multicorn Shield connecting to ${config.baseUrl}`);
@@ -653,5 +614,6 @@ export function resetState(): void {
   lastScopeRefresh = 0;
   pluginLogger = null;
   pluginConfig = undefined;
+  cachedMulticornConfig = null;
   connectionLogged = false;
 }

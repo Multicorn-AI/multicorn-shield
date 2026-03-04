@@ -196,6 +196,12 @@ describe("proxy blocking", () => {
     });
 
     await waitFor(() => getStdoutLines().length >= 1);
+    await waitFor(
+      () =>
+        mockService.requests.filter((r) => r.method === "POST" && r.path === "/api/v1/actions")
+          .length >= 1,
+      2000,
+    );
     await proxy.stop();
 
     const actionRequests = mockService.requests.filter(
