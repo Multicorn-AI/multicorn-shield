@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <rect width="1280" height="640" fill="#0f0a1a"/>
+  
+  <!-- Purple circle with m -->
+  <circle cx="640" cy="250" r="38" fill="#7C3AED"/>
+  <text x="640" y="246" text-anchor="middle" dominant-baseline="central" font-family="system-ui, -apple-system, sans-serif" 
+        font-size="40" font-weight="700" fill="white">m</text>
+  
+  <!-- Title -->
+  <text x="640" y="340" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" 
+        font-size="48" font-weight="600" fill="white">Multicorn Shield</text>
+  
+  <!-- Tagline -->
+  <text x="640" y="385" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" 
+        font-size="21" font-weight="400" fill="#71717a">The control layer for AI agents</text>
+</svg>
