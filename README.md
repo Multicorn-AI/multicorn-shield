@@ -1,3 +1,5 @@
+![Multicorn Shield](readme-header.svg)
+
 # Multicorn Shield
 
 The permissions and control layer for AI agents. Open source.
