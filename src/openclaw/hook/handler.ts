@@ -267,7 +267,7 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
     const dashboardUrl = deriveDashboardUrl(config.baseUrl);
     event.messages.push(
       `Permission denied: ${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-        `Check pending approvals at ${dashboardUrl}/approvals`,
+        `Check pending approvals at ${dashboardUrl}/approvals `,
     );
 
     // Log the blocked action (fire-and-forget)
