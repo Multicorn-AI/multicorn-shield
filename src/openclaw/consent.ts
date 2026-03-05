@@ -79,6 +79,9 @@ export function buildConsentUrl(
  * In test environments, spawn is typically mocked to prevent actual browser opening.
  */
 export function openBrowser(url: string): void {
+  if (process.env["NODE_ENV"] === "test" || process.env["VITEST"] === "true") {
+    return;
+  }
   const platform = process.platform;
   const cmd = platform === "darwin" ? "open" : platform === "win32" ? "start" : "xdg-open";
 

@@ -24,10 +24,20 @@ import {
   type MockServiceConfig,
 } from "../__fixtures__/mockMulticornService.js";
 import type { SpendingLimits } from "../../spending/spending-checker.js";
+import type * as ConsentModule from "../consent.js";
 
 const readFileMock = vi.hoisted(() => vi.fn());
 const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mkdirMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const openBrowserMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../consent.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof ConsentModule>();
+  return {
+    ...actual,
+    openBrowser: openBrowserMock,
+  };
+});
 
 vi.mock("node:fs/promises", () => {
   const exports = {

@@ -623,9 +623,8 @@ describe("consent edge cases", () => {
     "waitForConsent opens the consent page and returns scopes after polling",
     { timeout: 15000 },
     async () => {
-      process.stderr.write = (() => true) as typeof process.stderr.write;
-
-      spawnMock.mockImplementation(() => ({ unref: vi.fn() }));
+      const stderrWriteSpy = vi.fn().mockReturnValue(true);
+      process.stderr.write = stderrWriteSpy as typeof process.stderr.write;
 
       let pollCount = 0;
       global.fetch = vi.fn().mockImplementation(() => {
@@ -666,7 +665,9 @@ describe("consent edge cases", () => {
 
       expect(scopes.length).toBeGreaterThan(0);
       expect(scopes).toContainEqual({ service: "gmail", permissionLevel: "execute" });
-      expect(spawnMock).toHaveBeenCalled();
+      const stderrOutput = stderrWriteSpy.mock.calls.map((c) => String(c[0])).join("");
+      expect(stderrOutput).toContain("https://app.multicorn.ai/consent?");
+      expect(stderrOutput).toContain("agent=test-agent");
     },
   );
 });
