@@ -10,6 +10,12 @@ The permissions and control layer for AI agents. Open source.
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Bundle Size](https://img.shields.io/bundlephobia/minzip/multicorn-shield)](https://bundlephobia.com/package/multicorn-shield)
 
+## Demo
+
+<p align="center">
+  <img src="https://multicorn.ai/images/demo.gif" alt="Multicorn Shield demo: agent blocked, user approves in dashboard, agent proceeds" width="800" />
+</p>
+
 ## Why?
 
 AI agents are getting access to your email, calendar, bank accounts, and code repositories. Today, most agents operate with no permission boundaries: they can read, write, and spend with no oversight. Multicorn Shield gives developers a single SDK to enforce what agents can do, track what they did, and let users stay in control.
