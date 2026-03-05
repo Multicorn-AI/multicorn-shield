@@ -359,6 +359,15 @@ export async function checkActionPermission(
   logger?: PluginLogger,
 ): Promise<ActionPermissionResult> {
   try {
+    const requestBody = {
+      agent: payload.agent,
+      service: payload.service,
+      actionType: payload.actionType,
+      status: payload.status,
+      metadata: payload.metadata,
+    };
+    console.error("[SHIELD-CLIENT] POST /api/v1/actions request: " + JSON.stringify(requestBody));
+
     const response = await fetch(`${baseUrl}/api/v1/actions`, {
       method: "POST",
       headers: {
@@ -370,17 +379,28 @@ export async function checkActionPermission(
     });
 
     if (response.status === 201) {
+      console.error(
+        "[SHIELD-CLIENT] response status=201, returning approved (body not read - backend may have failed approval creation)",
+      );
       return { status: "approved" };
     }
 
     if (response.status === 202) {
       const body: unknown = await response.json();
-      if (!isApiSuccess(body)) {
+      const data = (isApiSuccess(body) ? body.data : null) as Record<string, unknown> | null;
+      console.error("[SHIELD-CLIENT] response status=202 body=" + JSON.stringify(data ?? body));
+
+      if (!isApiSuccess(body) || data === null) {
         return { status: "blocked" };
       }
 
-      const data = body.data as Record<string, unknown>;
-      const approvalId = typeof data["approvalId"] === "string" ? data["approvalId"] : undefined;
+      const approvalId = typeof data["approval_id"] === "string" ? data["approval_id"] : undefined;
+      console.error(
+        "[SHIELD-CLIENT] extracted: status=" +
+          String(data["status"]) +
+          " approval_id=" +
+          (approvalId ?? "undefined"),
+      );
 
       if (approvalId === undefined) {
         return { status: "blocked" };
@@ -423,6 +443,8 @@ export async function pollApprovalStatus(
   baseUrl: string,
   logger?: PluginLogger,
 ): Promise<"approved" | "rejected" | "expired" | "timeout"> {
+  console.error("[SHIELD-CLIENT] pollApprovalStatus START: approvalId=" + approvalId);
+
   const startTime = Date.now();
 
   const logDebug = logger?.debug?.bind(logger) as ((msg: string) => void) | undefined;
@@ -486,6 +508,7 @@ export async function pollApprovalStatus(
         }
 
         approval = approvalData;
+        console.error("[SHIELD-CLIENT] poll response: " + JSON.stringify(approvalData));
         break; // Successfully got a response, exit retry loop
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);

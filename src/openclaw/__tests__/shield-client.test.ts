@@ -557,7 +557,7 @@ describe("checkActionPermission", () => {
       json: () =>
         Promise.resolve({
           success: true,
-          data: { approvalId: "approval-123" },
+          data: { approval_id: "approval-123" },
         }),
     });
 

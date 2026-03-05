@@ -233,32 +233,31 @@ describe("beforeToolCall", () => {
 
   it("skips consent when permission is already approved", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
-    fetchGrantedScopesMock.mockResolvedValue([]);
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
     checkActionPermissionMock.mockResolvedValue({ status: "approved" });
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
-    // Should refresh scopes after approval
     expect(fetchGrantedScopesMock).toHaveBeenCalled();
-    // Should NOT trigger consent since permission is already approved
+    // Should NOT trigger consent since we already have scopes
     expect(waitForConsentMock).not.toHaveBeenCalled();
-    // Should allow the tool call
     expect(result).toBeUndefined();
   });
 
   it("refreshes scopes after approval is granted", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock
-      .mockResolvedValueOnce([]) // Initial fetch (no scopes)
-      .mockResolvedValueOnce([{ service: "terminal", permissionLevel: "execute" }]); // After approval
+      .mockResolvedValueOnce([]) // ensureAgent initial fetch
+      .mockResolvedValueOnce([]) // ensureConsent apiScopes fetch (zero-scopes path)
+      .mockResolvedValueOnce([{ service: "terminal", permissionLevel: "execute" }]); // post-approval refresh
+    waitForConsentMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
     checkActionPermissionMock.mockResolvedValue({ status: "approved" });
     saveCachedScopesMock.mockResolvedValue(undefined);
 
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
-    // Should fetch scopes twice: once during ensureAgent, once after approval
-    expect(fetchGrantedScopesMock).toHaveBeenCalledTimes(2);
-    // Should save refreshed scopes to cache
+    // ensureAgent fetch, ensureConsent fetch, post-approval refresh
+    expect(fetchGrantedScopesMock).toHaveBeenCalledTimes(3);
     expect(saveCachedScopesMock).toHaveBeenCalledWith("main", "agent-1", [
       { service: "terminal", permissionLevel: "execute" },
     ]);
@@ -273,7 +272,7 @@ describe("beforeToolCall", () => {
     expect(findOrRegisterAgentMock).not.toHaveBeenCalled();
   });
 
-  it("returns undefined (fail-open) when Shield API is unreachable", async () => {
+  it("blocks when Shield API is unreachable (fail-closed only)", async () => {
     vi.stubEnv("MULTICORN_FAIL_MODE", "open");
     resetState();
 
@@ -282,7 +281,11 @@ describe("beforeToolCall", () => {
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
-    expect(result).toBeUndefined();
+    // failMode is always closed; MULTICORN_FAIL_MODE is ignored
+    expect(result).toEqual({
+      block: true,
+      blockReason: expect.stringContaining("fail-closed") as string,
+    });
   });
 
   it("returns { block: true } in fail-closed mode when Shield API is unreachable", async () => {
@@ -360,79 +363,22 @@ describe("beforeToolCall", () => {
     );
   });
 
-  it("handles pending approval and polls until approved", async () => {
+  it("blocks tool call when approval is pending (no polling)", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
     checkActionPermissionMock.mockResolvedValue({
       status: "pending",
       approvalId: "approval-123",
     });
-    pollApprovalStatusMock.mockResolvedValue("approved");
-
-    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
-
-    expect(result).toBeUndefined();
-    expect(checkActionPermissionMock).toHaveBeenCalled();
-    expect(pollApprovalStatusMock).toHaveBeenCalledTimes(1);
-    const callArgs = pollApprovalStatusMock.mock.calls[0];
-    if (callArgs === undefined) {
-      throw new Error("pollApprovalStatusMock was not called");
-    }
-    expect(callArgs[0]).toBe("approval-123");
-    expect(typeof callArgs[1]).toBe("string");
-    expect(typeof callArgs[2]).toBe("string");
-    expect(callArgs.length).toBe(4);
-  });
-
-  it("blocks tool call when approval is rejected", async () => {
-    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
-    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
-    checkActionPermissionMock.mockResolvedValue({
-      status: "pending",
-      approvalId: "approval-123",
-    });
-    pollApprovalStatusMock.mockResolvedValue("rejected");
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     expect(result).toEqual({
       block: true,
-      blockReason: expect.stringContaining("reviewed and rejected") as string,
+      blockReason: expect.stringContaining("Action pending approval") as string,
     });
-  });
-
-  it("blocks tool call when approval expires", async () => {
-    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
-    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
-    checkActionPermissionMock.mockResolvedValue({
-      status: "pending",
-      approvalId: "approval-123",
-    });
-    pollApprovalStatusMock.mockResolvedValue("expired");
-
-    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
-
-    expect(result).toEqual({
-      block: true,
-      blockReason: "Approval request expired before a decision was made.",
-    });
-  });
-
-  it("blocks tool call when approval times out", async () => {
-    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
-    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
-    checkActionPermissionMock.mockResolvedValue({
-      status: "pending",
-      approvalId: "approval-123",
-    });
-    pollApprovalStatusMock.mockResolvedValue("timeout");
-
-    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
-
-    expect(result).toEqual({
-      block: true,
-      blockReason: "Approval request timed out after 5 minutes.",
-    });
+    expect(result?.blockReason).toContain("/approvals");
+    expect(pollApprovalStatusMock).not.toHaveBeenCalled();
   });
 
   it("blocks tool call when checkActionPermission returns blocked (e.g., due to auth failure)", async () => {
