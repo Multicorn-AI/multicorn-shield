@@ -490,7 +490,7 @@ async function beforeToolCall(
         );
         grantedScopes = scopes;
         lastScopeRefresh = Date.now();
-        if (scopes.length > 0) {
+        if (Array.isArray(scopes) && scopes.length > 0) {
           await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
             // Cache write failure is non-fatal
           });
