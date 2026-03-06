@@ -54,7 +54,79 @@ That's it. Every tool call now goes through Shield's permission layer, and activ
 
 See the [full MCP proxy guide](https://multicorn.ai/docs/mcp-proxy) for Claude Code, OpenClaw, and generic MCP client examples.
 
-### Option 2: Integrate the SDK
+### Option 2: OpenClaw Plugin (native integration)
+
+If you're running [OpenClaw](https://openclaw.ai), Shield integrates directly as a plugin. No proxy layer, no code changes. The plugin intercepts every tool call at the infrastructure level before it executes.
+
+**Step 1: Install and configure**
+
+```bash
+npm install -g multicorn-shield
+npx multicorn-proxy init
+```
+
+Enter your API key when prompted. This saves your key to `~/.multicorn/config.json` and configures the OpenClaw hook environment.
+
+**Step 2: Build the plugin**
+
+```bash
+cd $(npm root -g)/multicorn-shield
+npm run build
+```
+
+**Step 3: Register with OpenClaw**
+
+Add the plugin path to your `~/.openclaw/openclaw.json`:
+
+```json
+{
+  "plugins": {
+    "load": {
+      "paths": ["<npm-root>/multicorn-shield/dist/openclaw-plugin/index.js"]
+    },
+    "entries": {
+      "multicorn-shield": {
+        "enabled": true
+      }
+    }
+  }
+}
+```
+
+Replace `<npm-root>` with the output of `npm root -g`.
+
+**Step 4: Restart and verify**
+
+```bash
+openclaw gateway restart
+openclaw plugins list
+```
+
+You should see `multicorn-shield` in the loaded plugins list.
+
+**How it works**
+
+1. Agent tries to use a tool (read files, run commands, send emails)
+2. Shield intercepts via `before_tool_call` and checks permissions
+3. First time: A consent screen opens in your browser so you can authorize the agent
+4. Authorized actions: Proceed immediately
+5. New or elevated actions: Blocked with a link to the dashboard where you approve or reject
+6. Everything is logged to your Multicorn dashboard
+
+The plugin maps OpenClaw tools to Shield permission scopes automatically:
+
+| OpenClaw Tool       | Shield Scope     |
+| ------------------- | ---------------- |
+| read                | filesystem:read  |
+| write, edit         | filesystem:write |
+| exec                | terminal:execute |
+| exec (rm, mv, sudo) | terminal:write   |
+| browser             | browser:execute  |
+| message             | messaging:write  |
+
+Destructive commands (rm, mv, sudo, chmod) are detected automatically and require separate write-level approval.
+
+### Option 3: Integrate the SDK
 
 For full control over consent screens, spending limits, and action logging, use the SDK directly in your application code.
 
