@@ -18,6 +18,7 @@ const pollApprovalStatusMock = vi.hoisted(() => vi.fn());
 const loadCachedScopesMock = vi.hoisted(() => vi.fn());
 const saveCachedScopesMock = vi.hoisted(() => vi.fn());
 const waitForConsentMock = vi.hoisted(() => vi.fn());
+const openBrowserMock = vi.hoisted(() => vi.fn());
 const readFileSyncMock = vi.hoisted(() => vi.fn());
 const homedirMock = vi.hoisted(() => vi.fn(() => "/home/test"));
 
@@ -39,6 +40,7 @@ vi.mock("../../consent.js", async () => {
   return {
     ...actual,
     waitForConsent: waitForConsentMock,
+    openBrowser: openBrowserMock,
   };
 });
 
