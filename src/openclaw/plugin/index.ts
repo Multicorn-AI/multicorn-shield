@@ -520,6 +520,52 @@ async function beforeToolCall(
     if (!hasScope(grantedScopes, requestedScope) && agentRecord !== null) {
       await ensureConsent(agentName, config.apiKey, config.baseUrl, mapping);
       console.error("[SHIELD] ensureConsent result: completed (blocked path)");
+
+      // Re-check after consent: refresh scopes and call API again
+      const scopes = await fetchGrantedScopes(
+        agentRecord.id,
+        config.apiKey,
+        config.baseUrl,
+        pluginLogger ?? undefined,
+      );
+      grantedScopes = scopes;
+      lastScopeRefresh = Date.now();
+      if (Array.isArray(scopes) && scopes.length > 0) {
+        await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+          /* Cache write failure is non-fatal */
+        });
+      }
+
+      const recheckResult = await checkActionPermission(
+        {
+          agent: agentName,
+          service: mapping.service,
+          actionType: actionType,
+          status: "approved",
+          metadata: { description },
+        },
+        config.apiKey,
+        config.baseUrl,
+        pluginLogger ?? undefined,
+      );
+
+      if (recheckResult.status === "approved") {
+        const refreshedScopes = await fetchGrantedScopes(
+          agentRecord.id,
+          config.apiKey,
+          config.baseUrl,
+          pluginLogger ?? undefined,
+        );
+        grantedScopes = refreshedScopes;
+        lastScopeRefresh = Date.now();
+        if (Array.isArray(refreshedScopes) && refreshedScopes.length > 0) {
+          await saveCachedScopes(agentName, agentRecord.id, refreshedScopes).catch(() => {
+            /* Cache write failure is non-fatal */
+          });
+        }
+        console.error("[SHIELD] DECISION: allow (re-check after consent)");
+        return undefined;
+      }
     }
 
     const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
