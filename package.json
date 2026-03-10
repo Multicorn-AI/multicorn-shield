@@ -1,6 +1,6 @@
 {
   "name": "multicorn-shield",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "The control layer for AI agents: permissions, consent, spending limits, and audit logging.",
   "license": "MIT",
   "type": "module",
