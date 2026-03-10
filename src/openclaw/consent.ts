@@ -27,6 +27,25 @@ const POLL_TIMEOUT_MS = 5 * 60 * 1000;
  */
 export function deriveDashboardUrl(baseUrl: string): string {
   try {
+    // When MULTICORN_BASE_URL indicates local dev, use it for dashboard derivation.
+    // Handles the case where ~/.multicorn/config.json overrides env with production
+    // but the user intended local dev (dashboard at 5173).
+    const envBase = process.env["MULTICORN_BASE_URL"];
+    if (typeof envBase === "string" && envBase.trim().length > 0) {
+      const trimmed = envBase.trim();
+      if (trimmed.includes("localhost") || trimmed.includes("127.0.0.1")) {
+        baseUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+      }
+    }
+
+    // Normalize: URLs like "localhost:8080" without protocol throw in URL constructor
+    if (
+      !/^https?:\/\//i.test(baseUrl) &&
+      (baseUrl.includes("localhost") || baseUrl.includes("127.0.0.1"))
+    ) {
+      baseUrl = `http://${baseUrl}`;
+    }
+
     const url = new URL(baseUrl);
 
     if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
@@ -115,6 +134,7 @@ export async function waitForConsent(
   logger?: PluginLogger,
 ): Promise<readonly Scope[]> {
   const dashboardUrl = deriveDashboardUrl(baseUrl);
+  console.error("[SHIELD] buildConsentUrl baseUrl:", baseUrl);
   const consentUrl = buildConsentUrl(agentName, dashboardUrl, scope);
 
   process.stderr.write(
