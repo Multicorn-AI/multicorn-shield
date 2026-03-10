@@ -155,6 +155,42 @@ await shield.logAction({
 
 That gives you a consent screen, scoped permissions, and an audit trail.
 
+## Dashboard
+
+Every action, approval, and permission is visible in real time at [app.multicorn.ai](https://app.multicorn.ai).
+
+**Sign up:** [https://app.multicorn.ai](https://app.multicorn.ai)
+
+With the dashboard you can:
+
+- See all agents and their activity
+- Approve or reject pending actions
+- Configure per-agent permissions (read/write/execute per service)
+- Set spending limits
+- View the full audit trail with hash-chain integrity
+
+The dashboard works with both the SDK integration and the MCP proxy. No extra setup needed.
+
+<p align="center">
+  <img src="https://multicorn.ai/images/screenshots/overview-page.png" alt="Dashboard overview showing total actions, blocked count, spend, and live activity feed" width="800" />
+</p>
+
+<p align="center">
+  <img src="https://multicorn.ai/images/screenshots/approvals-card.png" alt="Approval card with one-tap approve/reject and permission duration options" width="800" />
+</p>
+
+<p align="center">
+  <img src="https://multicorn.ai/images/screenshots/activity-log-list.png" alt="Filterable activity log showing every agent action with status" width="800" />
+</p>
+
+<p align="center">
+  <img src="https://multicorn.ai/images/screenshots/consent-screen.png" alt="Consent screen where users grant agent permissions" width="800" />
+</p>
+
+<p align="center">
+  <img src="https://multicorn.ai/images/screenshots/agent-page-with-stats.png" alt="Agent detail page with action stats and budget tracking" width="800" />
+</p>
+
 ## Built with Shield
 
 Multicorn is developed using AI coding agents. Primarily Cursor for code generation and GitHub Actions as the deployment agent. Every one of those agents runs under Shield.
