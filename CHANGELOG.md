@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-03-13
+
+### Changed
+
+- All proxy and plugin failure modes now fail closed (block action when Shield cannot verify permissions)
+- `handleHttpError` returns `shouldBlock: true` for 429 (rate limit) and 5xx (server error), matching the existing `checkActionPermission` behavior and fixing misleading comments
+- Service-unreachable, auth-error, and internal-error responses use distinct JSON-RPC error codes: -32000 (permission denied), -32002 (internal error), -32003 (service unreachable), -32004 (auth error)
+- Plugin output filename changed from `index.js` to `multicorn-shield.js` to fix OpenClaw plugin ID mismatch warning
+
+### Added
+
+- `ShieldAuthError` class for clean 401/403 error propagation through `resolveAgentRecord`
+- `buildInternalErrorResponse`, `buildServiceUnreachableResponse`, and `buildAuthErrorResponse` in interceptor module
+- Early auth-invalid and offline-mode guards at the top of `handleToolCall` (before scope validation)
+- `authInvalid` flag on `AgentRecord` for propagating auth failures from consent module to proxy
+- `proxy.fail-closed.test.ts` covering service-down, timeout, 500, malformed JSON, 401, 403, and internal error scenarios
+- `plugin.fail-closed.test.ts` covering exception handling, 5xx responses, and malformed response blocking
+
+### Fixed
+
+- Proxy `handleToolCall` no longer hangs or returns wrong error code when service is unreachable at startup
+- `findAgentByName` wraps `response.json()` in try/catch so malformed responses flow through the offline path instead of throwing unhandled rejections
+- Existing test assertions updated to match new error codes (-32003 for service unreachable, -32004 for auth errors)
+
+## [0.1.14] - 2026-03-12
+
+### Fixed
+
+- Audit log payload column uses `text` instead of `jsonb` to preserve SHA-256 hash chain integrity (PostgreSQL `jsonb` normalizes key ordering and whitespace)
+- `Instant.toString()` timestamp precision preserved using `DateTimeFormatter` with `SSSSSS` pattern in `AuditHasher.formatTimestamp()`
+- All 40 integration tests passing after audit log migration (V030)
+
 ## [0.1.13] - 2026-03-10
 
 ### Fixed
