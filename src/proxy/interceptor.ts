@@ -36,6 +36,8 @@ export interface ToolCallParams {
 const BLOCKED_ERROR_CODE = -32000;
 const SPENDING_BLOCKED_ERROR_CODE = -32001;
 const INTERNAL_ERROR_CODE = -32002;
+const SERVICE_UNREACHABLE_ERROR_CODE = -32003;
+const AUTH_ERROR_CODE = -32004;
 
 export function parseJsonRpcLine(line: string): JsonRpcRequest | null {
   const trimmed = line.trim();
@@ -124,6 +126,7 @@ export function buildInternalErrorResponse(id: string | number | null): JsonRpcR
 
 /**
  * Service unreachable: Shield could not verify permissions (DNS, network, timeout).
+ * Distinct code (-32003) so callers can tell apart from permission-denied (-32000).
  */
 export function buildServiceUnreachableResponse(
   id: string | number | null,
@@ -135,7 +138,7 @@ export function buildServiceUnreachableResponse(
     jsonrpc: "2.0",
     id,
     error: {
-      code: BLOCKED_ERROR_CODE,
+      code: SERVICE_UNREACHABLE_ERROR_CODE,
       message,
     },
   };
@@ -143,6 +146,7 @@ export function buildServiceUnreachableResponse(
 
 /**
  * API key invalid or revoked (401/403 from service).
+ * Distinct code (-32004) so callers can tell apart from permission-denied (-32000).
  */
 export function buildAuthErrorResponse(id: string | number | null): JsonRpcResponse {
   const message =
@@ -152,7 +156,7 @@ export function buildAuthErrorResponse(id: string | number | null): JsonRpcRespo
     jsonrpc: "2.0",
     id,
     error: {
-      code: BLOCKED_ERROR_CODE,
+      code: AUTH_ERROR_CODE,
       message,
     },
   };

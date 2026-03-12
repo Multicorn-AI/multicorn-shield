@@ -68,6 +68,18 @@ export function deriveDashboardUrl(baseUrl: string): string {
   }
 }
 
+/**
+ * Thrown when the Shield API returns 401 or 403 (API key invalid or revoked).
+ * Used so resolveAgentRecord can detect auth failure without ad-hoc property casts.
+ */
+export class ShieldAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ShieldAuthError";
+    Object.setPrototypeOf(this, ShieldAuthError.prototype);
+  }
+}
+
 export interface AgentRecord {
   readonly id: string;
   readonly name: string;
@@ -181,13 +193,14 @@ export async function registerAgent(
   });
 
   if (!response.ok) {
-    const err = new Error(
-      `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
-    ) as Error & { authInvalid?: boolean };
     if (response.status === 401 || response.status === 403) {
-      err.authInvalid = true;
+      throw new ShieldAuthError(
+        `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
+      );
     }
-    throw err;
+    throw new Error(
+      `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
+    );
   }
 
   const body: unknown = await response.json();
@@ -316,12 +329,7 @@ export async function resolveAgentRecord(
       agent = { id, name: agentName, scopes: [] };
       logger.info("Agent registered.", { agent: agentName, id });
     } catch (error: unknown) {
-      const authInvalid =
-        typeof error === "object" &&
-        error !== null &&
-        "authInvalid" in error &&
-        (error as { authInvalid?: boolean }).authInvalid;
-      if (authInvalid) {
+      if (error instanceof ShieldAuthError) {
         return { id: "", name: agentName, scopes: [], authInvalid: true };
       }
       const detail = error instanceof Error ? error.message : String(error);

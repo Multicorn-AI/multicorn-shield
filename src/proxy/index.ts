@@ -180,17 +180,15 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
               });
             }
           }
-
           if (authInvalid) {
-            const blocked = buildAuthErrorResponse(request.id);
-            return JSON.stringify(blocked);
+            return JSON.stringify(buildAuthErrorResponse(request.id));
           }
           if (agentId.length === 0) {
-            const blocked = buildServiceUnreachableResponse(request.id, config.dashboardUrl);
-            return JSON.stringify(blocked);
+            return JSON.stringify(buildServiceUnreachableResponse(request.id, config.dashboardUrl));
           }
-          const blocked = buildBlockedResponse(request.id, service, "execute", config.dashboardUrl);
-          return JSON.stringify(blocked);
+          return JSON.stringify(
+            buildBlockedResponse(request.id, service, "execute", config.dashboardUrl),
+          );
         }
       }
 
