@@ -256,9 +256,16 @@ export async function registerAgent(
   });
 
   if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    if (response.status === 403) {
+      const msg = (body?.error?.message ?? "").toLowerCase();
+      if (msg.includes("agent limit") || msg.includes("maximum")) {
+        throw new Error("Agent limit reached. Upgrade your plan at app.multicorn.ai/settings.");
+      }
+    }
     handleHttpError(response.status, logger);
-    // 401/403 should block (throw error to indicate auth failure)
-    // 5xx and other errors can fail-open (throw error)
     throw new Error(
       `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
     );
@@ -272,10 +279,17 @@ export async function registerAgent(
   return body.data.id;
 }
 
+// Coalesce concurrent findOrRegisterAgent calls for the same key to prevent duplicate agent creation
+const findOrRegisterInflight = new Map<string, Promise<AgentRecord | null>>();
+
 /**
  * Find an existing agent or register a new one.
  *
+ * Concurrent calls for the same (agentName, apiKey, baseUrl) share one in-flight
+ * execution to prevent race conditions that create duplicate agents.
+ *
  * @returns The agent record, or `null` if the API is unreachable.
+ * @throws {Error} If agent limit is reached (re-thrown from registerAgent).
  */
 export async function findOrRegisterAgent(
   agentName: string,
@@ -283,15 +297,29 @@ export async function findOrRegisterAgent(
   baseUrl: string,
   logger?: PluginLogger,
 ): Promise<AgentRecord | null> {
-  const existing = await findAgentByName(agentName, apiKey, baseUrl, logger);
-  if (existing !== null) return existing;
+  const key = `${agentName}:${apiKey}:${baseUrl}`;
+  const existing = findOrRegisterInflight.get(key);
+  if (existing !== undefined) return existing;
 
-  try {
-    const id = await registerAgent(agentName, apiKey, baseUrl, logger);
-    return { id, name: agentName };
-  } catch {
-    return null;
-  }
+  const promise = (async (): Promise<AgentRecord | null> => {
+    const found = await findAgentByName(agentName, apiKey, baseUrl, logger);
+    if (found !== null) return found;
+
+    try {
+      const id = await registerAgent(agentName, apiKey, baseUrl, logger);
+      return { id, name: agentName };
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("Agent limit reached")) {
+        throw err;
+      }
+      return null;
+    }
+  })().finally(() => {
+    findOrRegisterInflight.delete(key);
+  });
+
+  findOrRegisterInflight.set(key, promise);
+  return promise;
 }
 
 /**

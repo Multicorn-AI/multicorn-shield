@@ -269,6 +269,26 @@ describe("findOrRegisterAgent", () => {
     const result = await findOrRegisterAgent("openclaw", TEST_API_KEY, TEST_BASE_URL);
     expect(result).toBeNull();
   });
+
+  it("throws when agent limit is reached during registration", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: [] }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () =>
+          Promise.resolve({
+            error: { message: "Agent limit reached for your plan" },
+          }),
+      });
+
+    await expect(findOrRegisterAgent("openclaw", TEST_API_KEY, TEST_BASE_URL)).rejects.toThrow(
+      "Agent limit reached. Upgrade your plan at app.multicorn.ai/settings.",
+    );
+  });
 });
 
 describe("fetchGrantedScopes", () => {

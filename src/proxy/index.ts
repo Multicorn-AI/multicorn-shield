@@ -90,7 +90,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
       const scopes = await fetchGrantedScopes(agentId, config.apiKey, config.baseUrl);
       grantedScopes = scopes;
       if (scopes.length > 0) {
-        await saveCachedScopes(config.agentName, agentId, scopes);
+        await saveCachedScopes(config.agentName, agentId, scopes, config.apiKey);
       }
       config.logger.debug("Scopes refreshed.", { count: scopes.length });
     } catch (error) {
@@ -129,7 +129,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         scopeParam,
       );
       grantedScopes = scopes;
-      await saveCachedScopes(config.agentName, agentId, scopes);
+      await saveCachedScopes(config.agentName, agentId, scopes, config.apiKey);
     } finally {
       consentInProgress = false;
     }

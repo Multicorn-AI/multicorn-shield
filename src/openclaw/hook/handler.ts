@@ -109,7 +109,7 @@ async function ensureAgent(
 
   // Try to load cached scopes first (fast, offline-resilient)
   if (agentRecord === null) {
-    const cached = await loadCachedScopes(agentName);
+    const cached = await loadCachedScopes(agentName, apiKey);
     if (cached !== null && cached.length > 0) {
       grantedScopes = cached;
       // Still need the agent record for logging, but don't block on it
@@ -142,7 +142,7 @@ async function ensureAgent(
   lastScopeRefresh = Date.now();
 
   if (scopes.length > 0) {
-    await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+    await saveCachedScopes(agentName, agentRecord.id, scopes, apiKey).catch(() => {
       // Cache write failure is non-fatal
     });
   }
@@ -190,7 +190,7 @@ async function ensureConsent(
   try {
     const scopes = await waitForConsent(agentRecord.id, agentName, apiKey, baseUrl, scope);
     grantedScopes = scopes;
-    await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+    await saveCachedScopes(agentName, agentRecord.id, scopes, apiKey).catch(() => {
       // Cache write failure is non-fatal
     });
   } finally {
@@ -264,10 +264,10 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
 
   if (!permitted) {
     const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
-    const dashboardUrl = deriveDashboardUrl(config.baseUrl);
+    const base = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
     event.messages.push(
       `Permission denied: ${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-        `Check pending approvals at ${dashboardUrl}/approvals `,
+        `Check pending approvals at <${base}/approvals>.`,
     );
 
     // Log the blocked action (fire-and-forget)

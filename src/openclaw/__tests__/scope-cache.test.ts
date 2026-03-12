@@ -1,15 +1,24 @@
+import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { loadCachedScopes, saveCachedScopes } from "../scope-cache.js";
+
+const TEST_API_KEY = "test-api-key";
+
+function cacheKey(agentName: string, apiKey: string): string {
+  return createHash("sha256").update(`${agentName}:${apiKey}`).digest("hex").slice(0, 16);
+}
 
 const readFileMock = vi.hoisted(() => vi.fn());
 const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mkdirMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const unlinkMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("node:fs/promises", () => {
   const exports = {
     readFile: readFileMock,
     writeFile: writeFileMock,
     mkdir: mkdirMock,
+    unlink: unlinkMock,
   };
   return { default: exports, ...exports };
 });
@@ -18,6 +27,7 @@ beforeEach(() => {
   readFileMock.mockReset();
   writeFileMock.mockReset().mockResolvedValue(undefined);
   mkdirMock.mockReset().mockResolvedValue(undefined);
+  unlinkMock.mockReset().mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -26,8 +36,9 @@ afterEach(() => {
 
 describe("loadCachedScopes", () => {
   it("returns scopes for a cached agent", async () => {
-    const cacheData = {
-      openclaw: {
+    const key = cacheKey("openclaw", TEST_API_KEY);
+    const cacheData: Record<string, unknown> = {
+      [key]: {
         agentId: "agent-1",
         scopes: [
           { service: "filesystem", permissionLevel: "read" },
@@ -36,9 +47,16 @@ describe("loadCachedScopes", () => {
         fetchedAt: "2026-03-01T00:00:00.000Z",
       },
     };
-    readFileMock.mockResolvedValue(JSON.stringify(cacheData));
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(
+          JSON.stringify({ apiKeyHash: createHash("sha256").update(TEST_API_KEY).digest("hex") }),
+        );
+      }
+      return Promise.resolve(JSON.stringify(cacheData));
+    });
 
-    const result = await loadCachedScopes("openclaw");
+    const result = await loadCachedScopes("openclaw", TEST_API_KEY);
 
     expect(result).toEqual([
       { service: "filesystem", permissionLevel: "read" },
@@ -46,117 +64,121 @@ describe("loadCachedScopes", () => {
     ]);
   });
 
+  it("returns null when apiKey is empty", async () => {
+    const result = await loadCachedScopes("openclaw", "");
+    expect(result).toBeNull();
+    expect(readFileMock).not.toHaveBeenCalled();
+  });
+
   it("returns null when the agent is not in the cache", async () => {
-    readFileMock.mockResolvedValue(
-      JSON.stringify({ other: { agentId: "x", scopes: [], fetchedAt: "" } }),
-    );
+    const currentHash = createHash("sha256").update(TEST_API_KEY).digest("hex");
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash: currentHash }));
+      }
+      return Promise.resolve(
+        JSON.stringify({ other: { agentId: "x", scopes: [], fetchedAt: "" } }),
+      );
+    });
 
-    const result = await loadCachedScopes("openclaw");
+    const result = await loadCachedScopes("openclaw", TEST_API_KEY);
     expect(result).toBeNull();
   });
 
-  it("returns null when the file does not exist", async () => {
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
+  it("returns null when the scopes file does not exist", async () => {
+    const currentHash = createHash("sha256").update(TEST_API_KEY).digest("hex");
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash: currentHash }));
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
 
-    const result = await loadCachedScopes("openclaw");
+    const result = await loadCachedScopes("openclaw", TEST_API_KEY);
     expect(result).toBeNull();
   });
 
-  it("returns null when the file contains invalid JSON", async () => {
-    readFileMock.mockResolvedValue("{broken json");
+  it("clears cache when API key has changed", async () => {
+    const key = cacheKey("openclaw", TEST_API_KEY);
+    const cacheData: Record<string, unknown> = {
+      [key]: {
+        agentId: "agent-1",
+        scopes: [{ service: "terminal", permissionLevel: "execute" }],
+        fetchedAt: "2026-03-01T00:00:00.000Z",
+      },
+    };
+    const oldHash = "old-hash-value";
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash: oldHash }));
+      }
+      return Promise.resolve(JSON.stringify(cacheData));
+    });
 
-    const result = await loadCachedScopes("openclaw");
-    expect(result).toBeNull();
-  });
+    const result = await loadCachedScopes("openclaw", TEST_API_KEY);
 
-  it("returns null when the file contains a non-object value", async () => {
-    readFileMock.mockResolvedValue('"just a string"');
-
-    const result = await loadCachedScopes("openclaw");
+    expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining("scopes.json"));
     expect(result).toBeNull();
   });
 });
 
 describe("saveCachedScopes", () => {
   it("creates the directory and writes scopes with correct permissions", async () => {
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.reject(new Error("ENOENT"));
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
 
-    await saveCachedScopes("openclaw", "agent-1", [
-      { service: "filesystem", permissionLevel: "read" },
-    ]);
+    await saveCachedScopes(
+      "openclaw",
+      "agent-1",
+      [{ service: "filesystem", permissionLevel: "read" }],
+      TEST_API_KEY,
+    );
 
     expect(mkdirMock).toHaveBeenCalledWith(expect.stringContaining(".multicorn"), {
       recursive: true,
       mode: 0o700,
     });
 
-    expect(writeFileMock).toHaveBeenCalledWith(
-      expect.stringContaining("scopes.json"),
-      expect.stringContaining('"filesystem"'),
-      { encoding: "utf8", mode: 0o600 },
+    const scopesCall = writeFileMock.mock.calls.find((c) => String(c[0]).includes("scopes.json"));
+    expect(scopesCall).toBeDefined();
+    expect(scopesCall?.[1]).toContain('"filesystem"');
+    expect(scopesCall?.[2]).toEqual({ encoding: "utf8", mode: 0o600 });
+  });
+
+  it("returns early when apiKey is empty", async () => {
+    await saveCachedScopes(
+      "openclaw",
+      "agent-1",
+      [{ service: "filesystem", permissionLevel: "read" }],
+      "",
     );
+
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 
-  it("merges with existing cache entries for other agents", async () => {
-    const existing = {
-      "other-agent": {
-        agentId: "agent-2",
-        scopes: [{ service: "browser", permissionLevel: "execute" }],
-        fetchedAt: "2026-01-01T00:00:00.000Z",
-      },
-    };
-    readFileMock.mockResolvedValue(JSON.stringify(existing));
+  it("uses account-aware cache key", async () => {
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.reject(new Error("ENOENT"));
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
 
-    await saveCachedScopes("openclaw", "agent-1", [
-      { service: "terminal", permissionLevel: "execute" },
-    ]);
+    await saveCachedScopes(
+      "openclaw",
+      "agent-1",
+      [{ service: "terminal", permissionLevel: "execute" }],
+      TEST_API_KEY,
+    );
 
-    const writtenData = JSON.parse((writeFileMock.mock.calls[0]?.[1] as string).trim()) as Record<
-      string,
-      unknown
-    >;
-
-    expect(writtenData["other-agent"]).toBeDefined();
-    expect(writtenData["openclaw"]).toBeDefined();
-  });
-
-  it("overwrites an existing entry for the same agent", async () => {
-    const existing = {
-      openclaw: {
-        agentId: "agent-1",
-        scopes: [{ service: "filesystem", permissionLevel: "read" }],
-        fetchedAt: "2026-01-01T00:00:00.000Z",
-      },
-    };
-    readFileMock.mockResolvedValue(JSON.stringify(existing));
-
-    await saveCachedScopes("openclaw", "agent-1", [
-      { service: "terminal", permissionLevel: "execute" },
-    ]);
-
-    const writtenData = JSON.parse((writeFileMock.mock.calls[0]?.[1] as string).trim()) as Record<
-      string,
-      unknown
-    >;
-    const entry = writtenData["openclaw"] as Record<string, unknown>;
-    const scopes = entry["scopes"] as Record<string, string>[];
-
-    expect(scopes).toHaveLength(1);
-    expect(scopes[0]?.["service"]).toBe("terminal");
-  });
-
-  it("starts fresh when existing file is corrupt", async () => {
-    readFileMock.mockResolvedValue("{corrupt");
-
-    await saveCachedScopes("openclaw", "agent-1", [
-      { service: "filesystem", permissionLevel: "read" },
-    ]);
-
-    expect(writeFileMock).toHaveBeenCalled();
-    const writtenData = JSON.parse((writeFileMock.mock.calls[0]?.[1] as string).trim()) as Record<
-      string,
-      unknown
-    >;
-    expect(writtenData["openclaw"]).toBeDefined();
+    const scopesCall = writeFileMock.mock.calls.find((c) => String(c[0]).includes("scopes.json"));
+    expect(scopesCall).toBeDefined();
+    const writtenData = JSON.parse(String(scopesCall?.[1] ?? "{}")) as Record<string, unknown>;
+    const key = cacheKey("openclaw", TEST_API_KEY);
+    expect(writtenData[key]).toBeDefined();
   });
 });
