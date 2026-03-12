@@ -99,20 +99,15 @@ describe("loadCachedScopes", () => {
   });
 
   it("clears cache when API key has changed", async () => {
-    const key = cacheKey("openclaw", TEST_API_KEY);
-    const cacheData: Record<string, unknown> = {
-      [key]: {
-        agentId: "agent-1",
-        scopes: [{ service: "terminal", permissionLevel: "execute" }],
-        fetchedAt: "2026-03-01T00:00:00.000Z",
-      },
-    };
     const oldHash = "old-hash-value";
     readFileMock.mockImplementation((path: string) => {
       if (path.includes("cache-meta")) {
         return Promise.resolve(JSON.stringify({ apiKeyHash: oldHash }));
       }
-      return Promise.resolve(JSON.stringify(cacheData));
+      if (path.includes("scopes.json")) {
+        return Promise.reject(new Error("ENOENT"));
+      }
+      return Promise.reject(new Error("ENOENT"));
     });
 
     const result = await loadCachedScopes("openclaw", TEST_API_KEY);

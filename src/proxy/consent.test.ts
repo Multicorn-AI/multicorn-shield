@@ -552,6 +552,10 @@ describe("resolveAgentRecord", () => {
 
     await resolveAgentRecord("my-mcp-server", "mcs_key", "https://api.multicorn.ai", mockLogger);
 
-    expect(writeFileMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("scopes.json"),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });

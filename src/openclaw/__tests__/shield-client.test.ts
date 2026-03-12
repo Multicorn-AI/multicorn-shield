@@ -176,7 +176,7 @@ describe("registerAgent", () => {
   });
 
   it("throws on HTTP error", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 409 });
+    fetchMock.mockResolvedValue({ ok: false, status: 409, json: () => Promise.resolve({}) });
 
     await expect(registerAgent("openclaw", TEST_API_KEY, TEST_BASE_URL)).rejects.toThrow(
       "Failed to register agent",
@@ -201,7 +201,7 @@ describe("registerAgent", () => {
       warn: vi.fn(),
       error: vi.fn(),
     };
-    fetchMock.mockResolvedValue({ ok: false, status: 401 });
+    fetchMock.mockResolvedValue({ ok: false, status: 401, json: () => Promise.resolve({}) });
 
     await expect(registerAgent("openclaw", TEST_API_KEY, TEST_BASE_URL, logger)).rejects.toThrow();
 
@@ -216,7 +216,11 @@ describe("registerAgent", () => {
       warn: vi.fn(),
       error: vi.fn(),
     };
-    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () => Promise.resolve({ error: { message: "Forbidden" } }),
+    });
 
     await expect(registerAgent("openclaw", TEST_API_KEY, TEST_BASE_URL, logger)).rejects.toThrow();
 
