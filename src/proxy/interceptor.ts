@@ -35,6 +35,9 @@ export interface ToolCallParams {
 // JSON-RPC server-defined error range starts at -32000
 const BLOCKED_ERROR_CODE = -32000;
 const SPENDING_BLOCKED_ERROR_CODE = -32001;
+const INTERNAL_ERROR_CODE = -32002;
+const SERVICE_UNREACHABLE_ERROR_CODE = -32003;
+const AUTH_ERROR_CODE = -32004;
 
 export function parseJsonRpcLine(line: string): JsonRpcRequest | null {
   const trimmed = line.trim();
@@ -98,6 +101,62 @@ export function buildSpendingBlockedResponse(
     id,
     error: {
       code: SPENDING_BLOCKED_ERROR_CODE,
+      message,
+    },
+  };
+}
+
+/**
+ * Internal error: Shield could not verify permissions due to an exception.
+ * Use when the proxy hits an unhandled error (fail-closed).
+ */
+export function buildInternalErrorResponse(id: string | number | null): JsonRpcResponse {
+  const message =
+    "Action blocked: Shield encountered an internal error and cannot verify permissions. Check proxy logs for details.";
+
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: INTERNAL_ERROR_CODE,
+      message,
+    },
+  };
+}
+
+/**
+ * Service unreachable: Shield could not verify permissions (DNS, network, timeout).
+ * Distinct code (-32003) so callers can tell apart from permission-denied (-32000).
+ */
+export function buildServiceUnreachableResponse(
+  id: string | number | null,
+  dashboardUrl: string,
+): JsonRpcResponse {
+  const message = `Action blocked: Shield cannot verify permissions (service unreachable). Configure offline behaviour at ${dashboardUrl}`;
+
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: SERVICE_UNREACHABLE_ERROR_CODE,
+      message,
+    },
+  };
+}
+
+/**
+ * API key invalid or revoked (401/403 from service).
+ * Distinct code (-32004) so callers can tell apart from permission-denied (-32000).
+ */
+export function buildAuthErrorResponse(id: string | number | null): JsonRpcResponse {
+  const message =
+    "Action blocked: Shield API key is invalid or has been revoked. Run npx multicorn-proxy init to reconfigure.";
+
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: AUTH_ERROR_CODE,
       message,
     },
   };

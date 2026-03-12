@@ -804,7 +804,7 @@ describe("service unavailable", () => {
     expect(response["result"]).toBeUndefined();
 
     const error = response["error"] as Record<string, unknown>;
-    expect(error["code"]).toBe(-32000);
+    expect(error["code"]).toBe(-32003);
   });
 
   it(

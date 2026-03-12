@@ -64,10 +64,24 @@ export function deriveDashboardUrl(baseUrl: string): string {
   }
 }
 
+/**
+ * Thrown when the Shield API returns 401 or 403 (API key invalid or revoked).
+ * Used so resolveAgentRecord can detect auth failure without ad-hoc property casts.
+ */
+export class ShieldAuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ShieldAuthError";
+    Object.setPrototypeOf(this, ShieldAuthError.prototype);
+  }
+}
+
 export interface AgentRecord {
   readonly id: string;
   readonly name: string;
   readonly scopes: readonly Scope[];
+  /** Set when the service returned 401/403; proxy must block with auth error message. */
+  readonly authInvalid?: boolean;
 }
 
 export { loadCachedScopes, saveCachedScopes };
@@ -87,9 +101,19 @@ export async function findAgentByName(
     return null;
   }
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      return { id: "", name: agentName, scopes: [], authInvalid: true };
+    }
+    return null;
+  }
 
-  const body: unknown = await response.json();
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
   if (!isApiSuccessResponse(body)) return null;
 
   const agents = body.data;
@@ -119,6 +143,11 @@ export async function registerAgent(
   });
 
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      throw new ShieldAuthError(
+        `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
+      );
+    }
     throw new Error(
       `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
     );
@@ -238,6 +267,10 @@ export async function resolveAgentRecord(
 
   let agent = await findAgentByName(agentName, apiKey, baseUrl);
 
+  if (agent?.authInvalid) {
+    return agent;
+  }
+
   if (agent === null) {
     // Service may be unreachable. Attempt registration, fall back to offline mode.
     try {
@@ -245,7 +278,10 @@ export async function resolveAgentRecord(
       const id = await registerAgent(agentName, apiKey, baseUrl);
       agent = { id, name: agentName, scopes: [] };
       logger.info("Agent registered.", { agent: agentName, id });
-    } catch (error) {
+    } catch (error: unknown) {
+      if (error instanceof ShieldAuthError) {
+        return { id: "", name: agentName, scopes: [], authInvalid: true };
+      }
       const detail = error instanceof Error ? error.message : String(error);
       logger.warn("Could not reach Multicorn service. Running with empty permissions.", {
         error: detail,
