@@ -28,6 +28,9 @@ import {
   extractToolCallParams,
   buildBlockedResponse,
   buildSpendingBlockedResponse,
+  buildInternalErrorResponse,
+  buildServiceUnreachableResponse,
+  buildAuthErrorResponse,
   extractServiceFromToolName,
   extractActionFromToolName,
 } from "./interceptor.js";
@@ -77,6 +80,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
   let spendingChecker: SpendingChecker | null = null;
   let grantedScopes: readonly Scope[] = [];
   let agentId = "";
+  let authInvalid = false;
   let refreshTimer: ReturnType<typeof setInterval> | null = null;
   let consentInProgress = false;
   const pendingLines: string[] = [];
@@ -144,46 +148,35 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     const toolParams = extractToolCallParams(request);
     if (toolParams === null) return null;
 
-    const service = extractServiceFromToolName(toolParams.name);
-    const action = extractActionFromToolName(toolParams.name);
-    const requestedScope: Scope = { service, permissionLevel: "execute" };
-    const validation = validateScopeAccess(grantedScopes, requestedScope);
-
-    config.logger.debug("Tool call intercepted.", {
-      tool: toolParams.name,
-      service,
-      allowed: validation.allowed,
-    });
-
-    // Trigger consent if the specific scope is missing
-    if (!validation.allowed) {
-      await ensureConsent(requestedScope);
-      // Re-validate after consent attempt
-      const revalidation = validateScopeAccess(grantedScopes, requestedScope);
-      if (!revalidation.allowed) {
-        if (actionLogger !== null) {
-          if (!config.agentName || config.agentName.trim().length === 0) {
-            process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
-          } else {
-            await actionLogger.logAction({
-              agent: config.agentName,
-              service,
-              actionType: action,
-              status: "blocked",
-            });
-          }
-        }
-
-        const blocked = buildBlockedResponse(request.id, service, "execute", config.dashboardUrl);
+    try {
+      // Fail-closed: check service state before any scope validation or consent.
+      // When startup failed (unreachable or auth invalid), every tool call returns the correct error.
+      if (authInvalid) {
+        const blocked = buildAuthErrorResponse(request.id);
         return JSON.stringify(blocked);
       }
-    }
+      if (agentId.length === 0) {
+        const blocked = buildServiceUnreachableResponse(request.id, config.dashboardUrl);
+        return JSON.stringify(blocked);
+      }
 
-    if (spendingChecker !== null) {
-      const costCents = extractCostCents(toolParams.arguments);
-      if (costCents > 0) {
-        const spendResult = spendingChecker.checkSpend(costCents);
-        if (!spendResult.allowed) {
+      const service = extractServiceFromToolName(toolParams.name);
+      const action = extractActionFromToolName(toolParams.name);
+      const requestedScope: Scope = { service, permissionLevel: "execute" };
+      const validation = validateScopeAccess(grantedScopes, requestedScope);
+
+      config.logger.debug("Tool call intercepted.", {
+        tool: toolParams.name,
+        service,
+        allowed: validation.allowed,
+      });
+
+      // Trigger consent if the specific scope is missing
+      if (!validation.allowed) {
+        await ensureConsent(requestedScope);
+        // Re-validate after consent attempt
+        const revalidation = validateScopeAccess(grantedScopes, requestedScope);
+        if (!revalidation.allowed) {
           if (actionLogger !== null) {
             if (!config.agentName || config.agentName.trim().length === 0) {
               process.stderr.write(
@@ -198,32 +191,64 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
               });
             }
           }
-
-          const blocked = buildSpendingBlockedResponse(
-            request.id,
-            spendResult.reason ?? "spending limit exceeded",
-            config.dashboardUrl,
+          return JSON.stringify(
+            buildBlockedResponse(request.id, service, "execute", config.dashboardUrl),
           );
-          return JSON.stringify(blocked);
         }
-        spendingChecker.recordSpend(costCents);
       }
-    }
 
-    if (actionLogger !== null) {
-      if (!config.agentName || config.agentName.trim().length === 0) {
-        process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
-      } else {
-        await actionLogger.logAction({
-          agent: config.agentName,
-          service,
-          actionType: action,
-          status: "approved",
-        });
+      if (spendingChecker !== null) {
+        const costCents = extractCostCents(toolParams.arguments);
+        if (costCents > 0) {
+          const spendResult = spendingChecker.checkSpend(costCents);
+          if (!spendResult.allowed) {
+            if (actionLogger !== null) {
+              if (!config.agentName || config.agentName.trim().length === 0) {
+                process.stderr.write(
+                  "[multicorn-proxy] Cannot log action: agent name not resolved\n",
+                );
+              } else {
+                await actionLogger.logAction({
+                  agent: config.agentName,
+                  service,
+                  actionType: action,
+                  status: "blocked",
+                });
+              }
+            }
+
+            const blocked = buildSpendingBlockedResponse(
+              request.id,
+              spendResult.reason ?? "spending limit exceeded",
+              config.dashboardUrl,
+            );
+            return JSON.stringify(blocked);
+          }
+          spendingChecker.recordSpend(costCents);
+        }
       }
-    }
 
-    return null;
+      if (actionLogger !== null) {
+        if (!config.agentName || config.agentName.trim().length === 0) {
+          process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
+        } else {
+          await actionLogger.logAction({
+            agent: config.agentName,
+            service,
+            actionType: action,
+            status: "approved",
+          });
+        }
+      }
+
+      return null;
+    } catch (error) {
+      config.logger.error("Tool call handler error.", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      const blocked = buildInternalErrorResponse(request.id);
+      return JSON.stringify(blocked);
+    }
   }
 
   async function processLine(line: string): Promise<void> {
@@ -288,6 +313,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
 
     agentId = agentRecord.id;
     grantedScopes = agentRecord.scopes;
+    authInvalid = agentRecord.authInvalid === true;
 
     config.logger.info("Agent resolved.", {
       agent: config.agentName,
