@@ -44,7 +44,7 @@ export default defineConfig([
     },
   },
   {
-    entry: { "openclaw-plugin/index": "src/openclaw/plugin/index.ts" },
+    entry: { "openclaw-plugin/multicorn-shield": "src/openclaw/plugin/index.ts" },
     format: ["esm"],
     dts: false,
     splitting: false,
