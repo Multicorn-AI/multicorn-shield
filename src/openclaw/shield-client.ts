@@ -168,7 +168,7 @@ function handleHttpError(
     return { shouldBlock: true };
   }
 
-  // 429: Rate limiting
+  // 429: Rate limiting - fail closed (cannot verify permissions)
   if (status === 429) {
     if (retryDelaySeconds !== undefined) {
       const rateLimitMsg = `[multicorn-shield] Rate limited by Shield API. Retrying in ${String(retryDelaySeconds)}s.`;
@@ -176,23 +176,23 @@ function handleHttpError(
       process.stderr.write(`${rateLimitMsg}\n`);
     } else {
       const rateLimitMsg =
-        "[multicorn-shield] Rate limited by Shield API. Action was not checked — proceeding with fail-open.";
+        "[multicorn-shield] Rate limited by Shield API. Action blocked: Shield cannot verify permissions.";
       logger?.warn(rateLimitMsg);
       process.stderr.write(`${rateLimitMsg}\n`);
     }
-    return { shouldBlock: false };
+    return { shouldBlock: true };
   }
 
-  // 5xx: Server errors - can fail-open (transient)
+  // 5xx: Server errors - fail closed (cannot verify permissions)
   if (status >= 500 && status < 600) {
-    const serverErrorMsg = `[multicorn-shield] Shield API error (${String(status)}). Action was not checked — proceeding with fail-open.`;
+    const serverErrorMsg = `[multicorn-shield] Shield API error (${String(status)}). Action blocked: Shield cannot verify permissions.`;
     logger?.warn(serverErrorMsg);
     process.stderr.write(`${serverErrorMsg}\n`);
-    return { shouldBlock: false };
+    return { shouldBlock: true };
   }
 
-  // Other errors - default to fail-open
-  return { shouldBlock: false };
+  // Other errors - default to fail closed
+  return { shouldBlock: true };
 }
 
 /**
@@ -418,7 +418,7 @@ export async function checkActionPermission(
     // Check for rate limiting (429) or server errors (5xx)
     if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
       handleHttpError(response.status, logger);
-      // Fail-open for rate limiting and server errors
+      // Fail closed: cannot verify permissions
       return { status: "blocked" };
     }
 

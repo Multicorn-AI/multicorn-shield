@@ -72,6 +72,8 @@ export interface AgentRecord {
   readonly id: string;
   readonly name: string;
   readonly scopes: readonly Scope[];
+  /** Set when the service returned 401/403; proxy must block with auth error message. */
+  readonly authInvalid?: boolean;
 }
 
 type ScopesCacheFile = Readonly<Record<string, ScopesCacheEntry>>;
@@ -142,7 +144,12 @@ export async function findAgentByName(
     return null;
   }
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      return { id: "", name: agentName, scopes: [], authInvalid: true };
+    }
+    return null;
+  }
 
   const body: unknown = await response.json();
   if (!isApiSuccessResponse(body)) return null;
@@ -174,9 +181,13 @@ export async function registerAgent(
   });
 
   if (!response.ok) {
-    throw new Error(
+    const err = new Error(
       `Failed to register agent "${agentName}": service returned ${String(response.status)}.`,
-    );
+    ) as Error & { authInvalid?: boolean };
+    if (response.status === 401 || response.status === 403) {
+      err.authInvalid = true;
+    }
+    throw err;
   }
 
   const body: unknown = await response.json();
@@ -293,6 +304,10 @@ export async function resolveAgentRecord(
 
   let agent = await findAgentByName(agentName, apiKey, baseUrl);
 
+  if (agent?.authInvalid) {
+    return agent;
+  }
+
   if (agent === null) {
     // Service may be unreachable. Attempt registration, fall back to offline mode.
     try {
@@ -300,7 +315,15 @@ export async function resolveAgentRecord(
       const id = await registerAgent(agentName, apiKey, baseUrl);
       agent = { id, name: agentName, scopes: [] };
       logger.info("Agent registered.", { agent: agentName, id });
-    } catch (error) {
+    } catch (error: unknown) {
+      const authInvalid =
+        typeof error === "object" &&
+        error !== null &&
+        "authInvalid" in error &&
+        (error as { authInvalid?: boolean }).authInvalid;
+      if (authInvalid) {
+        return { id: "", name: agentName, scopes: [], authInvalid: true };
+      }
       const detail = error instanceof Error ? error.message : String(error);
       logger.warn("Could not reach Multicorn service. Running with empty permissions.", {
         error: detail,
