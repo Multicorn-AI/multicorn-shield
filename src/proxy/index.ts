@@ -149,6 +149,17 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     if (toolParams === null) return null;
 
     try {
+      // Fail-closed: check service state before any scope validation or consent.
+      // When startup failed (unreachable or auth invalid), every tool call returns the correct error.
+      if (authInvalid) {
+        const blocked = buildAuthErrorResponse(request.id);
+        return JSON.stringify(blocked);
+      }
+      if (agentId.length === 0) {
+        const blocked = buildServiceUnreachableResponse(request.id, config.dashboardUrl);
+        return JSON.stringify(blocked);
+      }
+
       const service = extractServiceFromToolName(toolParams.name);
       const action = extractActionFromToolName(toolParams.name);
       const requestedScope: Scope = { service, permissionLevel: "execute" };
@@ -179,12 +190,6 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
                 status: "blocked",
               });
             }
-          }
-          if (authInvalid) {
-            return JSON.stringify(buildAuthErrorResponse(request.id));
-          }
-          if (agentId.length === 0) {
-            return JSON.stringify(buildServiceUnreachableResponse(request.id, config.dashboardUrl));
           }
           return JSON.stringify(
             buildBlockedResponse(request.id, service, "execute", config.dashboardUrl),

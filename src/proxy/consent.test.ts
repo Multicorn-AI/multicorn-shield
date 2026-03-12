@@ -150,10 +150,36 @@ describe("findAgentByName", () => {
     expect(result).toBeNull();
   });
 
-  it("returns null when the service returns an error", async () => {
+  it("returns authInvalid record when the service returns 401", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
 
     const result = await findAgentByName("my-mcp-server", "bad-key", "https://api.multicorn.ai");
+
+    expect(result).toEqual({
+      id: "",
+      name: "my-mcp-server",
+      scopes: [],
+      authInvalid: true,
+    });
+  });
+
+  it("returns authInvalid record when the service returns 403", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+
+    const result = await findAgentByName("my-mcp-server", "bad-key", "https://api.multicorn.ai");
+
+    expect(result).toEqual({
+      id: "",
+      name: "my-mcp-server",
+      scopes: [],
+      authInvalid: true,
+    });
+  });
+
+  it("returns null when the service returns 500", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 });
+
+    const result = await findAgentByName("my-mcp-server", "mcs_key", "https://api.multicorn.ai");
 
     expect(result).toBeNull();
   });

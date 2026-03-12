@@ -163,7 +163,12 @@ export async function findAgentByName(
     return null;
   }
 
-  const body: unknown = await response.json();
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
   if (!isApiSuccessResponse(body)) return null;
 
   const agents = body.data;
