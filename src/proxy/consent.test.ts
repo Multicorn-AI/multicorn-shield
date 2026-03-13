@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   loadCachedScopes,
@@ -9,15 +10,23 @@ import {
 } from "./consent.js";
 import type { ProxyLogger } from "./logger.js";
 
+const TEST_API_KEY = "mcs_key";
+
+function cacheKey(agentName: string, apiKey: string): string {
+  return createHash("sha256").update(`${agentName}:${apiKey}`).digest("hex").slice(0, 16);
+}
+
 const readFileMock = vi.hoisted(() => vi.fn());
 const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mkdirMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const unlinkMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 
 vi.mock("node:fs/promises", () => {
   const exports = {
     readFile: readFileMock,
     writeFile: writeFileMock,
     mkdir: mkdirMock,
+    unlink: unlinkMock,
   };
   return { default: exports, ...exports };
 });
@@ -50,35 +59,42 @@ describe("loadCachedScopes", () => {
     mkdirMock.mockResolvedValue(undefined);
   });
 
-  it("returns scopes for the matching agent name", async () => {
+  it("returns scopes for the matching agent name and apiKey", async () => {
+    const key = cacheKey("my-mcp-server", TEST_API_KEY);
+    const currentHash = createHash("sha256").update(TEST_API_KEY).digest("hex");
     const cache = {
-      "my-mcp-server": {
+      [key]: {
         agentId: "agent-uuid-1",
         scopes: [{ service: "gmail", permissionLevel: "read" }],
         fetchedAt: "2024-01-01T00:00:00.000Z",
       },
     };
-    readFileMock.mockResolvedValue(JSON.stringify(cache));
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash: currentHash }));
+      }
+      return Promise.resolve(JSON.stringify(cache));
+    });
 
-    const result = await loadCachedScopes("my-mcp-server");
+    const result = await loadCachedScopes("my-mcp-server", TEST_API_KEY);
 
     expect(result).toHaveLength(1);
     expect(result?.[0]?.service).toBe("gmail");
   });
 
   it("returns null when the agent has no cache entry", async () => {
-    readFileMock.mockResolvedValue(JSON.stringify({}));
-    expect(await loadCachedScopes("unknown-agent")).toBeNull();
+    const currentHash = createHash("sha256").update(TEST_API_KEY).digest("hex");
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash: currentHash }));
+      }
+      return Promise.resolve(JSON.stringify({}));
+    });
+    expect(await loadCachedScopes("unknown-agent", TEST_API_KEY)).toBeNull();
   });
 
-  it("returns null when the cache file does not exist", async () => {
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    expect(await loadCachedScopes("my-mcp-server")).toBeNull();
-  });
-
-  it("returns null when the cache file contains invalid JSON", async () => {
-    readFileMock.mockResolvedValue("not json");
-    expect(await loadCachedScopes("my-mcp-server")).toBeNull();
+  it("returns null when apiKey is empty", async () => {
+    expect(await loadCachedScopes("my-mcp-server", "")).toBeNull();
   });
 });
 
@@ -90,37 +106,22 @@ describe("saveCachedScopes", () => {
     mkdirMock.mockResolvedValue(undefined);
   });
 
-  it("writes scopes to the cache file under the agent name key", async () => {
+  it("writes scopes to the cache file with account-aware key", async () => {
     const scopes = [{ service: "gmail", permissionLevel: "read" as const }];
 
-    await saveCachedScopes("my-mcp-server", "agent-uuid-1", scopes);
+    await saveCachedScopes("my-mcp-server", "agent-uuid-1", scopes, TEST_API_KEY);
 
-    expect(writeFileMock).toHaveBeenCalledOnce();
-    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1] ?? "")) as Record<
-      string,
-      unknown
-    >;
-    expect(written["my-mcp-server"]).toBeDefined();
+    const scopesCall = writeFileMock.mock.calls.find((c) => String(c[0]).includes("scopes.json"));
+    expect(scopesCall).toBeDefined();
+    const written = JSON.parse(String(scopesCall?.[1] ?? "{}")) as Record<string, unknown>;
+    const key = cacheKey("my-mcp-server", TEST_API_KEY);
+    expect(written[key]).toBeDefined();
   });
 
-  it("preserves existing cache entries when adding a new agent", async () => {
-    const existing = {
-      "other-agent": {
-        agentId: "other-id",
-        scopes: [],
-        fetchedAt: "2024-01-01T00:00:00.000Z",
-      },
-    };
-    readFileMock.mockResolvedValue(JSON.stringify(existing));
+  it("returns early when apiKey is empty", async () => {
+    await saveCachedScopes("my-mcp-server", "agent-uuid-1", [], "");
 
-    await saveCachedScopes("new-agent", "new-id", []);
-
-    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1] ?? "")) as Record<
-      string,
-      unknown
-    >;
-    expect(written["other-agent"]).toBeDefined();
-    expect(written["new-agent"]).toBeDefined();
+    expect(writeFileMock).not.toHaveBeenCalled();
   });
 });
 
@@ -419,15 +420,22 @@ describe("resolveAgentRecord", () => {
 
   it("returns cached scopes when available", async () => {
     const cachedScopes = [{ service: "gmail", permissionLevel: "read" as const }];
-    readFileMock.mockResolvedValue(
-      JSON.stringify({
-        "my-agent": {
-          agentId: "agent-id",
-          scopes: cachedScopes,
-          fetchedAt: new Date().toISOString(),
-        },
-      }),
-    );
+    const key = cacheKey("my-agent", "mcs_key");
+    const currentHash = createHash("sha256").update("mcs_key").digest("hex");
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash: currentHash }));
+      }
+      return Promise.resolve(
+        JSON.stringify({
+          [key]: {
+            agentId: "agent-id",
+            scopes: cachedScopes,
+            fetchedAt: new Date().toISOString(),
+          },
+        }),
+      );
+    });
 
     const result = await resolveAgentRecord(
       "my-agent",
@@ -442,15 +450,22 @@ describe("resolveAgentRecord", () => {
   });
 
   it("returns empty scopes when cache has empty array", async () => {
-    readFileMock.mockResolvedValue(
-      JSON.stringify({
-        "my-agent": {
-          agentId: "agent-id",
-          scopes: [],
-          fetchedAt: new Date().toISOString(),
-        },
-      }),
-    );
+    const key = cacheKey("my-agent", "mcs_key");
+    const currentHash = createHash("sha256").update("mcs_key").digest("hex");
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash: currentHash }));
+      }
+      return Promise.resolve(
+        JSON.stringify({
+          [key]: {
+            agentId: "agent-id",
+            scopes: [],
+            fetchedAt: new Date().toISOString(),
+          },
+        }),
+      );
+    });
 
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -563,6 +578,10 @@ describe("resolveAgentRecord", () => {
 
     await resolveAgentRecord("my-mcp-server", "mcs_key", "https://api.multicorn.ai", mockLogger);
 
-    expect(writeFileMock).not.toHaveBeenCalled();
+    expect(writeFileMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("scopes.json"),
+      expect.anything(),
+      expect.anything(),
+    );
   });
 });

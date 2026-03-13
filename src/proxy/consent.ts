@@ -7,19 +7,15 @@
  *
  * Scopes are cached in `~/.multicorn/scopes.json` for offline resilience
  * and refreshed from the service every 60 seconds while the proxy runs.
+ * Cache is account-aware (keyed by agent name + API key).
  *
  * @module proxy/consent
  */
 
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { spawn } from "node:child_process";
+import { loadCachedScopes, saveCachedScopes } from "../openclaw/scope-cache.js";
 import type { Scope } from "../types/index.js";
 import type { ProxyLogger } from "./logger.js";
-
-const MULTICORN_DIR = join(homedir(), ".multicorn");
-const SCOPES_PATH = join(MULTICORN_DIR, "scopes.json");
 
 const CONSENT_POLL_INTERVAL_MS = 3000;
 const CONSENT_POLL_TIMEOUT_MS = 5 * 60 * 1000;
@@ -88,58 +84,7 @@ export interface AgentRecord {
   readonly authInvalid?: boolean;
 }
 
-type ScopesCacheFile = Readonly<Record<string, ScopesCacheEntry>>;
-
-interface ScopesCacheEntry {
-  readonly agentId: string;
-  readonly scopes: readonly Scope[];
-  readonly fetchedAt: string;
-}
-
-export async function loadCachedScopes(agentName: string): Promise<readonly Scope[] | null> {
-  try {
-    const raw = await readFile(SCOPES_PATH, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (!isScopesCacheFile(parsed)) return null;
-
-    const entry = parsed[agentName];
-    return entry?.scopes ?? null;
-  } catch {
-    return null;
-  }
-}
-
-export async function saveCachedScopes(
-  agentName: string,
-  agentId: string,
-  scopes: readonly Scope[],
-): Promise<void> {
-  await mkdir(MULTICORN_DIR, { recursive: true, mode: 0o700 });
-
-  let existing: ScopesCacheFile = {};
-  try {
-    const raw = await readFile(SCOPES_PATH, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (isScopesCacheFile(parsed)) existing = parsed;
-  } catch {
-    // File missing or corrupt. Start fresh.
-  }
-
-  const updated: ScopesCacheFile = {
-    ...existing,
-    [agentName]: {
-      agentId,
-      scopes,
-      fetchedAt: new Date().toISOString(),
-    },
-  };
-
-  // Mode 0o600: owner read/write only. Scope cache contains agent metadata.
-  await writeFile(SCOPES_PATH, JSON.stringify(updated, null, 2) + "\n", {
-    encoding: "utf8",
-    mode: 0o600,
-  });
-}
+export { loadCachedScopes, saveCachedScopes };
 
 export async function findAgentByName(
   agentName: string,
@@ -313,7 +258,7 @@ export async function resolveAgentRecord(
   logger: ProxyLogger,
 ): Promise<AgentRecord> {
   // Always try the cache first. It works offline.
-  const cachedScopes = await loadCachedScopes(agentName);
+  const cachedScopes = await loadCachedScopes(agentName, apiKey);
   if (cachedScopes !== null && cachedScopes.length > 0) {
     logger.debug("Loaded scopes from cache.", { agent: agentName, count: cachedScopes.length });
     // Use a placeholder id. It will be overwritten once the service is reachable.
@@ -348,7 +293,7 @@ export async function resolveAgentRecord(
 
   const scopes = await fetchGrantedScopes(agent.id, apiKey, baseUrl);
   if (scopes.length > 0) {
-    await saveCachedScopes(agentName, agent.id, scopes);
+    await saveCachedScopes(agentName, agent.id, scopes, apiKey);
   }
 
   return { ...agent, scopes };
@@ -431,8 +376,4 @@ function isPermissionShape(value: unknown): value is PermissionShape {
     typeof obj["execute"] === "boolean" &&
     (obj["revoked_at"] === null || typeof obj["revoked_at"] === "string")
   );
-}
-
-function isScopesCacheFile(value: unknown): value is ScopesCacheFile {
-  return typeof value === "object" && value !== null;
 }
