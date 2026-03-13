@@ -56,6 +56,7 @@ let lastScopeRefresh = 0;
 let pluginLogger: PluginLogger | null = null;
 let pluginConfig: Record<string, unknown> | undefined;
 let connectionLogged = false;
+let pinnedAgentName: string | null = null;
 
 const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
@@ -110,14 +111,24 @@ function asString(value: unknown): string | undefined {
 }
 
 /**
- * Derive the agent name from the session key or env override.
+ * Derive the agent name.
  *
- * Session keys look like "agent:main:main". We extract the second
- * segment as the agent name, or fall back to "openclaw".
+ * When a configured name exists (plugin config, MULTICORN_AGENT_NAME, or ctx.agentId
+ * from OpenClaw's agents.list[0].id), use it unconditionally and ignore sessionKey.
+ * This prevents the "openclaw" ghost agent when OpenClaw sends varied session keys.
+ *
+ * Resolution order: configOverride (plugin/env) → ctxAgentId → parse sessionKey → "openclaw".
  */
-function resolveAgentName(sessionKey: string, envOverride: string | null): string {
-  if (envOverride !== null && envOverride.trim().length > 0) {
-    return envOverride.trim();
+function resolveAgentName(
+  sessionKey: string,
+  configOverride: string | null,
+  ctxAgentId?: string,
+): string {
+  if (configOverride !== null && configOverride.trim().length > 0) {
+    return configOverride.trim();
+  }
+  if (ctxAgentId !== undefined && ctxAgentId.trim().length > 0) {
+    return ctxAgentId.trim();
   }
 
   const parts = sessionKey.split(":");
@@ -127,6 +138,24 @@ function resolveAgentName(sessionKey: string, envOverride: string | null): strin
   }
 
   return "openclaw";
+}
+
+/**
+ * Get the agent name for Shield API calls.
+ * Once a non-"openclaw" name is resolved, pin it and reuse for all subsequent calls
+ * to avoid creating ghost agents from internal tool calls with empty context.
+ */
+function getAgentName(
+  sessionKey: string,
+  configOverride: string | null,
+  ctxAgentId?: string,
+): string {
+  if (pinnedAgentName !== null) return pinnedAgentName;
+  const resolved = resolveAgentName(sessionKey, configOverride, ctxAgentId);
+  if (resolved !== "openclaw") {
+    pinnedAgentName = resolved;
+  }
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,14 +170,23 @@ async function ensureAgent(
   baseUrl: string,
   failMode: "open" | "closed",
 ): Promise<AgentReadiness> {
-  // Already initialized and scopes are fresh
-  if (agentRecord !== null && Date.now() - lastScopeRefresh < SCOPE_REFRESH_INTERVAL_MS) {
+  // Already initialized and scopes are fresh (safety: ensure name matches)
+  if (
+    agentRecord !== null &&
+    agentRecord.name === agentName &&
+    Date.now() - lastScopeRefresh < SCOPE_REFRESH_INTERVAL_MS
+  ) {
     return "ready";
+  }
+
+  // Wrong agent in cache - reset and re-init for this agentName
+  if (agentRecord !== null && agentRecord.name !== agentName) {
+    agentRecord = null;
   }
 
   // Try to load cached scopes first (fast, offline-resilient)
   if (agentRecord === null) {
-    const cached = await loadCachedScopes(agentName);
+    const cached = await loadCachedScopes(agentName, apiKey);
     if (cached !== null && cached.length > 0) {
       grantedScopes = cached;
       // Still need the agent record for logging, but don't block on it
@@ -186,7 +224,7 @@ async function ensureAgent(
   lastScopeRefresh = Date.now();
 
   if (scopes.length > 0) {
-    await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+    await saveCachedScopes(agentName, agentRecord.id, scopes, apiKey).catch(() => {
       // Cache write failure is non-fatal
     });
   }
@@ -249,7 +287,7 @@ async function ensureConsent(
       pluginLogger ?? undefined,
     );
     grantedScopes = scopes;
-    await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+    await saveCachedScopes(agentName, agentRecord.id, scopes, apiKey).catch(() => {
       // Cache write failure is non-fatal
     });
   } finally {
@@ -400,7 +438,7 @@ async function beforeToolCall(
       return undefined;
     }
 
-    const agentName = resolveAgentName(ctx.sessionKey ?? "", config.agentName);
+    const agentName = getAgentName(ctx.sessionKey ?? "", config.agentName, ctx.agentId);
 
     const readiness = await ensureAgent(agentName, config.apiKey, config.baseUrl, config.failMode);
     console.error("[SHIELD] ensureAgent result: " + JSON.stringify(readiness));
@@ -491,7 +529,7 @@ async function beforeToolCall(
         grantedScopes = scopes;
         lastScopeRefresh = Date.now();
         if (Array.isArray(scopes) && scopes.length > 0) {
-          await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+          await saveCachedScopes(agentName, agentRecord.id, scopes, config.apiKey).catch(() => {
             // Cache write failure is non-fatal
           });
         }
@@ -502,10 +540,10 @@ async function beforeToolCall(
     }
 
     if (permissionResult.status === "pending" && permissionResult.approvalId !== undefined) {
-      const dashboardUrl = deriveDashboardUrl(config.baseUrl);
+      const base = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
       const returnValue = {
         block: true,
-        blockReason: `Action pending approval. Visit ${dashboardUrl}approvals to approve or reject, then try again.`,
+        blockReason: `Action pending approval.\nVisit ${base}/approvals to approve or reject, then try again.`,
       };
       console.error("[SHIELD] DECISION: " + JSON.stringify(returnValue));
       return returnValue;
@@ -531,7 +569,7 @@ async function beforeToolCall(
       grantedScopes = scopes;
       lastScopeRefresh = Date.now();
       if (Array.isArray(scopes) && scopes.length > 0) {
-        await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+        await saveCachedScopes(agentName, agentRecord.id, scopes, config.apiKey).catch(() => {
           /* Cache write failure is non-fatal */
         });
       }
@@ -559,9 +597,11 @@ async function beforeToolCall(
         grantedScopes = refreshedScopes;
         lastScopeRefresh = Date.now();
         if (Array.isArray(refreshedScopes) && refreshedScopes.length > 0) {
-          await saveCachedScopes(agentName, agentRecord.id, refreshedScopes).catch(() => {
-            /* Cache write failure is non-fatal */
-          });
+          await saveCachedScopes(agentName, agentRecord.id, refreshedScopes, config.apiKey).catch(
+            () => {
+              /* Cache write failure is non-fatal */
+            },
+          );
         }
         console.error("[SHIELD] DECISION: allow (re-check after consent)");
         return undefined;
@@ -569,10 +609,10 @@ async function beforeToolCall(
     }
 
     const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
-    const dashboardUrl = deriveDashboardUrl(config.baseUrl);
+    const base = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
     const reason =
       `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-      `Check pending approvals at ${dashboardUrl}/approvals `;
+      `Check pending approvals at:\n${base}/approvals`;
 
     const returnValue = { block: true, blockReason: reason };
     console.error("[SHIELD] DECISION: " + JSON.stringify(returnValue));
@@ -591,7 +631,7 @@ function afterToolCall(
   const config = readConfig();
   if (config.apiKey.length === 0) return Promise.resolve();
 
-  const agentName = resolveAgentName(ctx.sessionKey ?? "", config.agentName);
+  const agentName = getAgentName(ctx.sessionKey ?? "", config.agentName, ctx.agentId);
   const mapping = mapToolToScope(event.toolName);
 
   void logAction(
@@ -629,12 +669,15 @@ const plugin: OpenClawPluginDefinition = {
     pluginLogger = api.logger;
     pluginConfig = api.pluginConfig;
     cachedMulticornConfig = loadMulticornConfig();
+    const config = readConfig();
+    if (config.agentName !== null) {
+      pinnedAgentName = config.agentName;
+    }
     console.error("[SHIELD-DIAG] cachedMulticornConfig: " + JSON.stringify(cachedMulticornConfig));
     api.on("before_tool_call", beforeToolCall, { priority: 10 });
     api.on("after_tool_call", afterToolCall);
     api.logger.info("Multicorn Shield plugin registered.");
 
-    const config = readConfig();
     if (config.apiKey.length === 0) {
       api.logger.error(
         "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
@@ -669,4 +712,5 @@ export function resetState(): void {
   pluginConfig = undefined;
   cachedMulticornConfig = null;
   connectionLogged = false;
+  pinnedAgentName = null;
 }

@@ -10,6 +10,7 @@
  * @module proxy/__tests__/proxy.edge-cases.test
  */
 
+import { createHash } from "node:crypto";
 import { PassThrough } from "node:stream";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { createProxyServer, type ProxyServer } from "../index.js";
@@ -542,8 +543,15 @@ describe("consent edge cases", () => {
   });
 
   it("resolveAgentRecord returns cached scopes without contacting the service", async () => {
+    const apiKey = "mcs_key";
+    const agentName = "test-agent";
+    const cacheKey = createHash("sha256")
+      .update(`${agentName}:${apiKey}`)
+      .digest("hex")
+      .slice(0, 16);
+    const apiKeyHash = createHash("sha256").update(apiKey).digest("hex");
     const cache = {
-      "test-agent": {
+      [cacheKey]: {
         agentId: "cached-id",
         scopes: [
           { service: "gmail", permissionLevel: "execute" },
@@ -552,18 +560,21 @@ describe("consent edge cases", () => {
         fetchedAt: "2026-01-01T00:00:00.000Z",
       },
     };
-    readFileMock.mockResolvedValue(JSON.stringify(cache));
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.resolve(JSON.stringify({ apiKeyHash }));
+      }
+      if (path.includes("scopes.json")) {
+        return Promise.resolve(JSON.stringify(cache));
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
 
     const fetchSpy = vi.fn();
     global.fetch = fetchSpy;
 
     const logger = createLogger("error");
-    const record = await resolveAgentRecord(
-      "test-agent",
-      "mcs_key",
-      "https://api.multicorn.ai",
-      logger,
-    );
+    const record = await resolveAgentRecord(agentName, apiKey, "https://api.multicorn.ai", logger);
 
     expect(record.name).toBe("test-agent");
     expect(record.scopes).toHaveLength(2);

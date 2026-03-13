@@ -42,6 +42,7 @@ let agentRecord: AgentRecord | null = null;
 let grantedScopes: readonly Scope[] = [];
 let consentInProgress = false;
 let lastScopeRefresh = 0;
+let pinnedAgentName: string | null = null;
 
 const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
@@ -84,6 +85,20 @@ function resolveAgentName(sessionKey: string, envOverride: string | null): strin
 }
 
 /**
+ * Get the agent name for Shield API calls.
+ * Once a non-"openclaw" name is resolved, pin it and reuse for all subsequent calls
+ * to avoid creating ghost agents from internal tool calls with empty context.
+ */
+function getAgentName(sessionKey: string, envOverride: string | null): string {
+  if (pinnedAgentName !== null) return pinnedAgentName;
+  const resolved = resolveAgentName(sessionKey, envOverride);
+  if (resolved !== "openclaw") {
+    pinnedAgentName = resolved;
+  }
+  return resolved;
+}
+
+/**
  * Result of agent initialization.
  *
  * - `ready`: agent record and scopes are available, proceed with permission check
@@ -109,7 +124,7 @@ async function ensureAgent(
 
   // Try to load cached scopes first (fast, offline-resilient)
   if (agentRecord === null) {
-    const cached = await loadCachedScopes(agentName);
+    const cached = await loadCachedScopes(agentName, apiKey);
     if (cached !== null && cached.length > 0) {
       grantedScopes = cached;
       // Still need the agent record for logging, but don't block on it
@@ -142,7 +157,7 @@ async function ensureAgent(
   lastScopeRefresh = Date.now();
 
   if (scopes.length > 0) {
-    await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+    await saveCachedScopes(agentName, agentRecord.id, scopes, apiKey).catch(() => {
       // Cache write failure is non-fatal
     });
   }
@@ -190,7 +205,7 @@ async function ensureConsent(
   try {
     const scopes = await waitForConsent(agentRecord.id, agentName, apiKey, baseUrl, scope);
     grantedScopes = scopes;
-    await saveCachedScopes(agentName, agentRecord.id, scopes).catch(() => {
+    await saveCachedScopes(agentName, agentRecord.id, scopes, apiKey).catch(() => {
       // Cache write failure is non-fatal
     });
   } finally {
@@ -230,7 +245,10 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
     return;
   }
 
-  const agentName = resolveAgentName(event.sessionKey, config.agentName);
+  if (config.agentName !== null) {
+    pinnedAgentName = config.agentName;
+  }
+  const agentName = getAgentName(event.sessionKey, config.agentName);
 
   // Ensure we have agent record and scopes
   const readiness = await ensureAgent(agentName, config.apiKey, config.baseUrl, config.failMode);
@@ -264,10 +282,10 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
 
   if (!permitted) {
     const capitalizedService = mapping.service.charAt(0).toUpperCase() + mapping.service.slice(1);
-    const dashboardUrl = deriveDashboardUrl(config.baseUrl);
+    const base = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
     event.messages.push(
       `Permission denied: ${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-        `Check pending approvals at ${dashboardUrl}/approvals `,
+        `Check pending approvals at:\n${base}/approvals`,
     );
 
     // Log the blocked action (fire-and-forget)
@@ -308,4 +326,5 @@ export function resetState(): void {
   grantedScopes = [];
   consentInProgress = false;
   lastScopeRefresh = 0;
+  pinnedAgentName = null;
 }

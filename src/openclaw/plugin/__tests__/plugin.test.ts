@@ -6,7 +6,7 @@ import type {
   PluginHookAfterToolCallEvent,
   PluginHookToolContext,
 } from "../../plugin-sdk.types.js";
-import { plugin, beforeToolCall, afterToolCall, resetState } from "../index.js";
+import { plugin, beforeToolCall, afterToolCall, resetState, resolveAgentName } from "../index.js";
 
 // Mock all external dependencies
 
@@ -260,9 +260,12 @@ describe("beforeToolCall", () => {
 
     // ensureAgent fetch, ensureConsent fetch, post-approval refresh
     expect(fetchGrantedScopesMock).toHaveBeenCalledTimes(3);
-    expect(saveCachedScopesMock).toHaveBeenCalledWith("main", "agent-1", [
-      { service: "terminal", permissionLevel: "execute" },
-    ]);
+    expect(saveCachedScopesMock).toHaveBeenCalledWith(
+      "main",
+      "agent-1",
+      [{ service: "terminal", permissionLevel: "execute" }],
+      "mcs_test_key_12345678",
+    );
   });
 
   it("returns undefined when MULTICORN_API_KEY is not set", async () => {
@@ -362,6 +365,24 @@ describe("beforeToolCall", () => {
       "mcs_test_key_12345678",
       "http://localhost:8080",
       undefined, // logger parameter (optional, undefined in test)
+    );
+  });
+
+  it("prefers ctx.agentId over sessionKey (avoids openclaw ghost agent)", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "rathbun-demo" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    await beforeToolCall(
+      makeBeforeEvent("exec"),
+      makeCtx({ sessionKey: "agent::main", agentId: "rathbun-demo" }),
+    );
+
+    expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
+      "rathbun-demo",
+      "mcs_test_key_12345678",
+      "http://localhost:8080",
+      undefined,
     );
   });
 
@@ -790,6 +811,144 @@ describe("config fallback", () => {
     expect(findOrRegisterAgentMock).not.toHaveBeenCalled();
     expect(warnMock).toHaveBeenCalledWith(
       "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+    );
+  });
+});
+
+describe("resolveAgentName", () => {
+  it("prefers config override over sessionKey and ctxAgentId", () => {
+    expect(resolveAgentName("agent::main", "custom-agent", "ctx-agent")).toBe("custom-agent");
+  });
+
+  it("uses ctxAgentId when config override is null", () => {
+    expect(resolveAgentName("agent::main", null, "rathbun-demo")).toBe("rathbun-demo");
+  });
+
+  it("parses sessionKey when no config or ctxAgentId", () => {
+    expect(resolveAgentName("agent:my-bot:main", null)).toBe("my-bot");
+  });
+
+  it("falls back to openclaw when sessionKey has empty second segment", () => {
+    expect(resolveAgentName("agent::main", null)).toBe("openclaw");
+  });
+});
+
+describe("agent name pinning", () => {
+  it("reuses pinned name on subsequent calls even when ctx has empty sessionKey", async () => {
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "rathbun-demo" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    const ctxWithAgent = makeCtx({
+      sessionKey: "agent:rathbun-demo:main",
+      agentId: "rathbun-demo",
+    });
+    const ctxEmpty = makeCtx({ sessionKey: "agent::main", agentId: "" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), ctxWithAgent);
+
+    expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
+      "rathbun-demo",
+      expect.any(String),
+      expect.any(String),
+      undefined,
+    );
+
+    await afterToolCall(makeAfterEvent("exec"), ctxEmpty);
+
+    expect(logActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: "rathbun-demo" }),
+      expect.any(String),
+      expect.any(String),
+      undefined,
+    );
+  });
+
+  it("pins from register() config so all hook calls use pinned name", async () => {
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: { agentName: "my-pinned-agent" },
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
+
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "my-pinned-agent" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    const ctxEmpty = makeCtx({ sessionKey: "agent::main", agentId: "" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), ctxEmpty);
+    await afterToolCall(makeAfterEvent("exec"), ctxEmpty);
+
+    expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
+      "my-pinned-agent",
+      expect.any(String),
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(logActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: "my-pinned-agent" }),
+      expect.any(String),
+      expect.any(String),
+      expect.anything(),
+    );
+  });
+
+  it("returns openclaw only when no better name has ever been resolved", async () => {
+    resetState();
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "openclaw" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    const ctxEmpty = makeCtx({ sessionKey: "agent::main", agentId: "" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), ctxEmpty);
+    await afterToolCall(makeAfterEvent("exec"), ctxEmpty);
+
+    expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
+      "openclaw",
+      expect.any(String),
+      expect.any(String),
+      undefined,
+    );
+    expect(logActionMock).toHaveBeenCalledWith(
+      expect.objectContaining({ agent: "openclaw" }),
+      expect.any(String),
+      expect.any(String),
+      undefined,
+    );
+  });
+
+  it("resetState clears pinned name", async () => {
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: { agentName: "cleared-agent" },
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
+
+    resetState();
+
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    await beforeToolCall(makeBeforeEvent("exec"), makeCtx({ sessionKey: "agent:main:main" }));
+
+    expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
+      "main",
+      expect.any(String),
+      expect.any(String),
+      undefined,
     );
   });
 });
