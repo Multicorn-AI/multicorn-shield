@@ -851,7 +851,7 @@ describe("agent name pinning", () => {
       "rathbun-demo",
       expect.any(String),
       expect.any(String),
-      expect.anything(),
+      undefined,
     );
 
     await afterToolCall(makeAfterEvent("exec"), ctxEmpty);
@@ -914,7 +914,7 @@ describe("agent name pinning", () => {
       "openclaw",
       expect.any(String),
       expect.any(String),
-      expect.anything(),
+      undefined,
     );
     expect(logActionMock).toHaveBeenCalledWith(
       expect.objectContaining({ agent: "openclaw" }),
@@ -948,7 +948,7 @@ describe("agent name pinning", () => {
       "main",
       expect.any(String),
       expect.any(String),
-      expect.anything(),
+      undefined,
     );
   });
 });
