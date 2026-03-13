@@ -42,6 +42,7 @@ let agentRecord: AgentRecord | null = null;
 let grantedScopes: readonly Scope[] = [];
 let consentInProgress = false;
 let lastScopeRefresh = 0;
+let pinnedAgentName: string | null = null;
 
 const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
@@ -81,6 +82,20 @@ function resolveAgentName(sessionKey: string, envOverride: string | null): strin
   }
 
   return "openclaw";
+}
+
+/**
+ * Get the agent name for Shield API calls.
+ * Once a non-"openclaw" name is resolved, pin it and reuse for all subsequent calls
+ * to avoid creating ghost agents from internal tool calls with empty context.
+ */
+function getAgentName(sessionKey: string, envOverride: string | null): string {
+  if (pinnedAgentName !== null) return pinnedAgentName;
+  const resolved = resolveAgentName(sessionKey, envOverride);
+  if (resolved !== "openclaw") {
+    pinnedAgentName = resolved;
+  }
+  return resolved;
 }
 
 /**
@@ -230,7 +245,10 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
     return;
   }
 
-  const agentName = resolveAgentName(event.sessionKey, config.agentName);
+  if (config.agentName !== null) {
+    pinnedAgentName = config.agentName;
+  }
+  const agentName = getAgentName(event.sessionKey, config.agentName);
 
   // Ensure we have agent record and scopes
   const readiness = await ensureAgent(agentName, config.apiKey, config.baseUrl, config.failMode);
@@ -267,7 +285,7 @@ const handler = async (event: OpenClawEvent): Promise<void> => {
     const base = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
     event.messages.push(
       `Permission denied: ${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-        `Check pending approvals at <${base}/approvals>.`,
+        `Check pending approvals at:\n${base}/approvals`,
     );
 
     // Log the blocked action (fire-and-forget)
@@ -308,4 +326,5 @@ export function resetState(): void {
   grantedScopes = [];
   consentInProgress = false;
   lastScopeRefresh = 0;
+  pinnedAgentName = null;
 }

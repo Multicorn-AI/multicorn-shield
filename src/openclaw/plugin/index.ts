@@ -56,6 +56,7 @@ let lastScopeRefresh = 0;
 let pluginLogger: PluginLogger | null = null;
 let pluginConfig: Record<string, unknown> | undefined;
 let connectionLogged = false;
+let pinnedAgentName: string | null = null;
 
 const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
@@ -137,6 +138,24 @@ function resolveAgentName(
   }
 
   return "openclaw";
+}
+
+/**
+ * Get the agent name for Shield API calls.
+ * Once a non-"openclaw" name is resolved, pin it and reuse for all subsequent calls
+ * to avoid creating ghost agents from internal tool calls with empty context.
+ */
+function getAgentName(
+  sessionKey: string,
+  configOverride: string | null,
+  ctxAgentId?: string,
+): string {
+  if (pinnedAgentName !== null) return pinnedAgentName;
+  const resolved = resolveAgentName(sessionKey, configOverride, ctxAgentId);
+  if (resolved !== "openclaw") {
+    pinnedAgentName = resolved;
+  }
+  return resolved;
 }
 
 // ---------------------------------------------------------------------------
@@ -419,7 +438,7 @@ async function beforeToolCall(
       return undefined;
     }
 
-    const agentName = resolveAgentName(ctx.sessionKey ?? "", config.agentName, ctx.agentId);
+    const agentName = getAgentName(ctx.sessionKey ?? "", config.agentName, ctx.agentId);
 
     const readiness = await ensureAgent(agentName, config.apiKey, config.baseUrl, config.failMode);
     console.error("[SHIELD] ensureAgent result: " + JSON.stringify(readiness));
@@ -524,7 +543,7 @@ async function beforeToolCall(
       const base = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
       const returnValue = {
         block: true,
-        blockReason: `Action pending approval. Visit <${base}/approvals> to approve or reject, then try again.`,
+        blockReason: `Action pending approval.\nVisit ${base}/approvals to approve or reject, then try again.`,
       };
       console.error("[SHIELD] DECISION: " + JSON.stringify(returnValue));
       return returnValue;
@@ -593,7 +612,7 @@ async function beforeToolCall(
     const base = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
     const reason =
       `${capitalizedService} ${mapping.permissionLevel} access is not allowed. ` +
-      `Check pending approvals at <${base}/approvals>.`;
+      `Check pending approvals at:\n${base}/approvals`;
 
     const returnValue = { block: true, blockReason: reason };
     console.error("[SHIELD] DECISION: " + JSON.stringify(returnValue));
@@ -612,7 +631,7 @@ function afterToolCall(
   const config = readConfig();
   if (config.apiKey.length === 0) return Promise.resolve();
 
-  const agentName = resolveAgentName(ctx.sessionKey ?? "", config.agentName, ctx.agentId);
+  const agentName = getAgentName(ctx.sessionKey ?? "", config.agentName, ctx.agentId);
   const mapping = mapToolToScope(event.toolName);
 
   void logAction(
@@ -650,12 +669,15 @@ const plugin: OpenClawPluginDefinition = {
     pluginLogger = api.logger;
     pluginConfig = api.pluginConfig;
     cachedMulticornConfig = loadMulticornConfig();
+    const config = readConfig();
+    if (config.agentName !== null) {
+      pinnedAgentName = config.agentName;
+    }
     console.error("[SHIELD-DIAG] cachedMulticornConfig: " + JSON.stringify(cachedMulticornConfig));
     api.on("before_tool_call", beforeToolCall, { priority: 10 });
     api.on("after_tool_call", afterToolCall);
     api.logger.info("Multicorn Shield plugin registered.");
 
-    const config = readConfig();
     if (config.apiKey.length === 0) {
       api.logger.error(
         "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
@@ -690,4 +712,5 @@ export function resetState(): void {
   pluginConfig = undefined;
   cachedMulticornConfig = null;
   connectionLogged = false;
+  pinnedAgentName = null;
 }
