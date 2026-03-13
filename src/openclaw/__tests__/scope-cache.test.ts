@@ -115,6 +115,39 @@ describe("loadCachedScopes", () => {
     expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining("scopes.json"));
     expect(result).toBeNull();
   });
+
+  it("clears legacy scopes.json when cache-meta.json is missing (first run after upgrade)", async () => {
+    const legacyScopes = {
+      "rathbun-demo": {
+        agentId: "agent-old",
+        scopes: [{ service: "filesystem", permissionLevel: "read" }],
+        fetchedAt: "2026-03-01T00:00:00.000Z",
+      },
+      "fix-bug": {
+        agentId: "agent-other",
+        scopes: [],
+        fetchedAt: "2026-03-02T00:00:00.000Z",
+      },
+    };
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes("cache-meta")) {
+        return Promise.reject(new Error("ENOENT"));
+      }
+      if (path.includes("scopes.json")) {
+        return Promise.resolve(JSON.stringify(legacyScopes));
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+
+    const result = await loadCachedScopes("some-agent", "some-key");
+
+    expect(unlinkMock).toHaveBeenCalledWith(expect.stringContaining("scopes.json"));
+    const metaCall = writeFileMock.mock.calls.find((c) => String(c[0]).includes("cache-meta.json"));
+    expect(metaCall).toBeDefined();
+    const expectedHash = createHash("sha256").update("some-key").digest("hex");
+    expect(metaCall?.[1]).toContain(expectedHash);
+    expect(result).toBeNull();
+  });
 });
 
 describe("saveCachedScopes", () => {

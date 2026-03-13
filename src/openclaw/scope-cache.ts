@@ -62,7 +62,7 @@ async function ensureCacheIdentity(apiKey: string): Promise<void> {
     // File missing or corrupt.
   }
 
-  if (storedHash !== null && storedHash !== currentHash) {
+  if (storedHash === null || storedHash !== currentHash) {
     try {
       await unlink(SCOPES_PATH);
     } catch {
