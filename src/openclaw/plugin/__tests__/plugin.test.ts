@@ -860,7 +860,7 @@ describe("agent name pinning", () => {
       expect.objectContaining({ agent: "rathbun-demo" }),
       expect.any(String),
       expect.any(String),
-      expect.anything(),
+      undefined,
     );
   });
 
@@ -920,7 +920,7 @@ describe("agent name pinning", () => {
       expect.objectContaining({ agent: "openclaw" }),
       expect.any(String),
       expect.any(String),
-      expect.anything(),
+      undefined,
     );
   });
 
