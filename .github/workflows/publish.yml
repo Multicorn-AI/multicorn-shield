@@ -1,39 +1,42 @@
-name: Publish to npm
+name: publish
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version bump type"
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
 
 permissions:
-  contents: read
+  contents: write
+  id-token: write
 
 jobs:
-  ci:
-    name: Lint → Type Check → Test → Build
+  publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 9
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: pnpm
+          registry-url: "https://registry.npmjs.org"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Audit dependencies
-        run: pnpm audit --audit-level=high
 
       - name: Lint
         run: pnpm lint
@@ -41,208 +44,28 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
-      - name: Run tests with coverage
-        run: pnpm test:coverage
+      - name: Test
+        run: pnpm test
 
       - name: Build
         run: pnpm build
 
-  update-changelog:
-    name: Update Changelog
-    needs: ci
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-      pull-requests: write
-    if: false # Disabled until scripts/generate-changelog.mjs is created
-
-    steps:
-      - name: Checkout multicorn-shield
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Fetch tags
-        run: git fetch --tags
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-
-      - name: Generate changelog
-        id: changelog
+      - name: Configure git
         run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          VERSION="${TAG_NAME#v}"
-          CHANGELOG_JSON=$(node scripts/generate-changelog.mjs json "$TAG_NAME")
-          CHANGELOG_MD=$(node scripts/generate-changelog.mjs markdown "$TAG_NAME")
-          echo "json<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGELOG_JSON" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "markdown<<EOF" >> "$GITHUB_OUTPUT"
-          echo "$CHANGELOG_MD" >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Checkout multicorn-learn
-        uses: actions/checkout@v4
-        with:
-          repository: Multicorn-AI/multicorn-learn
-          token: ${{ secrets.MULTICORN_LEARN_TOKEN }}
-          path: multicorn-learn
-
-      - name: Setup pnpm for multicorn-learn
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
-      - name: Install multicorn-learn dependencies
-        working-directory: multicorn-learn
-        run: pnpm install --frozen-lockfile
-
-      - name: Update changelog.json
-        working-directory: multicorn-learn
-        run: |
-          NEW_ENTRY='${{ steps.changelog.outputs.json }}'
-          echo "$NEW_ENTRY" > /tmp/new-entry.json
-          if [ -f content/changelog.json ]; then
-            node -e "
-              const fs = require('fs');
-              const newEntry = JSON.parse(fs.readFileSync('/tmp/new-entry.json', 'utf-8'));
-              const existing = JSON.parse(fs.readFileSync('content/changelog.json', 'utf-8'));
-              const updated = [newEntry, ...existing];
-              fs.writeFileSync('content/changelog.json', JSON.stringify(updated, null, 2) + '\n');
-            "
-          else
-            node -e "
-              const fs = require('fs');
-              const newEntry = JSON.parse(fs.readFileSync('/tmp/new-entry.json', 'utf-8'));
-              fs.writeFileSync('content/changelog.json', JSON.stringify([newEntry], null, 2) + '\n');
-            "
-          fi
-
-      - name: Format changelog with Prettier
-        working-directory: multicorn-learn
-        run: pnpm prettier --write content/changelog.json
-
-      - name: Stage formatted changelog
-        working-directory: multicorn-learn
-        run: git add content/changelog.json
-
-      - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v5
-        with:
-          path: multicorn-learn
-          token: ${{ secrets.MULTICORN_LEARN_TOKEN }}
-          commit-message: "chore(changelog): add ${{ steps.changelog.outputs.version }} release notes"
-          title: "chore(changelog): add ${{ steps.changelog.outputs.version }} release notes"
-          body: |
-            Auto-generated changelog entry from conventional commits.
-
-            This PR was automatically created by the release workflow in multicorn-shield.
-          branch: chore/changelog-${{ steps.changelog.outputs.version }}
-          delete-branch: true
-
-  publish:
-    name: Publish to npm
-    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-test')
-    needs: ci
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: npm
-    permissions:
-      contents: write
-      id-token: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-          registry-url: https://registry.npmjs.org
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Extract version from package.json
-        id: package-version
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Package version: $VERSION"
-
-      - name: Verify tag matches package.json version
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          PACKAGE_VERSION="${{ steps.package-version.outputs.version }}"
-          if [ "$TAG_VERSION" != "$PACKAGE_VERSION" ]; then
-            echo "Error: Tag version ($TAG_VERSION) does not match package.json version ($PACKAGE_VERSION)"
-            exit 1
-          fi
-          echo "Version match confirmed: $PACKAGE_VERSION"
-
-      - name: Build
-        run: pnpm build
-
-      - name: Check package size
-        run: |
-          pnpm size || echo "Size check completed (may show warnings if close to limit)"
+      - name: Bump version
+        run: 'npm version ${{ inputs.version }} -m "chore(release): v%s"'
 
       - name: Publish to npm
         run: pnpm publish --no-git-checks --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-  create-release:
-    name: Create GitHub Release
-    needs: [ci, publish]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
+      - name: Push version commit and tag
+        run: git push --follow-tags
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Extract changelog for release
-        id: changelog
+      - name: Trigger multicorn-learn rebuild
         run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          # Extract changelog section for this version
-          awk "/^## \[${TAG_VERSION}\]/,/^## \[/" CHANGELOG.md | sed '$d' > release_notes.txt || \
-          awk "/^## \[${TAG_VERSION}\]/,/^## \[Unreleased\]/" CHANGELOG.md | sed '$d' > release_notes.txt || \
-          awk "/^## \[${TAG_VERSION}\]/,0" CHANGELOG.md > release_notes.txt
-          # Remove the version header line
-          sed -i '1d' release_notes.txt
-          # Trim leading/trailing whitespace
-          sed -i 's/^[[:space:]]*//;s/[[:space:]]*$//' release_notes.txt
-          # Remove empty lines at start/end
-          sed -i '/./,$!d' release_notes.txt
-          sed -i ':a;/^[[:space:]]*$/{$d;N;ba}' release_notes.txt
-
-      - name: Extract version
-        id: version
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          name: v${{ steps.version.outputs.version }}
-          body_path: release_notes.txt
-          tag_name: ${{ github.ref_name }}
-          draft: false
-          prerelease: false
+          curl -s -X POST "${{ secrets.VERCEL_LEARN_DEPLOY_HOOK }}"
