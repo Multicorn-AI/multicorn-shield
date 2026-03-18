@@ -10406,19 +10406,41 @@ function parseOssJson(text) {
   }
 }
 var MAX_DIFF = 12e4;
+var RATE_LIMIT_BACKOFF_MS = 3e4;
+function isRateLimitError(error) {
+  if (typeof error !== "object" || error === null) return false;
+  const maybe = error;
+  return maybe.status === 429;
+}
 async function runOssChecklist(client, model, diff, changedFiles) {
   const includeUx = includeUxAccessibilitySection(changedFiles);
   const truncated = diff.length > MAX_DIFF ? diff.slice(0, MAX_DIFF) + "\n\n[truncated]" : diff;
-  const message = await client.messages.create({
-    model,
-    max_tokens: 8192,
-    messages: [
-      {
-        role: "user",
-        content: buildOssPrompt(truncated, includeUx)
-      }
-    ]
-  });
+  let message;
+  try {
+    message = await client.messages.create({
+      model,
+      max_tokens: 8192,
+      messages: [
+        {
+          role: "user",
+          content: buildOssPrompt(truncated, includeUx)
+        }
+      ]
+    });
+  } catch (error) {
+    if (!isRateLimitError(error)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS));
+    message = await client.messages.create({
+      model,
+      max_tokens: 8192,
+      messages: [
+        {
+          role: "user",
+          content: buildOssPrompt(truncated, includeUx)
+        }
+      ]
+    });
+  }
   const block = message.content.find((b2) => b2.type === "text");
   if (!block || block.type !== "text") return [];
   return parseOssJson(block.text);
@@ -10499,19 +10521,41 @@ function fallbackResults(primary) {
   }));
 }
 var MAX_DIFF2 = 18e4;
+var RATE_LIMIT_BACKOFF_MS2 = 3e4;
+function isRateLimitError2(error) {
+  if (typeof error !== "object" || error === null) return false;
+  const maybe = error;
+  return maybe.status === 429;
+}
 async function runPersonaReview(client, model, diff, changedFiles) {
   const primary = primaryPersonaIds(changedFiles);
   const truncated = diff.length > MAX_DIFF2 ? diff.slice(0, MAX_DIFF2) + "\n\n[diff truncated for context limit]" : diff;
-  const message = await client.messages.create({
-    model,
-    max_tokens: 8192,
-    messages: [
-      {
-        role: "user",
-        content: buildPersonaPrompt(truncated, primary)
-      }
-    ]
-  });
+  let message;
+  try {
+    message = await client.messages.create({
+      model,
+      max_tokens: 8192,
+      messages: [
+        {
+          role: "user",
+          content: buildPersonaPrompt(truncated, primary)
+        }
+      ]
+    });
+  } catch (error) {
+    if (!isRateLimitError2(error)) throw error;
+    await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS2));
+    message = await client.messages.create({
+      model,
+      max_tokens: 8192,
+      messages: [
+        {
+          role: "user",
+          content: buildPersonaPrompt(truncated, primary)
+        }
+      ]
+    });
+  }
   const block = message.content.find((b2) => b2.type === "text");
   if (!block || block.type !== "text") return fallbackResults(primary);
   return parsePersonaJson(block.text, primary);
@@ -10622,12 +10666,15 @@ async function main() {
   const model = process.env.ANTHROPIC_MODEL?.trim() || "claude-sonnet-4-6";
   const { owner, repo } = parseRepo(repoFull);
   const diff = await fetchPrDiff(token, owner, repo, prNumber);
+  const reviewDiff = diff.length > 2e4 ? `${diff.slice(0, 2e4)}
+
+[Diff truncated \u2014 original was ${String(diff.length)} characters. Review covers only the first portion of the changeset.]` : diff;
   const files = changedFilesFromDiff(diff);
   const client = new sdk_default({ apiKey: anthropicKey });
-  const personas = await runPersonaReview(client, model, diff, files);
+  const personas = await runPersonaReview(client, model, reviewDiff, files);
   let oss;
   if (isPublic) {
-    oss = await runOssChecklist(client, model, diff, files);
+    oss = await runOssChecklist(client, model, reviewDiff, files);
   }
   const body = formatComment(personas, oss);
   const existingId = await findMulticornOpsCommentId(token, owner, repo, prNumber);
