@@ -939,6 +939,90 @@ describe("config file parsing", () => {
     expect(config).not.toBeNull();
     expect(stderrBuffer).toContain("Failed to save config");
   });
+
+  it("runInit handles updateOpenClawConfigIfPresent throwing during spinner", async () => {
+    captureStderr();
+    mkdirMock.mockResolvedValue(undefined);
+    writeFileMock.mockResolvedValue(undefined);
+    const openClawConfig = {
+      meta: { lastTouchedVersion: "2026.2.26" },
+      hooks: { internal: { enabled: true, entries: {} } },
+    };
+    let openClawReadCount = 0;
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) {
+        openClawReadCount++;
+        // First reads succeed (detectOpenClaw + isOpenClawConnected), then throw on update
+        if (openClawReadCount <= 2) {
+          return Promise.resolve(JSON.stringify(openClawConfig));
+        }
+        return Promise.reject(new Error("permission denied"));
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "test-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Failed to update OpenClaw config");
+  });
+
+  it("runInit exits loop when all 4 platforms are configured", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const openClawConfig = {
+      meta: { lastTouchedVersion: "2026.2.26" },
+      hooks: { internal: { enabled: true, entries: {} } },
+      agents: { list: [{ id: "default", name: "default" }] },
+    };
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) {
+        return Promise.resolve(JSON.stringify(openClawConfig));
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    let selectCall = 0;
+    const selectOrder = ["2", "3", "4", "1"];
+    let agentCall = 0;
+    const agentOrder = ["agent-a", "agent-b", "agent-c", "agent-d"];
+
+    rlQuestionMock.mockImplementation((prompt: string, cb: (answer: string) => void) => {
+      if (prompt.includes("API key")) {
+        cb("mcs_valid_key");
+      } else if (prompt.includes("Select")) {
+        cb(selectOrder[selectCall] ?? "4");
+        selectCall++;
+      } else if (prompt.includes("call this agent")) {
+        cb(agentOrder[agentCall] ?? "agent");
+        agentCall++;
+      } else if (prompt.includes("configure another")) {
+        cb("y");
+      } else if (prompt.includes("Continue anyway")) {
+        cb("y");
+      } else {
+        cb("");
+      }
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Setup complete");
+    expect(stderrBuffer).toContain("Claude Code");
+    expect(stderrBuffer).toContain("Claude Desktop");
+    expect(stderrBuffer).toContain("Other MCP Agent");
+  });
 });
 
 describe("consent edge cases", () => {
