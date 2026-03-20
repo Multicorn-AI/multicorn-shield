@@ -372,6 +372,8 @@ describe("config file parsing", () => {
 
     const config = await runInit("https://api.multicorn.ai");
 
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
     expect(config.apiKey).toBe("mcs_valid_key");
     expect(config.baseUrl).toBe("https://api.multicorn.ai");
     expect(writeFileMock).toHaveBeenCalledOnce();
@@ -400,6 +402,8 @@ describe("config file parsing", () => {
 
     const config = await runInit("https://api.multicorn.ai");
 
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
     expect(config.apiKey).toBe("mcs_second_try");
     expect(stderrBuffer).toContain("API key is required");
   });
@@ -431,6 +435,8 @@ describe("config file parsing", () => {
 
     const config = await runInit("https://api.multicorn.ai");
 
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
     expect(config.apiKey).toBe("mcs_good");
     expect(stderrBuffer).toContain("not recognised");
   });
@@ -462,6 +468,8 @@ describe("config file parsing", () => {
 
     const config = await runInit();
 
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
     expect(config.baseUrl).toBe("https://api.multicorn.ai");
     expect(config.apiKey).toBe("mcs_second");
   });
@@ -483,6 +491,8 @@ describe("config file parsing", () => {
 
     const config = await runInit("https://api.multicorn.ai");
 
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
     expect(config.apiKey).toBe("mcs_valid_key");
     expect(writeFileMock).toHaveBeenCalledTimes(2);
     expect(stderrBuffer).toContain("OpenClaw config updated at ~/.openclaw/openclaw.json");
