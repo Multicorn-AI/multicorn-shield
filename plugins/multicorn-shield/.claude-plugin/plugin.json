@@ -1,0 +1,9 @@
+{
+  "name": "multicorn-shield",
+  "description": "Agent governance plugin for Claude Code. Intercepts tool calls, enforces permissions, spending limits, and maintains audit trails.",
+  "version": "0.1.13",
+  "author": {
+    "name": "Multicorn AI",
+    "email": "hello@multicorn.ai"
+  }
+}

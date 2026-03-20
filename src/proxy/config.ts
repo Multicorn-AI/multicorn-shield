@@ -11,7 +11,6 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
-import { execSync } from "node:child_process";
 
 const style = {
   violet: (s: string) => `\x1b[38;2;124;58;237m${s}\x1b[0m`,
@@ -263,11 +262,17 @@ function normalizeAgentName(raw: string): string {
     .slice(0, 50);
 }
 
-function isCommandOnPath(command: string): boolean {
+async function isOpenClawConnected(): Promise<boolean> {
   try {
-    const check = process.platform === "win32" ? `where ${command}` : `which ${command}`;
-    execSync(check, { stdio: "ignore" });
-    return true;
+    const raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const hooks = obj["hooks"] as Record<string, unknown> | undefined;
+    const internal = hooks?.["internal"] as Record<string, unknown> | undefined;
+    const entries = internal?.["entries"] as Record<string, unknown> | undefined;
+    const shield = entries?.["multicorn-shield"] as Record<string, unknown> | undefined;
+    const env = shield?.["env"] as Record<string, unknown> | undefined;
+    const key = env?.["MULTICORN_API_KEY"];
+    return typeof key === "string" && key.length > 0;
   } catch {
     return false;
   }
@@ -301,6 +306,19 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
 
   // Step A: API key
   let apiKey = "";
+  const existing = await loadConfig().catch(() => null);
+  if (existing !== null && existing.apiKey.startsWith("mcs_") && existing.apiKey.length >= 8) {
+    const masked = "mcs_..." + existing.apiKey.slice(-4);
+    process.stderr.write("Found existing API key: " + style.cyan(masked) + "\n");
+    const answer = await ask("Use this key? (Y/n) ");
+    if (answer.trim().toLowerCase() !== "n") {
+      apiKey = existing.apiKey;
+      if (baseUrl === "https://api.multicorn.ai") {
+        baseUrl = existing.baseUrl;
+      }
+    }
+  }
+
   while (apiKey.length === 0) {
     const input = await ask("API key (starts with mcs_): ");
     const key = input.trim();
@@ -332,10 +350,15 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
       "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n",
     );
     const platformLabels = ["OpenClaw", "Claude Code", "Claude Desktop", "Other MCP Agent"];
+    const openClawConnected = await isOpenClawConnected();
     for (let i = 0; i < platformLabels.length; i++) {
-      const marker = configuredPlatforms.has(i + 1) ? " " + style.green("\u2713") : "";
+      const sessionMarker = configuredPlatforms.has(i + 1) ? " " + style.green("\u2713") : "";
+      const connectedMarker =
+        i === 0 && openClawConnected && !configuredPlatforms.has(1)
+          ? " " + style.green("\u2713") + style.dim(" connected")
+          : "";
       process.stderr.write(
-        `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${marker}\n`,
+        `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${sessionMarker}${connectedMarker}\n`,
       );
     }
 
@@ -446,18 +469,26 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
         }
       }
     } else if (selection === 2) {
-      const installed = isCommandOnPath("claude");
+      process.stderr.write("\nTo connect Claude Code to Shield:\n\n");
       process.stderr.write(
-        "\n" + style.dim("Run this command to install the Shield plugin:") + "\n",
+        "  " +
+          style.bold("Step 1") +
+          " - Add the Multicorn marketplace:\n" +
+          "    " +
+          style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
+          "\n\n",
       );
-      process.stderr.write("  " + style.cyan("claude /plugin install multicorn-shield") + "\n\n");
-      if (!installed) {
-        process.stderr.write(
-          style.yellow(
-            "Note: Claude Code doesn't appear to be installed. Install it first, then run the command above.",
-          ) + "\n",
-        );
-      }
+      process.stderr.write(
+        "  " +
+          style.bold("Step 2") +
+          " - Install the plugin:\n" +
+          "    " +
+          style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
+          "\n\n",
+      );
+      process.stderr.write(
+        style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
+      );
     } else if (selection === 3) {
       const configPath = join(
         homedir(),
@@ -554,8 +585,11 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
       "\n" +
         style.bold("To complete your Claude Code setup:") +
         "\n" +
-        "  \u2192 Install the plugin: " +
-        style.cyan("claude /plugin install multicorn-shield") +
+        "  \u2192 Add marketplace: " +
+        style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
+        "\n" +
+        "  \u2192 Install plugin: " +
+        style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
         "\n",
     );
   }
