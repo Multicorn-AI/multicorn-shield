@@ -15,7 +15,7 @@ import { PassThrough } from "node:stream";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { createProxyServer, type ProxyServer } from "../index.js";
 import { createLogger } from "../logger.js";
-import { loadConfig, validateApiKey, runInit } from "../config.js";
+import { loadConfig, validateApiKey, runInit, updateOpenClawConfigIfPresent } from "../config.js";
 import { resolveAgentRecord, waitForConsent, deriveDashboardUrl } from "../consent.js";
 import { startMockMcpServer } from "../__fixtures__/mockMcpServer.js";
 import {
@@ -567,6 +567,377 @@ describe("config file parsing", () => {
     await runInit("https://api.multicorn.ai");
 
     expect(stderrBuffer).toContain("Could not update OpenClaw config");
+  });
+
+  it("runInit reuses existing API key when user accepts", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingConfig = JSON.stringify({
+      apiKey: "mcs_existing_key1",
+      baseUrl: "https://api.multicorn.ai",
+    });
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      if (path.includes("config.json")) return Promise.resolve(existingConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "Use this key": "y",
+      Select: "4",
+      "call this agent": "test-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.apiKey).toBe("mcs_existing_key1");
+    expect(stderrBuffer).toContain("mcs_...ey1");
+  });
+
+  it("runInit falls through to prompt when user declines existing key", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingConfig = JSON.stringify({
+      apiKey: "mcs_old_key1234",
+      baseUrl: "https://api.multicorn.ai",
+    });
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      if (path.includes("config.json")) return Promise.resolve(existingConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "Use this key": "n",
+      "API key": "mcs_new_key",
+      Select: "4",
+      "call this agent": "my-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.apiKey).toBe("mcs_new_key");
+  });
+
+  it("runInit normalizes agent name with spaces and uppercase", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "call this agent": "My Cool Agent!",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agentName).toBe("my-cool-agent");
+    expect(stderrBuffer).toContain("Agent name set to:");
+  });
+
+  it("runInit re-prompts when agent name normalizes to empty", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "call this agent": ["---", "valid-name"],
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agentName).toBe("valid-name");
+    expect(stderrBuffer).toContain("must contain letters or numbers");
+  });
+
+  it("runInit shows Claude Code instructions for platform 2", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "2",
+      "call this agent": "my-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("claude plugin marketplace add");
+    expect(stderrBuffer).toContain("claude plugin install multicorn-shield@multicorn-shield");
+    expect(stderrBuffer).toContain("Claude Code setup");
+  });
+
+  it("runInit shows Claude Desktop config snippet for platform 3", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("claude_desktop_config.json");
+    expect(stderrBuffer).toContain("mcpServers");
+    expect(stderrBuffer).toContain("my-agent");
+    expect(stderrBuffer).toContain("Claude Desktop setup");
+  });
+
+  it("runInit returns null when OpenClaw is not installed", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation(() => Promise.reject(enoent));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "test-agent",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).toBeNull();
+    expect(stderrBuffer).toContain("OpenClaw is not installed");
+  });
+
+  it("runInit warns on old OpenClaw version and allows continuing", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const openClawConfig = {
+      meta: { lastTouchedVersion: "2025.1.1" },
+      hooks: { internal: { enabled: true, entries: {} } },
+    };
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(JSON.stringify(openClawConfig))
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "test-agent",
+      "Continue anyway": "y",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("may work but is untested");
+    expect(stderrBuffer).toContain("OpenClaw config updated");
+  });
+
+  it("runInit returns null when user declines old OpenClaw version", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const openClawConfig = {
+      meta: { lastTouchedVersion: "2025.1.1" },
+      hooks: { internal: { enabled: true, entries: {} } },
+    };
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(JSON.stringify(openClawConfig))
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "test-agent",
+      "Continue anyway": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).toBeNull();
+  });
+
+  it("runInit handles OpenClaw with no version in meta", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const openClawConfig = {
+      hooks: { internal: { enabled: true, entries: {} } },
+    };
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(JSON.stringify(openClawConfig))
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "test-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Could not detect OpenClaw version");
+    expect(stderrBuffer).toContain("OpenClaw config updated");
+  });
+
+  it("updateOpenClawConfigIfPresent creates agents.list when missing", async () => {
+    const openClawConfig = { hooks: { internal: { enabled: true, entries: {} } } };
+    readFileMock.mockResolvedValue(JSON.stringify(openClawConfig));
+    writeFileMock.mockResolvedValue(undefined);
+
+    const result = await updateOpenClawConfigIfPresent(
+      "mcs_key",
+      "https://api.multicorn.ai",
+      "my-agent",
+    );
+
+    expect(result).toBe("updated");
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const agents = written["agents"] as Record<string, unknown>;
+    expect(agents["list"]).toEqual([{ id: "my-agent", name: "my-agent" }]);
+  });
+
+  it("updateOpenClawConfigIfPresent overwrites first agent entry", async () => {
+    const openClawConfig = {
+      hooks: { internal: { enabled: true, entries: {} } },
+      agents: { list: [{ id: "old-name", name: "old-name", workspace: "/tmp" }] },
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(openClawConfig));
+    writeFileMock.mockResolvedValue(undefined);
+
+    const result = await updateOpenClawConfigIfPresent(
+      "mcs_key",
+      "https://api.multicorn.ai",
+      "new-name",
+    );
+
+    expect(result).toBe("updated");
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const agents = written["agents"] as Record<string, unknown>;
+    const list = agents["list"] as Record<string, unknown>[];
+    expect(list[0]?.["id"]).toBe("new-name");
+    expect(list[0]?.["name"]).toBe("new-name");
+    expect(list[0]?.["workspace"]).toBe("/tmp");
+  });
+
+  it("updateOpenClawConfigIfPresent skips agent update when id already matches", async () => {
+    const openClawConfig = {
+      hooks: { internal: { enabled: true, entries: {} } },
+      agents: { list: [{ id: "same-name", name: "same-name" }] },
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(openClawConfig));
+    writeFileMock.mockResolvedValue(undefined);
+
+    await updateOpenClawConfigIfPresent("mcs_key", "https://api.multicorn.ai", "same-name");
+
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const agents = written["agents"] as Record<string, unknown>;
+    const list = agents["list"] as Record<string, unknown>[];
+    expect(list[0]?.["id"]).toBe("same-name");
+  });
+
+  it("updateOpenClawConfigIfPresent adds list to existing agents object", async () => {
+    const openClawConfig = {
+      hooks: { internal: { enabled: true, entries: {} } },
+      agents: { some: "field" },
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(openClawConfig));
+    writeFileMock.mockResolvedValue(undefined);
+
+    await updateOpenClawConfigIfPresent("mcs_key", "https://api.multicorn.ai", "my-agent");
+
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const agents = written["agents"] as Record<string, unknown>;
+    expect(agents["list"]).toEqual([{ id: "my-agent", name: "my-agent" }]);
+    expect(agents["some"]).toBe("field");
+  });
+
+  it("runInit handles save config failure gracefully", async () => {
+    captureStderr();
+    mkdirMock.mockResolvedValue(undefined);
+    writeFileMock.mockRejectedValue(new Error("disk full"));
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "call this agent": "test-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Failed to save config");
   });
 });
 
