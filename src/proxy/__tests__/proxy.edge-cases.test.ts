@@ -598,7 +598,7 @@ describe("config file parsing", () => {
     expect(config).not.toBeNull();
     if (!config) throw new Error("expected config");
     expect(config.apiKey).toBe("mcs_existing_key1");
-    expect(stderrBuffer).toContain("mcs_...ey1");
+    expect(stderrBuffer).toContain("mcs_...key1");
   });
 
   it("runInit falls through to prompt when user declines existing key", async () => {
