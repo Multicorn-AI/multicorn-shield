@@ -10,7 +10,6 @@
     {
       "name": "multicorn-shield",
       "description": "Govern your AI agent with permissions, spending limits, and audit logging. Shield intercepts tool calls and enforces your rules before they execute.",
-      "version": "0.1.13",
       "category": "security",
       "source": "./plugins/multicorn-shield",
       "homepage": "https://multicorn.ai/shield"

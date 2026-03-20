@@ -214,7 +214,7 @@ function isVersionAtLeast(version: string, minimum: string): boolean {
   for (let i = 0; i < len; i++) {
     const v = vParts[i] ?? 0;
     const m = mParts[i] ?? 0;
-    if (Number.isNaN(v) || Number.isNaN(m)) return true;
+    if (Number.isNaN(v) || Number.isNaN(m)) return false;
     if (v > m) return true;
     if (v < m) return false;
   }
@@ -278,6 +278,7 @@ async function isOpenClawConnected(): Promise<boolean> {
   }
 }
 
+// TODO SR-03: Refactor runInit into smaller functions once the interactive flow is finalized
 export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
   if (!process.stdin.isTTY) {
     process.stderr.write(
@@ -329,7 +330,13 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     }
 
     const spinner = withSpinner("Validating key...");
-    const result = await validateApiKey(key, baseUrl);
+    let result: Awaited<ReturnType<typeof validateApiKey>>;
+    try {
+      result = await validateApiKey(key, baseUrl);
+    } catch (error) {
+      spinner.stop(false, "Validation failed");
+      throw error;
+    }
 
     if (!result.valid) {
       spinner.stop(false, result.error ?? "Validation failed. Try again.");
@@ -379,8 +386,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
       const transformed = normalizeAgentName(input);
       if (transformed.length === 0) {
         process.stderr.write(
-          style.red("Couldn't derive a name from that. Try something with letters or numbers.") +
-            "\n",
+          style.red("Agent name must contain letters or numbers. Please try again.") + "\n",
         );
         continue;
       }
@@ -405,7 +411,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
       if (detection.status === "not-found") {
         process.stderr.write(
           style.red("\u2717") +
-            " OpenClaw doesn't appear to be installed. Install OpenClaw first, then run npx multicorn-proxy init again.\n",
+            " OpenClaw is not installed. Install OpenClaw first, then run npx multicorn-proxy init again.\n",
         );
         rl.close();
         return null;
