@@ -44,7 +44,10 @@
     "clean": "rm -rf dist coverage docs/api",
     "size": "size-limit",
     "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
-    "prepare": "husky"
+    "prepare": "husky",
+    "release:patch": "npm version patch && pnpm publish",
+    "release:minor": "npm version minor && pnpm publish",
+    "release:major": "npm version major && pnpm publish"
   },
   "lint-staged": {
     "*.ts": [
