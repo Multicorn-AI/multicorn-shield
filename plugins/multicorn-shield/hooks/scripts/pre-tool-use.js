@@ -5,6 +5,7 @@
 
 "use strict";
 
+const { execFileSync, execSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -12,6 +13,8 @@ const os = require("node:os");
 const path = require("node:path");
 
 const AUTH_HEADER = "X-Multicorn-Key";
+const POLL_INTERVAL_MS = 3000;
+const MAX_APPROVAL_POLLS = 100;
 
 /** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
 const TOOL_MAP = {
@@ -58,19 +61,48 @@ function loadConfig() {
 }
 
 /**
+ * Dashboard web app origin (not API origin).
+ * @param {string} apiBaseUrl
+ * @returns {string}
+ */
+function dashboardOrigin(apiBaseUrl) {
+  try {
+    const raw = String(apiBaseUrl).replace(/\/+$/, "");
+    const lower = raw.toLowerCase();
+    if (lower.includes("localhost:8080") || lower.includes("127.0.0.1:8080")) {
+      return "http://localhost:5173";
+    }
+    const u = new URL(raw);
+    if (u.hostname.startsWith("api.")) {
+      u.hostname = "app." + u.hostname.slice(4);
+    }
+    return u.origin;
+  } catch {
+    return "https://app.multicorn.ai";
+  }
+}
+
+/**
  * @param {string} apiBaseUrl
  * @returns {string}
  */
 function dashboardHintUrl(apiBaseUrl) {
-  try {
-    const u = new URL(apiBaseUrl);
-    if (u.hostname.startsWith("api.")) {
-      u.hostname = "app." + u.hostname.slice(4);
-    }
-    return `${u.origin}/approvals`;
-  } catch {
-    return "https://app.multicorn.ai/approvals";
-  }
+  return `${dashboardOrigin(apiBaseUrl)}/approvals`;
+}
+
+/**
+ * @param {string} apiBaseUrl
+ * @param {string} agentName
+ * @param {string} service
+ * @param {string} actionType
+ * @returns {string}
+ */
+function consentUrl(apiBaseUrl, agentName, service, actionType) {
+  const origin = dashboardOrigin(apiBaseUrl);
+  const params = new URLSearchParams();
+  params.set("agent", agentName);
+  params.set("scopes", `${service}:${actionType}`);
+  return `${origin}/consent?${params.toString()}`;
 }
 
 /**
@@ -92,7 +124,51 @@ function mapTool(toolName) {
 }
 
 /**
- * @param {string} urlString
+ * @param {string} baseUrl
+ * @param {string} apiKey
+ * @param {string} path
+ * @returns {Promise<{ statusCode: number; bodyText: string }>}
+ */
+function getJson(baseUrl, apiKey, path) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try {
+      const root = String(baseUrl).replace(/\/+$/, "");
+      const p = path.startsWith("/") ? path : `/${path}`;
+      u = new URL(`${root}${p}`);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+    const isHttps = u.protocol === "https:";
+    const lib = isHttps ? https : http;
+    const port = u.port || (isHttps ? 443 : 80);
+    const options = {
+      hostname: u.hostname,
+      port,
+      path: u.pathname + u.search,
+      method: "GET",
+      headers: {
+        [AUTH_HEADER]: apiKey,
+      },
+    };
+    const req = lib.request(options, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => {
+        resolve({
+          statusCode: res.statusCode ?? 0,
+          bodyText: Buffer.concat(chunks).toString("utf8"),
+        });
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+/**
+ * @param {string} baseUrl
  * @param {string} apiKey
  * @param {Record<string, unknown>} bodyObj
  * @returns {Promise<{ statusCode: number; bodyText: string }>}
@@ -191,6 +267,94 @@ function blockedMessage(data, service, actionType, approvalsUrl) {
   );
 }
 
+/**
+ * @param {string} url
+ */
+function openBrowser(url) {
+  try {
+    if (process.platform === "win32") {
+      execSync(`start "" ${JSON.stringify(url)}`, {
+        shell: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
+    } else if (process.platform === "darwin") {
+      execFileSync("open", [url], { stdio: "ignore" });
+    } else {
+      execFileSync("xdg-open", [url], { stdio: "ignore" });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * @param {number} ms
+ * @returns {Promise<void>}
+ */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * @param {{ apiKey: string; baseUrl: string; agentName: string }} config
+ * @param {string} approvalId
+ * @param {string} service
+ * @param {string} actionType
+ * @returns {Promise<void>}
+ */
+async function handlePendingWithConsentAndPoll(config, approvalId, service, actionType) {
+  const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
+  openBrowser(url);
+  process.stderr.write("Opening Shield consent screen in your browser. Waiting for approval...\n");
+
+  for (let i = 0; i < MAX_APPROVAL_POLLS; i++) {
+    if (i > 0) {
+      await sleep(POLL_INTERVAL_MS);
+    }
+    let statusCode;
+    let bodyText;
+    try {
+      const res = await getJson(config.baseUrl, config.apiKey, `/api/v1/approvals/${approvalId}`);
+      statusCode = res.statusCode;
+      bodyText = res.bodyText;
+    } catch {
+      continue;
+    }
+    if (statusCode < 200 || statusCode >= 300) {
+      continue;
+    }
+    const parsed = safeJsonParse(bodyText);
+    const data = unwrapData(parsed);
+    if (data === null || typeof data !== "object") {
+      continue;
+    }
+    const d = /** @type {Record<string, unknown>} */ (data);
+    const st = String(d.status ?? "").toLowerCase();
+    if (st === "approved") {
+      process.exit(0);
+    }
+    if (st === "blocked" || st === "denied" || st === "rejected") {
+      const reason =
+        typeof d.reason === "string" && d.reason.length > 0 ? d.reason : "Approval denied.";
+      process.stderr.write(`${reason}\n`);
+      process.exit(2);
+    }
+    if (st === "expired") {
+      process.stderr.write("This approval request expired. Try the tool call again.\n");
+      process.exit(2);
+    }
+    if (st === "pending") {
+      continue;
+    }
+  }
+
+  process.stderr.write(
+    "Approval timed out after 5 minutes. Please approve in the Shield dashboard and try again.\n",
+  );
+  process.exit(2);
+}
+
 async function main() {
   let raw;
   try {
@@ -279,10 +443,22 @@ async function main() {
   const data = unwrapData(parsed);
 
   if (statusCode === 202) {
-    process.stderr.write(
-      `This action needs approval in the Shield dashboard before it can run.\nOpen: ${approvalsUrl}\n`,
-    );
-    process.exit(2);
+    if (data === null || typeof data !== "object") {
+      process.stderr.write(
+        `This action needs approval in the Shield dashboard before it can run.\nOpen: ${approvalsUrl}\n`,
+      );
+      process.exit(2);
+    }
+    const approvalIdRaw = /** @type {Record<string, unknown>} */ (data).approval_id;
+    const approvalId = typeof approvalIdRaw === "string" ? approvalIdRaw : "";
+    if (approvalId.length === 0) {
+      process.stderr.write(
+        `This action needs approval in the Shield dashboard before it can run.\nOpen: ${approvalsUrl}\n`,
+      );
+      process.exit(2);
+    }
+    await handlePendingWithConsentAndPoll(config, approvalId, service, actionType);
+    return;
   }
 
   if (statusCode === 201) {
