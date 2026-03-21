@@ -45,9 +45,9 @@
     "size": "size-limit",
     "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
     "prepare": "husky",
-    "release:patch": "npm version patch && npm run build && npm publish",
-    "release:minor": "npm version minor && npm run build && npm publish",
-    "release:major": "npm version major && npm run build && npm publish"
+    "release:patch": "npm version patch && pnpm publish",
+    "release:minor": "npm version minor && pnpm publish",
+    "release:major": "npm version major && pnpm publish"
   },
   "lint-staged": {
     "*.ts": [
