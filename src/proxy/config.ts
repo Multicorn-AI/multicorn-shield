@@ -12,20 +12,56 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 
+const style = {
+  violet: (s: string) => `\x1b[38;2;124;58;237m${s}\x1b[0m`,
+  violetLight: (s: string) => `\x1b[38;2;167;139;250m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[38;2;34;197;94m${s}\x1b[0m`,
+  yellow: (s: string) => `\x1b[38;2;245;158;11m${s}\x1b[0m`,
+  red: (s: string) => `\x1b[38;2;239;68;68m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[38;2;6;182;212m${s}\x1b[0m`,
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+};
+
+const BANNER = [
+  " ███ █  █ █ ███ █   ██▄ ",
+  " █   █  █ █ █   █   █  █",
+  " ███ ████ █ ██  █   █  █",
+  "   █ █  █ █ █   █   █  █",
+  " ███ █  █ █ ███ ███ ██▀ ",
+]
+  .map((line) => style.violet(line))
+  .join("\n");
+
+function withSpinner(message: string): { stop: (success: boolean, result: string) => void } {
+  const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let i = 0;
+  const interval = setInterval(() => {
+    const frame = frames[i % frames.length];
+    process.stderr.write(`\r${style.violet(frame ?? "⠋")} ${message}`);
+    i++;
+  }, 80);
+  return {
+    stop(success: boolean, result: string) {
+      clearInterval(interval);
+      const icon = success ? style.green("✓") : style.red("✗");
+      process.stderr.write(`\r\x1b[2K${icon} ${result}\n`);
+    },
+  };
+}
+
 const CONFIG_DIR = join(homedir(), ".multicorn");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
 const OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
+const OPENCLAW_MIN_VERSION = "2026.2.26";
 
-const OPENCLAW_ENOENT_MESSAGE =
-  "OpenClaw config not found at ~/.openclaw/openclaw.json. If you're using OpenClaw, install it and then re-run 'npx multicorn-proxy init' to automatically configure your API key.\n";
-const OPENCLAW_PARSE_WARNING =
-  "Multicorn Shield: Could not update ~/.openclaw/openclaw.json - please set MULTICORN_API_KEY manually.\n";
-const OPENCLAW_UPDATED_MESSAGE = "OpenClaw config updated at ~/.openclaw/openclaw.json\n";
+export type OpenClawUpdateResult = "updated" | "not-found" | "parse-error";
 
 export interface ProxyConfig {
   readonly apiKey: string;
   readonly baseUrl: string;
+  readonly agentName?: string;
 }
 
 export interface ApiKeyValidationResult {
@@ -58,22 +94,21 @@ function isErrnoException(e: unknown): e is NodeJS.ErrnoException {
 }
 
 /**
- * If ~/.openclaw/openclaw.json exists, set MULTICORN_API_KEY and MULTICORN_BASE_URL
- * under hooks.internal.entries["multicorn-shield"].env. Creates that path if missing.
- * If the file does not exist, logs a one-line message and returns. If the file is
- * malformed JSON, logs a warning and returns without throwing.
+ * If ~/.openclaw/openclaw.json exists, set MULTICORN_API_KEY, MULTICORN_BASE_URL,
+ * and optionally MULTICORN_AGENT_NAME under hooks.internal.entries["multicorn-shield"].env.
+ * Returns the outcome so the caller can decide how to message the user.
  */
 export async function updateOpenClawConfigIfPresent(
   apiKey: string,
   baseUrl: string,
-): Promise<void> {
+  agentName?: string,
+): Promise<OpenClawUpdateResult> {
   let raw: string;
   try {
     raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
   } catch (e) {
     if (isErrnoException(e) && e.code === "ENOENT") {
-      process.stderr.write(OPENCLAW_ENOENT_MESSAGE);
-      return;
+      return "not-found";
     }
     throw e;
   }
@@ -82,8 +117,7 @@ export async function updateOpenClawConfigIfPresent(
   try {
     obj = JSON.parse(raw) as Record<string, unknown>;
   } catch {
-    process.stderr.write(OPENCLAW_PARSE_WARNING);
-    return;
+    return "parse-error";
   }
 
   let hooks = obj["hooks"] as Record<string, unknown> | undefined;
@@ -113,11 +147,78 @@ export async function updateOpenClawConfigIfPresent(
   }
   env["MULTICORN_API_KEY"] = apiKey;
   env["MULTICORN_BASE_URL"] = baseUrl;
+  if (agentName !== undefined) {
+    env["MULTICORN_AGENT_NAME"] = agentName;
+
+    // Overwrite the default agent (first entry) in agents.list so the TUI picks up the name
+    const agentsList = obj["agents"] as Record<string, unknown> | undefined;
+    const list = agentsList?.["list"];
+    if (Array.isArray(list) && list.length > 0) {
+      const first = list[0] as Record<string, unknown>;
+      if (first["id"] !== agentName) {
+        first["id"] = agentName;
+        first["name"] = agentName;
+      }
+    } else {
+      if (agentsList !== undefined && typeof agentsList === "object") {
+        agentsList["list"] = [{ id: agentName, name: agentName }];
+      } else {
+        obj["agents"] = { list: [{ id: agentName, name: agentName }] };
+      }
+    }
+  }
 
   await writeFile(OPENCLAW_CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n", {
     encoding: "utf8",
   });
-  process.stderr.write(OPENCLAW_UPDATED_MESSAGE);
+  return "updated";
+}
+
+interface OpenClawDetection {
+  readonly status: "not-found" | "parse-error" | "detected";
+  readonly version: string | null;
+}
+
+async function detectOpenClaw(): Promise<OpenClawDetection> {
+  let raw: string;
+  try {
+    raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      return { status: "not-found", version: null };
+    }
+    throw e;
+  }
+
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { status: "parse-error", version: null };
+  }
+
+  const meta = obj["meta"];
+  if (typeof meta === "object" && meta !== null) {
+    const v = (meta as Record<string, unknown>)["lastTouchedVersion"];
+    if (typeof v === "string" && v.length > 0) {
+      return { status: "detected", version: v };
+    }
+  }
+  return { status: "detected", version: null };
+}
+
+function isVersionAtLeast(version: string, minimum: string): boolean {
+  const vParts = version.split(".").map(Number);
+  const mParts = minimum.split(".").map(Number);
+  const len = Math.max(vParts.length, mParts.length);
+  for (let i = 0; i < len; i++) {
+    const v = vParts[i] ?? 0;
+    const m = mParts[i] ?? 0;
+    if (Number.isNaN(v) || Number.isNaN(m)) return false;
+    if (v > m) return true;
+    if (v < m) return false;
+  }
+  return true;
 }
 
 export async function validateApiKey(
@@ -151,7 +252,41 @@ export async function validateApiKey(
   }
 }
 
-export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig> {
+function normalizeAgentName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50);
+}
+
+async function isOpenClawConnected(): Promise<boolean> {
+  try {
+    const raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const hooks = obj["hooks"] as Record<string, unknown> | undefined;
+    const internal = hooks?.["internal"] as Record<string, unknown> | undefined;
+    const entries = internal?.["entries"] as Record<string, unknown> | undefined;
+    const shield = entries?.["multicorn-shield"] as Record<string, unknown> | undefined;
+    const env = shield?.["env"] as Record<string, unknown> | undefined;
+    const key = env?.["MULTICORN_API_KEY"];
+    return typeof key === "string" && key.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+// TODO SR-03: Refactor runInit into smaller functions once the interactive flow is finalized
+export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
+  if (!process.stdin.isTTY) {
+    process.stderr.write(
+      style.red("Error: interactive terminal required. Cannot run init with piped input.") + "\n",
+    );
+    process.exit(1);
+  }
+
   const rl = createInterface({ input: process.stdin, output: process.stderr });
 
   function ask(question: string): Promise<string> {
@@ -162,46 +297,330 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     });
   }
 
-  process.stderr.write("Multicorn Shield proxy setup\n\n");
-  process.stderr.write("Get your API key at https://app.multicorn.ai/settings/api-keys\n\n");
+  // Banner + header
+  process.stderr.write("\n" + BANNER + "\n");
+  process.stderr.write(style.dim("Agent governance for the AI era") + "\n\n");
+  process.stderr.write(style.bold(style.violet("Multicorn Shield proxy setup")) + "\n\n");
+  process.stderr.write(
+    style.dim("Get your API key at https://app.multicorn.ai/settings/api-keys") + "\n\n",
+  );
 
-  let config: ProxyConfig | null = null;
+  // Step A: API key
+  let apiKey = "";
+  const existing = await loadConfig().catch(() => null);
+  if (existing !== null && existing.apiKey.startsWith("mcs_") && existing.apiKey.length >= 8) {
+    const masked = "mcs_..." + existing.apiKey.slice(-4);
+    process.stderr.write("Found existing API key: " + style.cyan(masked) + "\n");
+    const answer = await ask("Use this key? (Y/n) ");
+    if (answer.trim().toLowerCase() !== "n") {
+      apiKey = existing.apiKey;
+      if (baseUrl === "https://api.multicorn.ai") {
+        baseUrl = existing.baseUrl;
+      }
+    }
+  }
 
-  while (config === null) {
+  while (apiKey.length === 0) {
     const input = await ask("API key (starts with mcs_): ");
-    const apiKey = input.trim();
+    const key = input.trim();
 
-    if (apiKey.length === 0) {
-      process.stderr.write("API key is required.\n");
+    if (key.length === 0) {
+      process.stderr.write(style.red("API key is required.") + "\n");
       continue;
     }
 
-    process.stderr.write("Validating key...\n");
-    const result = await validateApiKey(apiKey, baseUrl);
+    const spinner = withSpinner("Validating key...");
+    let result: Awaited<ReturnType<typeof validateApiKey>>;
+    try {
+      result = await validateApiKey(key, baseUrl);
+    } catch (error) {
+      spinner.stop(false, "Validation failed");
+      throw error;
+    }
 
     if (!result.valid) {
-      process.stderr.write(`${result.error ?? "Validation failed. Try again."}\n`);
+      spinner.stop(false, result.error ?? "Validation failed. Try again.");
       continue;
     }
 
-    config = { apiKey, baseUrl };
+    spinner.stop(true, "Key validated");
+    apiKey = key;
+  }
+
+  const configuredPlatforms = new Set<number>();
+  let lastConfig: ProxyConfig = { apiKey, baseUrl };
+
+  let configuring = true;
+  while (configuring) {
+    // Step B: Platform selection
+    process.stderr.write(
+      "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n",
+    );
+    const platformLabels = ["OpenClaw", "Claude Code", "Claude Desktop", "Other MCP Agent"];
+    const openClawConnected = await isOpenClawConnected();
+    for (let i = 0; i < platformLabels.length; i++) {
+      const sessionMarker = configuredPlatforms.has(i + 1) ? " " + style.green("\u2713") : "";
+      const connectedMarker =
+        i === 0 && openClawConnected && !configuredPlatforms.has(1)
+          ? " " + style.green("\u2713") + style.dim(" connected")
+          : "";
+      process.stderr.write(
+        `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${sessionMarker}${connectedMarker}\n`,
+      );
+    }
+
+    let selection = 0;
+    while (selection === 0) {
+      const input = await ask("Select (1-4): ");
+      const num = parseInt(input.trim(), 10);
+      if (num >= 1 && num <= 4) {
+        selection = num;
+      }
+    }
+
+    // Step C: Agent name
+    let agentName = "";
+    while (agentName.length === 0) {
+      const input = await ask("\nWhat would you like to call this agent? ");
+      if (input.trim().length === 0) continue;
+      const transformed = normalizeAgentName(input);
+      if (transformed.length === 0) {
+        process.stderr.write(
+          style.red("Agent name must contain letters or numbers. Please try again.") + "\n",
+        );
+        continue;
+      }
+      if (transformed !== input.trim()) {
+        process.stderr.write(style.yellow("Agent name set to: ") + style.cyan(transformed) + "\n");
+      }
+      agentName = transformed;
+    }
+
+    // Step D: Platform-specific setup
+    if (selection === 1) {
+      let detection: OpenClawDetection;
+      try {
+        detection = await detectOpenClaw();
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        process.stderr.write(style.red("\u2717") + ` Failed to read OpenClaw config: ${detail}\n`);
+        rl.close();
+        return null;
+      }
+
+      if (detection.status === "not-found") {
+        process.stderr.write(
+          style.red("\u2717") +
+            " OpenClaw is not installed. Install OpenClaw first, then run npx multicorn-proxy init again.\n",
+        );
+        rl.close();
+        return null;
+      }
+
+      if (detection.status === "parse-error") {
+        process.stderr.write(
+          style.red("\u2717") +
+            " Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.\n",
+        );
+      }
+
+      if (detection.status === "detected") {
+        if (detection.version !== null) {
+          process.stderr.write(
+            style.green("\u2713") + ` OpenClaw detected ${style.dim(`(${detection.version})`)}\n`,
+          );
+          if (isVersionAtLeast(detection.version, OPENCLAW_MIN_VERSION)) {
+            process.stderr.write(
+              style.green("\u2713") + " " + style.green("Version compatible") + "\n",
+            );
+          } else {
+            process.stderr.write(
+              style.yellow("\u26A0") +
+                ` Shield has been tested with OpenClaw ${style.cyan(OPENCLAW_MIN_VERSION)} and above. Your version (${detection.version}) may work but is untested. We recommend upgrading to at least ${style.cyan(OPENCLAW_MIN_VERSION)}.\n`,
+            );
+            const answer = await ask("Continue anyway? (y/N) ");
+            if (answer.trim().toLowerCase() !== "y") {
+              rl.close();
+              return null;
+            }
+          }
+        } else {
+          process.stderr.write(
+            style.yellow("\u26A0") + " Could not detect OpenClaw version. Continuing anyway.\n",
+          );
+        }
+
+        const spinner = withSpinner("Updating OpenClaw config...");
+        try {
+          const result = await updateOpenClawConfigIfPresent(apiKey, baseUrl, agentName);
+          if (result === "not-found") {
+            spinner.stop(false, "OpenClaw config disappeared unexpectedly.");
+            rl.close();
+            return null;
+          }
+          if (result === "parse-error") {
+            spinner.stop(
+              false,
+              "Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.",
+            );
+          } else {
+            spinner.stop(
+              true,
+              "OpenClaw config updated at " + style.cyan("~/.openclaw/openclaw.json"),
+            );
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          spinner.stop(false, `Failed to update OpenClaw config: ${detail}`);
+        }
+      }
+    } else if (selection === 2) {
+      process.stderr.write("\nTo connect Claude Code to Shield:\n\n");
+      process.stderr.write(
+        "  " +
+          style.bold("Step 1") +
+          " - Add the Multicorn marketplace:\n" +
+          "    " +
+          style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
+          "\n\n",
+      );
+      process.stderr.write(
+        "  " +
+          style.bold("Step 2") +
+          " - Install the plugin:\n" +
+          "    " +
+          style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
+          "\n\n",
+      );
+      process.stderr.write(
+        style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
+      );
+    } else if (selection === 3) {
+      const configPath = join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Claude",
+        "claude_desktop_config.json",
+      );
+      process.stderr.write("\n" + style.dim("Add this to your Claude Desktop config at:") + "\n");
+      process.stderr.write("  " + style.cyan(configPath) + "\n\n");
+      const snippet = JSON.stringify(
+        {
+          mcpServers: {
+            [agentName]: {
+              command: "npx",
+              args: [
+                "multicorn-proxy",
+                "--wrap",
+                "<your-mcp-server-command>",
+                "--agent-name",
+                agentName,
+              ],
+            },
+          },
+        },
+        null,
+        2,
+      );
+      process.stderr.write(style.cyan(snippet) + "\n\n");
+    } else {
+      process.stderr.write("\n" + style.dim("Start the Shield proxy with:") + "\n");
+      process.stderr.write(
+        "  " +
+          style.cyan(
+            `npx multicorn-proxy --wrap <your-mcp-server-command> --agent-name ${agentName}`,
+          ) +
+          "\n\n",
+      );
+    }
+
+    configuredPlatforms.add(selection);
+
+    // Step E: Save config
+    lastConfig = { apiKey, baseUrl, agentName };
+    try {
+      await saveConfig(lastConfig);
+      process.stderr.write(style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
+    }
+
+    // Step F: Configure another agent
+    if (configuredPlatforms.size >= 4) {
+      configuring = false;
+      continue;
+    }
+
+    const another = await ask("\nWould you like to configure another agent? (y/N) ");
+    if (another.trim().toLowerCase() !== "y") {
+      configuring = false;
+    }
   }
 
   rl.close();
-  await saveConfig(config);
 
-  try {
-    await updateOpenClawConfigIfPresent(config.apiKey, config.baseUrl);
-  } catch {
-    process.stderr.write(
-      "Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json if you use OpenClaw.\n",
+  // Summary
+  process.stderr.write("\n" + style.bold(style.violet("Setup complete")) + "\n\n");
+  const allPlatforms = ["OpenClaw", "Claude Code", "Claude Desktop", "Other MCP Agent"];
+  for (const idx of configuredPlatforms) {
+    process.stderr.write(`  ${style.green("\u2713")} ${allPlatforms[idx - 1] ?? ""}\n`);
+  }
+
+  // Next steps grouped by platform
+  process.stderr.write("\n" + style.bold(style.violet("Next steps")) + "\n");
+
+  const blocks: string[] = [];
+
+  if (configuredPlatforms.has(1)) {
+    blocks.push(
+      "\n" +
+        style.bold("To complete your OpenClaw setup:") +
+        "\n" +
+        "  \u2192 Restart your gateway: " +
+        style.cyan("openclaw gateway restart") +
+        "\n" +
+        "  \u2192 Start a session: " +
+        style.cyan("openclaw tui") +
+        "\n",
+    );
+  }
+  if (configuredPlatforms.has(2)) {
+    blocks.push(
+      "\n" +
+        style.bold("To complete your Claude Code setup:") +
+        "\n" +
+        "  \u2192 Add marketplace: " +
+        style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
+        "\n" +
+        "  \u2192 Install plugin: " +
+        style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
+        "\n",
+    );
+  }
+  if (configuredPlatforms.has(3)) {
+    blocks.push(
+      "\n" +
+        style.bold("To complete your Claude Desktop setup:") +
+        "\n" +
+        "  \u2192 Restart Claude Desktop to pick up config changes\n",
+    );
+  }
+  if (configuredPlatforms.has(4)) {
+    blocks.push(
+      "\n" +
+        style.bold("To complete your Other MCP Agent setup:") +
+        "\n" +
+        "  \u2192 Start your agent with: " +
+        style.cyan("npx multicorn-proxy --wrap <your-server> --agent-name <name>") +
+        "\n",
     );
   }
 
-  process.stderr.write(`\nConfig saved to ${CONFIG_PATH}\n`);
-  process.stderr.write("Run your agent with: npx multicorn-proxy --wrap <your-mcp-server>\n");
+  process.stderr.write(blocks.join("") + "\n");
 
-  return config;
+  return lastConfig;
 }
 
 function isProxyConfig(value: unknown): value is ProxyConfig {

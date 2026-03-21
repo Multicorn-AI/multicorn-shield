@@ -148,7 +148,12 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const agentName = cli.agentName.length > 0 ? cli.agentName : deriveAgentName(cli.wrapCommand);
+  const agentName =
+    cli.agentName.length > 0
+      ? cli.agentName
+      : config.agentName !== undefined && config.agentName.length > 0
+        ? config.agentName
+        : deriveAgentName(cli.wrapCommand);
 
   const finalBaseUrl = cli.baseUrl !== "https://api.multicorn.ai" ? cli.baseUrl : config.baseUrl;
   const finalDashboardUrl =
