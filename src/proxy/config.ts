@@ -493,6 +493,18 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
           "\n\n",
       );
       process.stderr.write(
+        "  " +
+          style.bold("Step 3") +
+          " - Start Claude Code:\n" +
+          "    " +
+          style.cyan("claude") +
+          "\n\n",
+      );
+      process.stderr.write(
+        style.dim("Run /plugin inside Claude Code to confirm multicorn-shield is installed.") +
+          "\n",
+      );
+      process.stderr.write(
         style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
       );
     } else if (selection === 3) {

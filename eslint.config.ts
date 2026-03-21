@@ -77,6 +77,8 @@ export default tseslint.config(
       "docs/",
       "*.config.*",
       "scripts/multicorn-ops/**",
+      /* Claude Code plugin hooks: plain Node scripts, not part of tsconfig */
+      "plugins/**/hooks/**/*.js",
     ],
   },
 );

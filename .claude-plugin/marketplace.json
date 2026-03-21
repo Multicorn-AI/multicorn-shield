@@ -2,6 +2,7 @@
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "multicorn-shield",
   "description": "Agent governance plugin for Claude Code. Intercepts tool calls, enforces permissions, and maintains audit trails via Multicorn Shield.",
+  "repository": "https://github.com/Multicorn-AI/multicorn-shield",
   "owner": {
     "name": "Multicorn AI",
     "email": "hello@multicorn.ai"
