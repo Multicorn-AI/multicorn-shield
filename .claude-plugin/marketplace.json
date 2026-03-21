@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "multicorn-shield",
+  "description": "Agent governance plugin for Claude Code. Intercepts tool calls, enforces permissions, and maintains audit trails via Multicorn Shield.",
+  "owner": {
+    "name": "Multicorn AI",
+    "email": "hello@multicorn.ai"
+  },
+  "plugins": [
+    {
+      "name": "multicorn-shield",
+      "description": "Govern your AI agent with permissions, spending limits, and audit logging. Shield intercepts tool calls and enforces your rules before they execute.",
+      "category": "security",
+      "source": "./plugins/multicorn-shield",
+      "homepage": "https://multicorn.ai/shield"
+    }
+  ]
+}

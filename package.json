@@ -115,7 +115,7 @@
   "homepage": "https://multicorn.ai",
   "pnpm": {
     "overrides": {
-      "flatted": ">=3.4.0",
+      "flatted": ">=3.4.2",
       "minimatch": ">=10.2.3",
       "rollup": ">=4.59.0"
     }

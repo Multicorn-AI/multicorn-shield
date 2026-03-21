@@ -67,6 +67,7 @@ const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 interface MulticornConfig {
   apiKey?: string;
   baseUrl?: string;
+  agentName?: string;
 }
 
 interface ShieldConfig {
@@ -101,7 +102,11 @@ function readConfig(): ShieldConfig {
     asString(process.env["MULTICORN_BASE_URL"]) ??
     "https://api.multicorn.ai";
 
-  const agentName = asString(pc["agentName"]) ?? process.env["MULTICORN_AGENT_NAME"] ?? null;
+  const agentName =
+    asString(pc["agentName"]) ??
+    process.env["MULTICORN_AGENT_NAME"] ??
+    asString(cachedMulticornConfig?.agentName) ??
+    null;
   const failMode = "closed" as const;
   return { apiKey: resolvedApiKey, baseUrl: resolvedBaseUrl, agentName, failMode };
 }
