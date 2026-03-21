@@ -5,11 +5,5 @@
   "author": {
     "name": "Multicorn AI",
     "email": "hello@multicorn.ai"
-  },
-  "skills": [
-    {
-      "name": "shield-governance",
-      "path": "./skills/shield-governance/SKILL.md"
-    }
-  ]
+  }
 }
