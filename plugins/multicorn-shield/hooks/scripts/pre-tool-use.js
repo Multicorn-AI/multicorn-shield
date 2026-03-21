@@ -19,6 +19,7 @@ const MAX_APPROVAL_POLLS = 100;
 /** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
 const TOOL_MAP = {
   bash: { service: "terminal", actionType: "execute" },
+  shell: { service: "terminal", actionType: "execute" },
   read: { service: "filesystem", actionType: "read" },
   write: { service: "filesystem", actionType: "write" },
   edit: { service: "filesystem", actionType: "write" },
@@ -26,6 +27,8 @@ const TOOL_MAP = {
   webfetch: { service: "web", actionType: "read" },
   task: { service: "subagent", actionType: "execute" },
 };
+
+const CONSENT_MARKER_TTL_MS = 5 * 60 * 1000;
 
 /**
  * @returns {Promise<string>}
@@ -268,6 +271,48 @@ function blockedMessage(data, service, actionType, approvalsUrl) {
 }
 
 /**
+ * @param {string} agentName
+ * @param {string} service
+ * @param {string} actionType
+ * @returns {string}
+ */
+function consentMarkerPath(agentName, service, actionType) {
+  const safe = `${agentName}-${service}-${actionType}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return path.join(os.homedir(), ".multicorn", `.consent-${safe}`);
+}
+
+/**
+ * @param {string} agentName
+ * @param {string} service
+ * @param {string} actionType
+ * @returns {boolean}
+ */
+function hasRecentConsentMarker(agentName, service, actionType) {
+  try {
+    const marker = consentMarkerPath(agentName, service, actionType);
+    const stat = fs.statSync(marker);
+    return Date.now() - stat.mtimeMs < CONSENT_MARKER_TTL_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {string} agentName
+ * @param {string} service
+ * @param {string} actionType
+ */
+function writeConsentMarker(agentName, service, actionType) {
+  try {
+    const marker = consentMarkerPath(agentName, service, actionType);
+    fs.mkdirSync(path.dirname(marker), { recursive: true });
+    fs.writeFileSync(marker, String(Date.now()), "utf8");
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * @param {string} url
  */
 function openBrowser(url) {
@@ -304,9 +349,14 @@ function sleep(ms) {
  * @returns {Promise<void>}
  */
 async function handlePendingWithConsentAndPoll(config, approvalId, service, actionType) {
-  const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
-  openBrowser(url);
-  process.stderr.write("Opening Shield consent screen in your browser. Waiting for approval...\n");
+  if (hasRecentConsentMarker(config.agentName, service, actionType)) {
+    process.stderr.write("Waiting for approval (consent screen already open)...\n");
+  } else {
+    const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
+    writeConsentMarker(config.agentName, service, actionType);
+    openBrowser(url);
+    process.stderr.write("Opening Shield consent screen... Waiting for approval (up to 5 min).\n");
+  }
 
   for (let i = 0; i < MAX_APPROVAL_POLLS; i++) {
     if (i > 0) {
