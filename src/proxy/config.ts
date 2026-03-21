@@ -287,6 +287,93 @@ function isClaudeCodeConnected(): boolean {
   }
 }
 
+export function getClaudeDesktopConfigPath(): string {
+  switch (process.platform) {
+    case "win32":
+      return join(
+        process.env["APPDATA"] ?? join(homedir(), "AppData", "Roaming"),
+        "Claude",
+        "claude_desktop_config.json",
+      );
+    case "linux":
+      return join(homedir(), ".config", "Claude", "claude_desktop_config.json");
+    default:
+      return join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Claude",
+        "claude_desktop_config.json",
+      );
+  }
+}
+
+export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
+
+export async function updateClaudeDesktopConfig(
+  agentName: string,
+  mcpServerCommand: string,
+  overwrite = false,
+): Promise<ClaudeDesktopUpdateResult> {
+  const configPath = getClaudeDesktopConfigPath();
+
+  let obj: Record<string, unknown> = {};
+  let fileExists = false;
+
+  try {
+    const raw = await readFile(configPath, "utf8");
+    fileExists = true;
+    try {
+      obj = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      return "parse-error";
+    }
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      fileExists = false;
+    } else {
+      throw e;
+    }
+  }
+
+  let mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
+  if (mcpServers === undefined || typeof mcpServers !== "object") {
+    mcpServers = {};
+    obj["mcpServers"] = mcpServers;
+  }
+
+  if (mcpServers[agentName] !== undefined && !overwrite) {
+    return "skipped";
+  }
+
+  const commandParts = mcpServerCommand.trim().split(/\s+/);
+
+  mcpServers[agentName] = {
+    command: "npx",
+    args: ["multicorn-proxy", "--wrap", ...commandParts, "--agent-name", agentName],
+  };
+
+  const configDir = join(configPath, "..");
+  if (!fileExists) {
+    await mkdir(configDir, { recursive: true });
+  }
+  await writeFile(configPath, JSON.stringify(obj, null, 2) + "\n", { encoding: "utf8" });
+  return fileExists ? "updated" : "created";
+}
+
+async function isClaudeDesktopConnected(): Promise<boolean> {
+  try {
+    const raw = await readFile(getClaudeDesktopConfigPath(), "utf8");
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
+    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
+    const entries = JSON.stringify(mcpServers);
+    return entries.includes("multicorn-proxy");
+  } catch {
+    return false;
+  }
+}
+
 // TODO SR-03: Refactor runInit into smaller functions once the interactive flow is finalized
 export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
   if (!process.stdin.isTTY) {
@@ -368,14 +455,19 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     const platformLabels = ["OpenClaw", "Claude Code", "Claude Desktop", "Other MCP Agent"];
     const openClawConnected = await isOpenClawConnected();
     const claudeCodeConnected = isClaudeCodeConnected();
+    const claudeDesktopConnected = await isClaudeDesktopConnected();
     for (let i = 0; i < platformLabels.length; i++) {
       const sessionMarker = configuredPlatforms.has(i + 1) ? " " + style.green("\u2713") : "";
-      const connectedMarker =
-        i === 0 && openClawConnected && !configuredPlatforms.has(1)
-          ? " " + style.green("\u2713") + style.dim(" connected")
-          : i === 1 && claudeCodeConnected && !configuredPlatforms.has(2)
-            ? " " + style.green("\u2713") + style.dim(" connected")
-            : "";
+      let connectedMarker = "";
+      if (!configuredPlatforms.has(i + 1)) {
+        if (i === 0 && openClawConnected) {
+          connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
+        } else if (i === 1 && claudeCodeConnected) {
+          connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
+        } else if (i === 2 && claudeDesktopConnected) {
+          connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
+        }
+      }
       process.stderr.write(
         `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${sessionMarker}${connectedMarker}\n`,
       );
@@ -520,34 +612,96 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
         style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
       );
     } else if (selection === 3) {
-      const configPath = join(
-        homedir(),
-        "Library",
-        "Application Support",
-        "Claude",
-        "claude_desktop_config.json",
+      const mcpCommand = await ask(
+        "\nWhat MCP server command does this agent use? (e.g. npx my-mcp-server)\nLeave blank to skip and configure later: ",
       );
-      process.stderr.write("\n" + style.dim("Add this to your Claude Desktop config at:") + "\n");
-      process.stderr.write("  " + style.cyan(configPath) + "\n\n");
-      const snippet = JSON.stringify(
-        {
-          mcpServers: {
-            [agentName]: {
-              command: "npx",
-              args: [
-                "multicorn-proxy",
-                "--wrap",
-                "<your-mcp-server-command>",
-                "--agent-name",
-                agentName,
-              ],
+
+      if (mcpCommand.trim().length === 0) {
+        const configPath = getClaudeDesktopConfigPath();
+        process.stderr.write("\n" + style.dim("Add this to your Claude Desktop config at:") + "\n");
+        process.stderr.write("  " + style.cyan(configPath) + "\n\n");
+        const snippet = JSON.stringify(
+          {
+            mcpServers: {
+              [agentName]: {
+                command: "npx",
+                args: [
+                  "multicorn-proxy",
+                  "--wrap",
+                  "<your-mcp-server-command>",
+                  "--agent-name",
+                  agentName,
+                ],
+              },
             },
           },
-        },
-        null,
-        2,
-      );
-      process.stderr.write(style.cyan(snippet) + "\n\n");
+          null,
+          2,
+        );
+        process.stderr.write(style.cyan(snippet) + "\n\n");
+      } else {
+        let shouldWrite = true;
+        const spinner = withSpinner("Updating Claude Desktop config...");
+        try {
+          let result = await updateClaudeDesktopConfig(agentName, mcpCommand.trim());
+          if (result === "skipped") {
+            spinner.stop(false, `Agent "${agentName}" already exists in Claude Desktop config.`);
+            const overwrite = await ask("Overwrite the existing entry? (y/N) ");
+            if (overwrite.trim().toLowerCase() === "y") {
+              const retrySpinner = withSpinner("Updating Claude Desktop config...");
+              result = await updateClaudeDesktopConfig(agentName, mcpCommand.trim(), true);
+              retrySpinner.stop(
+                true,
+                "Claude Desktop config updated at " + style.cyan(getClaudeDesktopConfigPath()),
+              );
+            } else {
+              shouldWrite = false;
+              process.stderr.write(style.dim("Skipped. Existing config left unchanged.") + "\n");
+            }
+          } else if (result === "parse-error") {
+            spinner.stop(false, "Claude Desktop config file contains invalid JSON.");
+            const configPath = getClaudeDesktopConfigPath();
+            process.stderr.write(
+              style.yellow("\u26A0") +
+                " Fix the JSON in " +
+                style.cyan(configPath) +
+                " or add this entry manually:\n\n",
+            );
+            const snippet = JSON.stringify(
+              {
+                mcpServers: {
+                  [agentName]: {
+                    command: "npx",
+                    args: [
+                      "multicorn-proxy",
+                      "--wrap",
+                      ...mcpCommand.trim().split(/\s+/),
+                      "--agent-name",
+                      agentName,
+                    ],
+                  },
+                },
+              },
+              null,
+              2,
+            );
+            process.stderr.write(style.cyan(snippet) + "\n\n");
+          } else {
+            const verb = result === "created" ? "Created" : "Updated";
+            spinner.stop(
+              true,
+              verb + " Claude Desktop config at " + style.cyan(getClaudeDesktopConfigPath()),
+            );
+            process.stderr.write(style.dim("Restart Claude Desktop to pick up changes.") + "\n");
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          spinner.stop(false, `Failed to update Claude Desktop config: ${detail}`);
+          shouldWrite = false;
+        }
+
+        void shouldWrite;
+      }
     } else {
       process.stderr.write("\n" + style.dim("Start the Shield proxy with:") + "\n");
       process.stderr.write(
