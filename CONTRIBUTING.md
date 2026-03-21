@@ -35,6 +35,14 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
    ```
 6. **Push** and open a pull request against `main`.
 
+### Git Workflow
+
+- All PRs are merged using **Squash and merge** on GitHub. This is the default and only allowed merge strategy for this repo.
+- The squash commit message should follow **Conventional Commits** format: `feat(sdk): short description of the change (#PR_NUMBER)`.
+- Never merge `main` into your feature branch. Always **rebase**: `git rebase main`.
+- After rebasing, **force push with lease**: `git push --force-with-lease`.
+- Version bumps and npm publish happen on **main** only, never on feature branches.
+
 ## Development Setup
 
 ### Prerequisites
