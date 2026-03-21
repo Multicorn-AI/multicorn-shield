@@ -141,7 +141,8 @@ async function main() {
     (typeof hookPayload.tool_name === "string" && hookPayload.tool_name) ||
     (typeof hookPayload.toolName === "string" && hookPayload.toolName) ||
     "";
-  const toolInput = hookPayload.tool_input !== undefined ? hookPayload.tool_input : hookPayload.toolInput;
+  const toolInput =
+    hookPayload.tool_input !== undefined ? hookPayload.tool_input : hookPayload.toolInput;
   const toolResult =
     hookPayload.tool_result !== undefined
       ? hookPayload.tool_result
@@ -153,7 +154,9 @@ async function main() {
   let toolResultSerialized;
   try {
     toolInputSerialized =
-      typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput === undefined ? null : toolInput);
+      typeof toolInput === "string"
+        ? toolInput
+        : JSON.stringify(toolInput === undefined ? null : toolInput);
     toolResultSerialized =
       typeof toolResult === "string"
         ? toolResult

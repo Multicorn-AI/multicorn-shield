@@ -197,7 +197,9 @@ async function main() {
     raw = await readStdin();
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`[multicorn-shield] PreToolUse: could not read stdin (${msg}). Allowing tool.\n`);
+    process.stderr.write(
+      `[multicorn-shield] PreToolUse: could not read stdin (${msg}). Allowing tool.\n`,
+    );
     process.exit(0);
   }
 
@@ -223,15 +225,20 @@ async function main() {
     (typeof hookPayload.tool_name === "string" && hookPayload.tool_name) ||
     (typeof hookPayload.toolName === "string" && hookPayload.toolName) ||
     "";
-  const toolInput = hookPayload.tool_input !== undefined ? hookPayload.tool_input : hookPayload.toolInput;
+  const toolInput =
+    hookPayload.tool_input !== undefined ? hookPayload.tool_input : hookPayload.toolInput;
 
   let toolInputSerialized;
   try {
     toolInputSerialized =
-      typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput === undefined ? null : toolInput);
+      typeof toolInput === "string"
+        ? toolInput
+        : JSON.stringify(toolInput === undefined ? null : toolInput);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`[multicorn-shield] PreToolUse: could not serialize tool_input (${msg}). Allowing tool.\n`);
+    process.stderr.write(
+      `[multicorn-shield] PreToolUse: could not serialize tool_input (${msg}). Allowing tool.\n`,
+    );
     process.exit(0);
   }
 
@@ -262,7 +269,9 @@ async function main() {
     bodyText = res.bodyText;
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`[multicorn-shield] PreToolUse: Shield API unreachable (${msg}). Allowing tool.\n`);
+    process.stderr.write(
+      `[multicorn-shield] PreToolUse: Shield API unreachable (${msg}). Allowing tool.\n`,
+    );
     process.exit(0);
   }
 
@@ -278,7 +287,9 @@ async function main() {
 
   if (statusCode === 201) {
     if (data === null || typeof data !== "object") {
-      process.stderr.write("[multicorn-shield] PreToolUse: unexpected Shield response. Allowing tool.\n");
+      process.stderr.write(
+        "[multicorn-shield] PreToolUse: unexpected Shield response. Allowing tool.\n",
+      );
       process.exit(0);
     }
     const st = String(/** @type {Record<string, unknown>} */ (data).status || "").toLowerCase();
@@ -289,7 +300,9 @@ async function main() {
       process.stderr.write(blockedMessage(data, service, actionType, approvalsUrl));
       process.exit(2);
     }
-    process.stderr.write("[multicorn-shield] PreToolUse: ambiguous Shield status. Allowing tool.\n");
+    process.stderr.write(
+      "[multicorn-shield] PreToolUse: ambiguous Shield status. Allowing tool.\n",
+    );
     process.exit(0);
   }
 
