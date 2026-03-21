@@ -7,6 +7,7 @@
  * @module proxy/config
  */
 
+import { existsSync } from "node:fs";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -278,6 +279,14 @@ async function isOpenClawConnected(): Promise<boolean> {
   }
 }
 
+function isClaudeCodeConnected(): boolean {
+  try {
+    return existsSync(join(homedir(), ".claude", "plugins", "cache", "multicorn-shield"));
+  } catch {
+    return false;
+  }
+}
+
 // TODO SR-03: Refactor runInit into smaller functions once the interactive flow is finalized
 export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
   if (!process.stdin.isTTY) {
@@ -358,12 +367,15 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     );
     const platformLabels = ["OpenClaw", "Claude Code", "Claude Desktop", "Other MCP Agent"];
     const openClawConnected = await isOpenClawConnected();
+    const claudeCodeConnected = isClaudeCodeConnected();
     for (let i = 0; i < platformLabels.length; i++) {
       const sessionMarker = configuredPlatforms.has(i + 1) ? " " + style.green("\u2713") : "";
       const connectedMarker =
         i === 0 && openClawConnected && !configuredPlatforms.has(1)
           ? " " + style.green("\u2713") + style.dim(" connected")
-          : "";
+          : i === 1 && claudeCodeConnected && !configuredPlatforms.has(2)
+            ? " " + style.green("\u2713") + style.dim(" connected")
+            : "";
       process.stderr.write(
         `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${sessionMarker}${connectedMarker}\n`,
       );
