@@ -1,6 +1,6 @@
 /**
  * Claude Code PreToolUse hook: asks Shield whether a tool call is allowed.
- * Fail-open on API errors or missing config so local work keeps moving.
+ * Fail-closed on API errors once config is loaded. Fail-open only if Shield is not configured (no config file, no API key).
  */
 
 "use strict";
@@ -484,9 +484,9 @@ async function main() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     process.stderr.write(
-      `[multicorn-shield] PreToolUse: Shield API unreachable (${msg}). Allowing tool.\n`,
+      `[multicorn-shield] PreToolUse: Action blocked: Shield API unreachable, cannot verify permissions. (${msg})\n`,
     );
-    process.exit(0);
+    process.exit(2);
   }
 
   const parsed = safeJsonParse(bodyText);
@@ -514,9 +514,9 @@ async function main() {
   if (statusCode === 201) {
     if (data === null || typeof data !== "object") {
       process.stderr.write(
-        "[multicorn-shield] PreToolUse: unexpected Shield response. Allowing tool.\n",
+        "[multicorn-shield] PreToolUse: Action blocked: unexpected Shield response, cannot verify permissions.\n",
       );
-      process.exit(0);
+      process.exit(2);
     }
     const st = String(/** @type {Record<string, unknown>} */ (data).status || "").toLowerCase();
     if (st === "approved") {
@@ -527,19 +527,21 @@ async function main() {
       process.exit(2);
     }
     process.stderr.write(
-      "[multicorn-shield] PreToolUse: ambiguous Shield status. Allowing tool.\n",
+      "[multicorn-shield] PreToolUse: Action blocked: ambiguous Shield status, cannot verify permissions.\n",
     );
-    process.exit(0);
+    process.exit(2);
   }
 
   process.stderr.write(
-    `[multicorn-shield] PreToolUse: Shield returned HTTP ${String(statusCode)}. Allowing tool.\n`,
+    `[multicorn-shield] PreToolUse: Action blocked: Shield returned HTTP ${String(statusCode)}, cannot verify permissions.\n`,
   );
-  process.exit(0);
+  process.exit(2);
 }
 
 main().catch((e) => {
   const msg = e instanceof Error ? e.message : String(e);
-  process.stderr.write(`[multicorn-shield] PreToolUse: error (${msg}). Allowing tool.\n`);
-  process.exit(0);
+  process.stderr.write(
+    `[multicorn-shield] PreToolUse: Action blocked: unexpected error, cannot verify permissions. (${msg})\n`,
+  );
+  process.exit(2);
 });
