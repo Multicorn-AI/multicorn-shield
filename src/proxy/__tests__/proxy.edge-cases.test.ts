@@ -1222,6 +1222,130 @@ describe("config file parsing", () => {
     expect(servers["my-agent"]).toBeDefined();
   });
 
+  it("updateClaudeDesktopConfig throws on invalid agent name", async () => {
+    await expect(updateClaudeDesktopConfig("bad name!", "npx my-server")).rejects.toThrow(
+      "Agent name must contain only letters, numbers, hyphens, and underscores",
+    );
+  });
+
+  it("updateClaudeDesktopConfig rethrows non-ENOENT read errors", async () => {
+    readFileMock.mockRejectedValue(new Error("EACCES: permission denied"));
+
+    await expect(updateClaudeDesktopConfig("my-agent", "npx my-server")).rejects.toThrow("EACCES");
+  });
+
+  it("runInit shows Updated when Claude Desktop config file already exists with other agents", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingDesktopConfig = JSON.stringify({
+      mcpServers: { "other-agent": { command: "npx", args: ["other-server"] } },
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) {
+        const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+        enoent.code = "ENOENT";
+        return Promise.reject(enoent);
+      }
+      if (path.includes("claude_desktop_config")) {
+        return Promise.resolve(existingDesktopConfig);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx my-mcp-server",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Updated");
+    expect(stderrBuffer).toContain("Restart Claude Desktop");
+  });
+
+  it("runInit catches error thrown by updateClaudeDesktopConfig", async () => {
+    captureStderr();
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    let writeCallCount = 0;
+    writeFileMock.mockImplementation((path: string) => {
+      if (path.includes("claude_desktop_config")) {
+        writeCallCount++;
+        if (writeCallCount === 1) {
+          return Promise.reject(new Error("EACCES: permission denied"));
+        }
+      }
+      return Promise.resolve(undefined);
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      return Promise.reject(enoent);
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx my-server",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Failed to update Claude Desktop config");
+    expect(stderrBuffer).toContain("EACCES");
+  });
+
+  it("runInit shows connected checkmark for Claude Desktop when config contains multicorn-proxy", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const desktopConfig = JSON.stringify({
+      mcpServers: {
+        "existing-agent": {
+          command: "npx",
+          args: [
+            "multicorn-proxy",
+            "--wrap",
+            "npx",
+            "some-server",
+            "--agent-name",
+            "existing-agent",
+          ],
+        },
+      },
+    });
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      if (path.includes("claude_desktop_config")) return Promise.resolve(desktopConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "call this agent": "test-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("connected");
+  });
+
   it("runInit handles save config failure gracefully", async () => {
     captureStderr();
     mkdirMock.mockResolvedValue(undefined);
