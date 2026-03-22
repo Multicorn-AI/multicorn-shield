@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-22
+
+### Added
+
+- Claude Code plugin: PreToolUse hook intercepts tool calls and checks permissions via Shield API before allowing execution
+- Claude Code plugin: PostToolUse hook logs completed tool calls to Shield audit trail
+- Claude Code plugin: consent screen opens in browser on first tool call for new agents, polls for approval
+- Claude Code plugin: consent marker file prevents repeated browser opens after initial consent
+- Claude Desktop: CLI wizard auto-writes `claude_desktop_config.json` with MCP proxy config (macOS, Linux, Windows paths)
+- Claude Desktop: wizard prompts for MCP server command and merges config without clobbering existing entries
+- MCP proxy: comprehensive tool name mapper with explicit mappings for filesystem, git, web, terminal, email, and calendar MCP servers
+- CLI wizard: "connected" checkmark for Claude Code and Claude Desktop in platform selection menu
+- CLI wizard: Step 3 added to Claude Code output ("Start Claude Code: claude")
+- Agent name validation: must match /^[a-zA-Z0-9_-]+$/ before use in config files
+- `shell` tool name mapping to terminal:execute in Claude Code hook (covers Claude Code's Shell tool variant)
+
+### Changed
+
+- Claude Desktop wizard path now auto-writes config instead of showing manual JSON snippet (falls back to manual on invalid JSON or user skip)
+- MCP proxy tool mapping replaced: `extractServiceFromToolName`/`extractActionFromToolName` underscore-split replaced with explicit `mapMcpToolToScope` lookup table
+- `isClaudeDesktopConnected` uses proper args array inspection instead of substring match on serialized JSON
+
+### Fixed
+
+- Claude Code plugin install: removed `skills` array from plugin.json that caused validation error on `claude plugin install`
+- Claude Code consent flow: consent screen only opens once per agent (not per scope), subsequent permission requests block with approvals link
+- Claude Code hook: localhost:8080 API base URL correctly maps to localhost:5173 dashboard URL for consent and approvals links
+- MCP proxy: filesystem server tools (read_file, write_file, list_directory, etc.) now correctly map to filesystem:read/write instead of garbage service names
+
+## [0.1.16] - 2026-03-21
+
+### Added
+
+- Claude Code marketplace manifest at `.claude-plugin/marketplace.json`
+- Claude Code plugin structure at `plugins/multicorn-shield/` with plugin.json and shield-governance skill
+- Repository field added to marketplace.json linking to GitHub source
+
 ## [0.1.15] - 2026-03-13
 
 ### Changed
