@@ -621,7 +621,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
       );
     } else if (selection === 3) {
       const mcpCommand = await ask(
-        "\nWhat MCP server command does this agent use? (e.g. npx my-mcp-server)\nLeave blank to skip and configure later: ",
+        "\nWhat MCP server should Shield govern for this agent?\nThis is the command you'd normally use to start your MCP server.\nExample: npx -y @modelcontextprotocol/server-filesystem /tmp\nLeave blank to skip and configure later: ",
       );
 
       if (mcpCommand.trim().length === 0) {
