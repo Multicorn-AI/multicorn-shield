@@ -733,7 +733,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
-      "MCP server command": "",
+      "Shield govern": "",
       "configure another": "n",
     });
 
@@ -762,7 +762,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
-      "MCP server command": "npx my-mcp-server",
+      "Shield govern": "npx my-mcp-server",
       "configure another": "n",
     });
 
@@ -812,7 +812,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
-      "MCP server command": "npx my-server",
+      "Shield govern": "npx my-server",
       "configure another": "n",
     });
 
@@ -850,7 +850,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
-      "MCP server command": "npx new-server",
+      "Shield govern": "npx new-server",
       Overwrite: "y",
       "configure another": "n",
     });
@@ -900,7 +900,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
-      "MCP server command": "npx new-server",
+      "Shield govern": "npx new-server",
       Overwrite: "n",
       "configure another": "n",
     });
@@ -1258,7 +1258,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
-      "MCP server command": "npx my-mcp-server",
+      "Shield govern": "npx my-mcp-server",
       "configure another": "n",
     });
 
@@ -1294,7 +1294,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
-      "MCP server command": "npx my-server",
+      "Shield govern": "npx my-server",
       "configure another": "n",
     });
 
@@ -1436,7 +1436,7 @@ describe("config file parsing", () => {
       } else if (prompt.includes("call this agent")) {
         cb(agentOrder[agentCall] ?? "agent");
         agentCall++;
-      } else if (prompt.includes("MCP server command")) {
+      } else if (prompt.includes("Shield govern")) {
         cb("");
       } else if (prompt.includes("configure another")) {
         cb("y");
