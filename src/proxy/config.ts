@@ -315,6 +315,10 @@ export async function updateClaudeDesktopConfig(
   mcpServerCommand: string,
   overwrite = false,
 ): Promise<ClaudeDesktopUpdateResult> {
+  if (!/^[a-zA-Z0-9_-]+$/.test(agentName)) {
+    throw new Error("Agent name must contain only letters, numbers, hyphens, and underscores");
+  }
+
   const configPath = getClaudeDesktopConfigPath();
 
   let obj: Record<string, unknown> = {};
@@ -367,8 +371,12 @@ async function isClaudeDesktopConnected(): Promise<boolean> {
     const obj = JSON.parse(raw) as Record<string, unknown>;
     const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
     if (mcpServers === undefined || typeof mcpServers !== "object") return false;
-    const entries = JSON.stringify(mcpServers);
-    return entries.includes("multicorn-proxy");
+    for (const entry of Object.values(mcpServers)) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const args = (entry as Record<string, unknown>)["args"];
+      if (Array.isArray(args) && args.includes("multicorn-proxy")) return true;
+    }
+    return false;
   } catch {
     return false;
   }
