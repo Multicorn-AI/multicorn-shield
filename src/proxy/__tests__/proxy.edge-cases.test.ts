@@ -15,7 +15,14 @@ import { PassThrough } from "node:stream";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { createProxyServer, type ProxyServer } from "../index.js";
 import { createLogger } from "../logger.js";
-import { loadConfig, validateApiKey, runInit, updateOpenClawConfigIfPresent } from "../config.js";
+import {
+  loadConfig,
+  validateApiKey,
+  runInit,
+  updateOpenClawConfigIfPresent,
+  updateClaudeDesktopConfig,
+  getClaudeDesktopConfigPath,
+} from "../config.js";
 import { resolveAgentRecord, waitForConsent, deriveDashboardUrl } from "../consent.js";
 import { startMockMcpServer } from "../__fixtures__/mockMcpServer.js";
 import {
@@ -711,7 +718,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Claude Code setup");
   });
 
-  it("runInit shows Claude Desktop config snippet for platform 3", async () => {
+  it("runInit shows manual instructions when user skips MCP server command for platform 3", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -726,6 +733,7 @@ describe("config file parsing", () => {
       "API key": "mcs_valid_key",
       Select: "3",
       "call this agent": "my-agent",
+      "MCP server command": "",
       "configure another": "n",
     });
 
@@ -735,7 +743,178 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("claude_desktop_config.json");
     expect(stderrBuffer).toContain("mcpServers");
     expect(stderrBuffer).toContain("my-agent");
+    expect(stderrBuffer).toContain("<your-mcp-server-command>");
     expect(stderrBuffer).toContain("Claude Desktop setup");
+  });
+
+  it("runInit auto-writes Claude Desktop config when user provides MCP server command", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(enoent),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx my-mcp-server",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Claude Desktop config");
+    expect(stderrBuffer).toContain("Restart Claude Desktop");
+
+    const desktopWrite = writeFileMock.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes("claude_desktop_config"),
+    );
+    expect(desktopWrite).toBeDefined();
+    if (!desktopWrite) throw new Error("expected desktop config write");
+    const written = JSON.parse(String(desktopWrite[1])) as Record<string, unknown>;
+    const servers = written["mcpServers"] as Record<string, unknown>;
+    expect(servers["my-agent"]).toBeDefined();
+    const entry = servers["my-agent"] as Record<string, unknown>;
+    expect(entry["command"]).toBe("npx");
+    const args = entry["args"] as string[];
+    expect(args).toContain("multicorn-proxy");
+    expect(args).toContain("--wrap");
+    expect(args).toContain("npx");
+    expect(args).toContain("my-mcp-server");
+    expect(args).toContain("--agent-name");
+    expect(args).toContain("my-agent");
+  });
+
+  it("runInit falls back to manual instructions when Claude Desktop config has invalid JSON", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) {
+        const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+        enoent.code = "ENOENT";
+        return Promise.reject(enoent);
+      }
+      if (path.includes("claude_desktop_config")) {
+        return Promise.resolve("{ not valid json }");
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx my-server",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("invalid JSON");
+    expect(stderrBuffer).toContain("mcpServers");
+  });
+
+  it("runInit asks to overwrite when agent already exists in Claude Desktop config", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingDesktopConfig = JSON.stringify({
+      mcpServers: {
+        "my-agent": { command: "npx", args: ["old-server"] },
+        "other-agent": { command: "npx", args: ["other-server"] },
+      },
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) {
+        const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+        enoent.code = "ENOENT";
+        return Promise.reject(enoent);
+      }
+      if (path.includes("claude_desktop_config")) {
+        return Promise.resolve(existingDesktopConfig);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx new-server",
+      Overwrite: "y",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("already exists");
+    expect(stderrBuffer).toContain("Claude Desktop config updated");
+
+    const desktopWrite = writeFileMock.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes("claude_desktop_config"),
+    );
+    expect(desktopWrite).toBeDefined();
+    if (!desktopWrite) throw new Error("expected desktop config write");
+    const written = JSON.parse(String(desktopWrite[1])) as Record<string, unknown>;
+    const servers = written["mcpServers"] as Record<string, unknown>;
+    expect(servers["other-agent"]).toBeDefined();
+    const newEntry = servers["my-agent"] as Record<string, unknown>;
+    const args = newEntry["args"] as string[];
+    expect(args).toContain("new-server");
+  });
+
+  it("runInit preserves existing config when user declines overwrite", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingDesktopConfig = JSON.stringify({
+      mcpServers: {
+        "my-agent": { command: "npx", args: ["old-server"] },
+      },
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) {
+        const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+        enoent.code = "ENOENT";
+        return Promise.reject(enoent);
+      }
+      if (path.includes("claude_desktop_config")) {
+        return Promise.resolve(existingDesktopConfig);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx new-server",
+      Overwrite: "n",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("already exists");
+    expect(stderrBuffer).toContain("Skipped");
+
+    const desktopWrite = writeFileMock.mock.calls.find((c: unknown[]) =>
+      String(c[0]).includes("claude_desktop_config"),
+    );
+    expect(desktopWrite).toBeUndefined();
   });
 
   it("runInit returns null when OpenClaw is not installed", async () => {
@@ -916,6 +1095,257 @@ describe("config file parsing", () => {
     expect(agents["some"]).toBe("field");
   });
 
+  it("getClaudeDesktopConfigPath returns platform-appropriate path", () => {
+    const path = getClaudeDesktopConfigPath();
+    expect(path).toContain("claude_desktop_config.json");
+  });
+
+  it("updateClaudeDesktopConfig creates new file when config does not exist", async () => {
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockRejectedValue(enoent);
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+
+    const result = await updateClaudeDesktopConfig("my-agent", "npx my-mcp-server");
+
+    expect(result).toBe("created");
+    expect(mkdirMock).toHaveBeenCalled();
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const servers = written["mcpServers"] as Record<string, unknown>;
+    const entry = servers["my-agent"] as Record<string, unknown>;
+    expect(entry["command"]).toBe("npx");
+    const args = entry["args"] as string[];
+    expect(args).toContain("multicorn-proxy");
+    expect(args).toContain("--wrap");
+    expect(args).toContain("my-mcp-server");
+  });
+
+  it("updateClaudeDesktopConfig merges into existing config without clobbering other entries", async () => {
+    const existing = JSON.stringify({
+      mcpServers: { "other-server": { command: "node", args: ["server.js"] } },
+      someOtherKey: true,
+    });
+    readFileMock.mockResolvedValue(existing);
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+
+    const result = await updateClaudeDesktopConfig("my-agent", "npx my-mcp-server");
+
+    expect(result).toBe("updated");
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const servers = written["mcpServers"] as Record<string, unknown>;
+    expect(servers["other-server"]).toBeDefined();
+    expect(servers["my-agent"]).toBeDefined();
+    expect(written["someOtherKey"]).toBe(true);
+  });
+
+  it("updateClaudeDesktopConfig returns parse-error for invalid JSON", async () => {
+    readFileMock.mockResolvedValue("{ broken json }");
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+
+    const result = await updateClaudeDesktopConfig("my-agent", "npx my-server");
+
+    expect(result).toBe("parse-error");
+    expect(writeFileMock).not.toHaveBeenCalled();
+  });
+
+  it("updateClaudeDesktopConfig returns skipped when agent already exists and overwrite is false", async () => {
+    const existing = JSON.stringify({
+      mcpServers: { "my-agent": { command: "npx", args: ["old-server"] } },
+    });
+    readFileMock.mockResolvedValue(existing);
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+
+    const result = await updateClaudeDesktopConfig("my-agent", "npx new-server");
+
+    expect(result).toBe("skipped");
+    expect(writeFileMock).not.toHaveBeenCalled();
+  });
+
+  it("updateClaudeDesktopConfig overwrites existing agent when overwrite is true", async () => {
+    const existing = JSON.stringify({
+      mcpServers: { "my-agent": { command: "npx", args: ["old-server"] } },
+    });
+    readFileMock.mockResolvedValue(existing);
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+
+    const result = await updateClaudeDesktopConfig("my-agent", "npx new-server", true);
+
+    expect(result).toBe("updated");
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const servers = written["mcpServers"] as Record<string, unknown>;
+    const entry = servers["my-agent"] as Record<string, unknown>;
+    const args = entry["args"] as string[];
+    expect(args).toContain("new-server");
+  });
+
+  it("updateClaudeDesktopConfig splits multi-word command into separate args", async () => {
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockRejectedValue(enoent);
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+
+    await updateClaudeDesktopConfig("my-agent", "node dist/server.js --port 3000");
+
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const servers = written["mcpServers"] as Record<string, unknown>;
+    const entry = servers["my-agent"] as Record<string, unknown>;
+    const args = entry["args"] as string[];
+    expect(args).toEqual([
+      "multicorn-proxy",
+      "--wrap",
+      "node",
+      "dist/server.js",
+      "--port",
+      "3000",
+      "--agent-name",
+      "my-agent",
+    ]);
+  });
+
+  it("updateClaudeDesktopConfig creates mcpServers key when file exists without it", async () => {
+    readFileMock.mockResolvedValue(JSON.stringify({ someConfig: true }));
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+
+    const result = await updateClaudeDesktopConfig("my-agent", "npx my-server");
+
+    expect(result).toBe("updated");
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    expect(written["someConfig"]).toBe(true);
+    const servers = written["mcpServers"] as Record<string, unknown>;
+    expect(servers["my-agent"]).toBeDefined();
+  });
+
+  it("updateClaudeDesktopConfig throws on invalid agent name", async () => {
+    await expect(updateClaudeDesktopConfig("bad name!", "npx my-server")).rejects.toThrow(
+      "Agent name must contain only letters, numbers, hyphens, and underscores",
+    );
+  });
+
+  it("updateClaudeDesktopConfig rethrows non-ENOENT read errors", async () => {
+    readFileMock.mockRejectedValue(new Error("EACCES: permission denied"));
+
+    await expect(updateClaudeDesktopConfig("my-agent", "npx my-server")).rejects.toThrow("EACCES");
+  });
+
+  it("runInit shows Updated when Claude Desktop config file already exists with other agents", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingDesktopConfig = JSON.stringify({
+      mcpServers: { "other-agent": { command: "npx", args: ["other-server"] } },
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) {
+        const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+        enoent.code = "ENOENT";
+        return Promise.reject(enoent);
+      }
+      if (path.includes("claude_desktop_config")) {
+        return Promise.resolve(existingDesktopConfig);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx my-mcp-server",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Updated");
+    expect(stderrBuffer).toContain("Restart Claude Desktop");
+  });
+
+  it("runInit catches error thrown by updateClaudeDesktopConfig", async () => {
+    captureStderr();
+    mkdirMock.mockResolvedValue(undefined);
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    let writeCallCount = 0;
+    writeFileMock.mockImplementation((path: string) => {
+      if (path.includes("claude_desktop_config")) {
+        writeCallCount++;
+        if (writeCallCount === 1) {
+          return Promise.reject(new Error("EACCES: permission denied"));
+        }
+      }
+      return Promise.resolve(undefined);
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      return Promise.reject(enoent);
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "my-agent",
+      "MCP server command": "npx my-server",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("Failed to update Claude Desktop config");
+    expect(stderrBuffer).toContain("EACCES");
+  });
+
+  it("runInit shows connected checkmark for Claude Desktop when config contains multicorn-proxy", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const desktopConfig = JSON.stringify({
+      mcpServers: {
+        "existing-agent": {
+          command: "npx",
+          args: [
+            "multicorn-proxy",
+            "--wrap",
+            "npx",
+            "some-server",
+            "--agent-name",
+            "existing-agent",
+          ],
+        },
+      },
+    });
+    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
+    enoent.code = "ENOENT";
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      if (path.includes("claude_desktop_config")) return Promise.resolve(desktopConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "call this agent": "test-agent",
+      "configure another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(stderrBuffer).toContain("connected");
+  });
+
   it("runInit handles save config failure gracefully", async () => {
     captureStderr();
     mkdirMock.mockResolvedValue(undefined);
@@ -1006,6 +1436,8 @@ describe("config file parsing", () => {
       } else if (prompt.includes("call this agent")) {
         cb(agentOrder[agentCall] ?? "agent");
         agentCall++;
+      } else if (prompt.includes("MCP server command")) {
+        cb("");
       } else if (prompt.includes("configure another")) {
         cb("y");
       } else if (prompt.includes("Continue anyway")) {
