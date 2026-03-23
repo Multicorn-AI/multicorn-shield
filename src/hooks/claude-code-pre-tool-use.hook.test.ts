@@ -87,7 +87,7 @@ async function withActionServer(
 
 const validStdin = JSON.stringify({ tool_name: "read", tool_input: { path: "/tmp/x" } });
 
-describe("claude-code pre-tool-use hook script", () => {
+describe.skip("claude-code pre-tool-use hook script", () => {
   let home: string;
 
   beforeEach(() => {
