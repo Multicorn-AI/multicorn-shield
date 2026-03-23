@@ -13,8 +13,9 @@ const os = require("node:os");
 const path = require("node:path");
 
 const AUTH_HEADER = "X-Multicorn-Key";
-const POLL_INTERVAL_MS = 3000;
-const MAX_APPROVAL_POLLS = 100;
+const HOOK_TEST_FAST_POLL = process.env.MULTICORN_SHIELD_PRE_HOOK_TEST_FAST_POLL === "1";
+const POLL_INTERVAL_MS = HOOK_TEST_FAST_POLL ? 1 : 3000;
+const MAX_APPROVAL_POLLS = HOOK_TEST_FAST_POLL ? 3 : 100;
 
 /** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
 const TOOL_MAP = {
@@ -125,6 +126,17 @@ function mapTool(toolName) {
 }
 
 /**
+ * @param {import("node:http").ClientRequest} req
+ */
+function attachTestRequestTimeout(req) {
+  if (!HOOK_TEST_FAST_POLL) return;
+  const ms = 5000;
+  req.setTimeout(ms, () => {
+    req.destroy(new Error(`request timeout after ${ms}ms`));
+  });
+}
+
+/**
  * @param {string} baseUrl
  * @param {string} apiKey
  * @param {string} path
@@ -163,6 +175,7 @@ function getJson(baseUrl, apiKey, path) {
         });
       });
     });
+    attachTestRequestTimeout(req);
     req.on("error", reject);
     req.end();
   });
@@ -209,6 +222,7 @@ function postJson(baseUrl, apiKey, bodyObj) {
         });
       });
     });
+    attachTestRequestTimeout(req);
     req.on("error", reject);
     req.write(payload);
     req.end();

@@ -25,7 +25,12 @@ function runPreToolUse(
   const result = spawnSync(process.execPath, [scriptPath], {
     input: stdin,
     encoding: "utf8",
-    env: { ...process.env, ...env },
+    env: {
+      ...process.env,
+      /* Shorten approval polling and cap HTTP hangs so CI stays sub-second. */
+      MULTICORN_SHIELD_PRE_HOOK_TEST_FAST_POLL: "1",
+      ...env,
+    },
   });
   const status = result.status ?? -1;
   const stderr = typeof result.stderr === "string" ? result.stderr : "";
@@ -53,6 +58,7 @@ async function withActionServer(
 ): Promise<void> {
   const server = createServer((req, res) => {
     if (req.method === "POST" && req.url?.startsWith("/api/v1/actions")) {
+      req.resume();
       onPost(res);
     } else {
       res.statusCode = 404;
