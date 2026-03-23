@@ -64,4 +64,32 @@ export default defineConfig([
       );
     },
   },
+  {
+    entry: { "shield-extension": "bin/shield-extension.ts" },
+    format: ["esm"],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: false,
+    outDir: "dist",
+    platform: "node",
+    banner: {
+      js: "// Multicorn Shield Claude Desktop Extension - https://multicorn.ai",
+    },
+    noExternal: ["@modelcontextprotocol/sdk", "zod"],
+  },
+  {
+    entry: { "multicorn-shield": "bin/multicorn-shield.ts" },
+    format: ["esm"],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: false,
+    outDir: "dist",
+    platform: "node",
+  },
 ]);

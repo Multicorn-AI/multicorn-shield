@@ -1,0 +1,50 @@
+{
+  "manifest_version": "0.2",
+  "name": "multicorn-shield",
+  "display_name": "Multicorn Shield",
+  "version": "0.2.1",
+  "description": "Permission controls and audit logging for your MCP servers. Wraps servers from Claude Desktop config and checks every tool call with Shield.",
+  "author": {
+    "name": "Multicorn AI",
+    "url": "https://multicorn.ai"
+  },
+  "homepage": "https://multicorn.ai",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Multicorn-AI/multicorn-shield.git"
+  },
+  "documentation": "https://multicorn.ai/docs/mcp-proxy",
+  "icon": "icon.png",
+  "license": "MIT",
+  "privacy_policies": ["https://multicorn.ai/privacy"],
+  "tools_generated": true,
+  "keywords": ["permissions", "security", "audit", "mcp", "shield"],
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "MULTICORN_API_KEY": "${user_config.api_key}",
+        "MULTICORN_BASE_URL": "https://api.multicorn.ai",
+        "MULTICORN_SHIELD_EXTENSION": "1"
+      }
+    }
+  },
+  "user_config": {
+    "api_key": {
+      "type": "string",
+      "title": "Shield API key",
+      "description": "Your Multicorn Shield API key. Create one at https://app.multicorn.ai/settings/api-keys",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32"],
+    "runtimes": {
+      "node": ">=20.0.0"
+    }
+  }
+}
