@@ -126,17 +126,6 @@ function mapTool(toolName) {
 }
 
 /**
- * @param {import("node:http").ClientRequest} req
- */
-function attachTestRequestTimeout(req) {
-  if (!HOOK_TEST_FAST_POLL) return;
-  const ms = 5000;
-  req.setTimeout(ms, () => {
-    req.destroy(new Error(`request timeout after ${ms}ms`));
-  });
-}
-
-/**
  * @param {string} baseUrl
  * @param {string} apiKey
  * @param {string} path
@@ -175,7 +164,6 @@ function getJson(baseUrl, apiKey, path) {
         });
       });
     });
-    attachTestRequestTimeout(req);
     req.on("error", reject);
     req.end();
   });
@@ -222,7 +210,6 @@ function postJson(baseUrl, apiKey, bodyObj) {
         });
       });
     });
-    attachTestRequestTimeout(req);
     req.on("error", reject);
     req.write(payload);
     req.end();
