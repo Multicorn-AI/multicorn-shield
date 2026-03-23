@@ -13,8 +13,9 @@ const os = require("node:os");
 const path = require("node:path");
 
 const AUTH_HEADER = "X-Multicorn-Key";
-const POLL_INTERVAL_MS = 3000;
-const MAX_APPROVAL_POLLS = 100;
+const HOOK_TEST_FAST_POLL = process.env.MULTICORN_SHIELD_PRE_HOOK_TEST_FAST_POLL === "1";
+const POLL_INTERVAL_MS = HOOK_TEST_FAST_POLL ? 1 : 3000;
+const MAX_APPROVAL_POLLS = HOOK_TEST_FAST_POLL ? 3 : 100;
 
 /** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
 const TOOL_MAP = {
@@ -254,7 +255,11 @@ function blockedMessage(data, service, actionType, approvalsUrl) {
         if (parsed !== null && typeof parsed === "object" && "block_reason" in parsed) {
           const br = /** @type {Record<string, unknown>} */ (parsed).block_reason;
           if (typeof br === "string" && br.length > 0) {
-            return `${br}\nGrant access in the Shield dashboard: ${approvalsUrl}\n`;
+            return (
+              `[multicorn-shield] PreToolUse: Action blocked: ${br}\n` +
+              `  Grant access in the Shield dashboard and retry.\n` +
+              `  Detail: ${approvalsUrl}\n`
+            );
           }
         }
       } catch {
@@ -263,8 +268,9 @@ function blockedMessage(data, service, actionType, approvalsUrl) {
     }
   }
   return (
-    `Multicorn Shield blocked this tool call. Required permission: ${service} (${actionType}).\n` +
-    `Grant access in the Shield dashboard: ${approvalsUrl}\n`
+    `[multicorn-shield] PreToolUse: Action blocked: Multicorn Shield blocked this tool call. Required permission: ${service} (${actionType}).\n` +
+    `  Grant access in the Shield dashboard and retry.\n` +
+    `  Detail: ${approvalsUrl}\n`
   );
 }
 
@@ -348,7 +354,9 @@ async function handlePendingWithConsentAndPoll(
 ) {
   if (hasConsentMarker(config.agentName)) {
     process.stderr.write(
-      `Multicorn Shield: this action requires approval. Grant access at: ${approvalsUrl}\n`,
+      `[multicorn-shield] PreToolUse: Action blocked: this action requires approval before it can run.\n` +
+        `  Grant access in the Shield dashboard and retry.\n` +
+        `  Detail: ${approvalsUrl}\n`,
     );
     process.exit(2);
   }
@@ -387,11 +395,19 @@ async function handlePendingWithConsentAndPoll(
     if (st === "blocked" || st === "denied" || st === "rejected") {
       const reason =
         typeof d.reason === "string" && d.reason.length > 0 ? d.reason : "Approval denied.";
-      process.stderr.write(`${reason}\n`);
+      process.stderr.write(
+        `[multicorn-shield] PreToolUse: Action blocked: Shield denied this approval request.\n` +
+          `  Request access again from the Shield dashboard and retry.\n` +
+          `  Detail: ${reason}\n`,
+      );
       process.exit(2);
     }
     if (st === "expired") {
-      process.stderr.write("This approval request expired. Try the tool call again.\n");
+      process.stderr.write(
+        `[multicorn-shield] PreToolUse: Action blocked: this approval request expired.\n` +
+          `  Start the tool call again and complete approval when prompted.\n` +
+          `  Detail: status=expired\n`,
+      );
       process.exit(2);
     }
     if (st === "pending") {
@@ -400,7 +416,9 @@ async function handlePendingWithConsentAndPoll(
   }
 
   process.stderr.write(
-    "Approval timed out after 5 minutes. Please approve in the Shield dashboard and try again.\n",
+    `[multicorn-shield] PreToolUse: Action blocked: approval timed out after 5 minutes.\n` +
+      `  Approve in the Shield dashboard, then retry the tool call.\n` +
+      `  Detail: approvalsUrl=${approvalsUrl}\n`,
   );
   process.exit(2);
 }
@@ -433,6 +451,14 @@ async function main() {
     const msg = e instanceof Error ? e.message : String(e);
     process.stderr.write(`[multicorn-shield] PreToolUse: invalid JSON (${msg}). Allowing tool.\n`);
     process.exit(0);
+  }
+
+  if (process.env.MULTICORN_SHIELD_PRE_HOOK_TEST_SERIALIZE_FAIL === "1") {
+    hookPayload.tool_input = {
+      toJSON() {
+        throw new TypeError("MULTICORN_SHIELD_PRE_HOOK_TEST_SERIALIZE_FAIL");
+      },
+    };
   }
 
   const toolNameRaw =
@@ -475,6 +501,10 @@ async function main() {
     metadata,
   };
 
+  if (process.env.MULTICORN_SHIELD_PRE_HOOK_TEST_THROW === "1") {
+    throw new Error("MULTICORN_SHIELD_PRE_HOOK_TEST_THROW");
+  }
+
   let statusCode;
   let bodyText;
   try {
@@ -484,7 +514,9 @@ async function main() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     process.stderr.write(
-      `[multicorn-shield] PreToolUse: Action blocked: Shield API unreachable, cannot verify permissions. (${msg})\n`,
+      `[multicorn-shield] PreToolUse: Action blocked: Shield API unreachable, cannot verify permissions.\n` +
+        `  Check that the Shield service is running and retry.\n` +
+        `  Detail: ${msg}\n`,
     );
     process.exit(2);
   }
@@ -495,7 +527,9 @@ async function main() {
   if (statusCode === 202) {
     if (data === null || typeof data !== "object") {
       process.stderr.write(
-        `This action needs approval in the Shield dashboard before it can run.\nOpen: ${approvalsUrl}\n`,
+        `[multicorn-shield] PreToolUse: Action blocked: this action needs approval in the Shield dashboard before it can run.\n` +
+          `  Open the approvals page and complete approval, then retry.\n` +
+          `  Detail: missing approval data in Shield response\n`,
       );
       process.exit(2);
     }
@@ -503,7 +537,9 @@ async function main() {
     const approvalId = typeof approvalIdRaw === "string" ? approvalIdRaw : "";
     if (approvalId.length === 0) {
       process.stderr.write(
-        `This action needs approval in the Shield dashboard before it can run.\nOpen: ${approvalsUrl}\n`,
+        `[multicorn-shield] PreToolUse: Action blocked: this action needs approval in the Shield dashboard before it can run.\n` +
+          `  Open the approvals page and complete approval, then retry.\n` +
+          `  Detail: approval_id missing in Shield response\n`,
       );
       process.exit(2);
     }
@@ -513,8 +549,11 @@ async function main() {
 
   if (statusCode === 201) {
     if (data === null || typeof data !== "object") {
+      const detail = bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
       process.stderr.write(
-        "[multicorn-shield] PreToolUse: Action blocked: unexpected Shield response, cannot verify permissions.\n",
+        `[multicorn-shield] PreToolUse: Action blocked: unexpected Shield response, cannot verify permissions.\n` +
+          `  Check that the Shield service is healthy and retry.\n` +
+          `  Detail: ${detail}\n`,
       );
       process.exit(2);
     }
@@ -527,13 +566,18 @@ async function main() {
       process.exit(2);
     }
     process.stderr.write(
-      "[multicorn-shield] PreToolUse: Action blocked: ambiguous Shield status, cannot verify permissions.\n",
+      `[multicorn-shield] PreToolUse: Action blocked: ambiguous Shield status, cannot verify permissions.\n` +
+        `  Check that your Shield API and plugin versions match, then retry.\n` +
+        `  Detail: status=${JSON.stringify(/** @type {Record<string, unknown>} */ (data).status)}\n`,
     );
     process.exit(2);
   }
 
+  const httpDetail = bodyText.length > 300 ? `${bodyText.slice(0, 300)}...` : bodyText;
   process.stderr.write(
-    `[multicorn-shield] PreToolUse: Action blocked: Shield returned HTTP ${String(statusCode)}, cannot verify permissions.\n`,
+    `[multicorn-shield] PreToolUse: Action blocked: Shield returned HTTP ${String(statusCode)}, cannot verify permissions.\n` +
+      `  Check your API key, Shield service status, and rate limits, then retry.\n` +
+      `  Detail: HTTP ${String(statusCode)} body=${httpDetail}\n`,
   );
   process.exit(2);
 }
@@ -541,7 +585,9 @@ async function main() {
 main().catch((e) => {
   const msg = e instanceof Error ? e.message : String(e);
   process.stderr.write(
-    `[multicorn-shield] PreToolUse: Action blocked: unexpected error, cannot verify permissions. (${msg})\n`,
+    `[multicorn-shield] PreToolUse: Action blocked: unexpected error, cannot verify permissions.\n` +
+      `  Retry the tool call. If it keeps failing, check Shield logs.\n` +
+      `  Detail: ${msg}\n`,
   );
   process.exit(2);
 });
