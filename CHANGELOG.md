@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-23
+
+### Security
+
+- Claude Code PreToolUse hook now fails closed when the Shield API is unreachable or returns an error. Previously, all error paths exited with code 0 (allow). Now, any error after config is successfully loaded exits with code 2 (block). This matches the fail-closed behaviour of the OpenClaw plugin and MCP proxy since v0.1.15.
+
 ## [0.2.0] - 2026-03-22
 
 ### Added

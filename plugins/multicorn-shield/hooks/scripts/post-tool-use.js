@@ -186,13 +186,20 @@ async function main() {
 
   try {
     await postJson(config.baseUrl, config.apiKey, payload);
-  } catch {
-    /* fail silent */
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      `[multicorn-shield] PostToolUse: Warning: failed to log action to Shield audit trail.\n  Detail: ${msg}\n`,
+    );
   }
 
   process.exit(0);
 }
 
-main().catch(() => {
+main().catch((e) => {
+  const msg = e instanceof Error ? e.message : String(e);
+  process.stderr.write(
+    `[multicorn-shield] PostToolUse: Warning: failed to log action to Shield audit trail.\n  Detail: ${msg}\n`,
+  );
   process.exit(0);
 });
