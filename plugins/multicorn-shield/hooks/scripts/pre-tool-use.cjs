@@ -452,6 +452,14 @@ async function main() {
     process.exit(0);
   }
 
+  if (process.env.MULTICORN_SHIELD_PRE_HOOK_TEST_SERIALIZE_FAIL === "1") {
+    hookPayload.tool_input = {
+      toJSON() {
+        throw new TypeError("MULTICORN_SHIELD_PRE_HOOK_TEST_SERIALIZE_FAIL");
+      },
+    };
+  }
+
   const toolNameRaw =
     (typeof hookPayload.tool_name === "string" && hookPayload.tool_name) ||
     (typeof hookPayload.toolName === "string" && hookPayload.toolName) ||

@@ -1,17 +1,22 @@
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const scriptPath = path.join(
-  __dirname,
-  "../../plugins/multicorn-shield/hooks/scripts/pre-tool-use.js",
+/* Vitest can resolve import.meta.url under .vite; cwd is the package root when tests run. */
+const scriptPath = path.resolve(
+  process.cwd(),
+  "plugins/multicorn-shield/hooks/scripts/pre-tool-use.cjs",
 );
+
+if (!existsSync(scriptPath)) {
+  throw new Error(
+    `pre-tool-use hook not found at ${scriptPath} (cwd=${process.cwd()}). Run tests from the multicorn-shield package root.`,
+  );
+}
 
 function runPreToolUse(
   stdin: string,
@@ -117,12 +122,14 @@ describe("claude-code pre-tool-use hook script", () => {
 
   it("exits 0 when tool_input cannot be serialized", () => {
     writeConfig(home);
-    const circular: Record<string, unknown> = {};
-    circular["self"] = circular;
-    const stdin = JSON.stringify({ tool_name: "read", tool_input: circular });
-    const { status, stderr } = runPreToolUse(stdin, { HOME: home });
+    /* JSON.parse cannot yield a cyclic tool_input; hook exposes test-only path when env is set. */
+    const { status, stderr } = runPreToolUse(validStdin, {
+      HOME: home,
+      MULTICORN_SHIELD_PRE_HOOK_TEST_SERIALIZE_FAIL: "1",
+    });
     expect(status).toBe(0);
     expect(stderr).toContain("[multicorn-shield] PreToolUse: could not serialize tool_input");
+    expect(stderr).toContain("MULTICORN_SHIELD_PRE_HOOK_TEST_SERIALIZE_FAIL");
     expect(stderr).toContain("Allowing tool.");
   });
 
