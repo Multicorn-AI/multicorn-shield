@@ -73,7 +73,8 @@ describe("Shield extension runtime (integration)", () => {
     runtime = new ShieldExtensionRuntime({
       apiKey: "test-key",
       agentName: "test-agent",
-      baseUrl: "http://127.0.0.1:1",
+      // localhost is allowed by ActionLogger; port 1 should refuse so agent id stays empty.
+      baseUrl: "http://localhost:1",
       dashboardUrl: "https://app.multicorn.ai",
       logger: createLogger("error"),
     });
