@@ -46,6 +46,14 @@ import { PACKAGE_VERSION } from "../package-meta.js";
 
 const SETUP_TIMEOUT_MS = 15_000;
 
+const NO_CHILDREN_STATUS_MESSAGE = `Multicorn Shield could not start. No child MCP servers were found.
+
+If you are using Claude Desktop, add your MCP servers to claude_desktop_config.json and restart Claude Desktop, or use the local proxy instead:
+
+  npx multicorn-proxy --wrap <your-mcp-server-command>
+
+The hosted proxy for one-click setup is coming soon.`;
+
 const ARGS_SCHEMA = z.record(z.string(), z.unknown());
 
 const ARGS_OBJECT_SCHEMA = normalizeObjectSchema(ARGS_SCHEMA);
@@ -119,14 +127,6 @@ export async function runShieldExtension(): Promise<void> {
   });
 
   const toolRegistry = new Map<string, RegisteredShieldTool>();
-
-  toolRegistry.set("multicorn_shield_ping", {
-    description: "Diagnostic ping to verify Shield extension is running inside Claude Desktop.",
-    call: () =>
-      Promise.resolve({
-        content: [{ type: "text", text: "Shield extension is running." }],
-      }),
-  });
 
   // McpServer cannot express connect-first + deferred tools without SDK internals; Server is the supported low-level API here.
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional
@@ -227,9 +227,17 @@ export async function runShieldExtension(): Promise<void> {
       );
 
       if (startedChildren.length === 0) {
-        debugLog("[SHIELD] No children started; ping-only mode.");
+        debugLog("[SHIELD] No children started; registering multicorn_shield_status only.");
+        toolRegistry.set("multicorn_shield_status", {
+          description: "Reports why Shield could not start when no wrapped MCP servers were found.",
+          call: () =>
+            Promise.resolve({
+              isError: true,
+              content: [{ type: "text", text: NO_CHILDREN_STATUS_MESSAGE }],
+            }),
+        });
         await server.sendToolListChanged();
-        debugLog("[SHIELD] Setup complete (ping-only mode); signaling ready.");
+        debugLog("[SHIELD] Setup complete (no children); signaling ready.");
         clearTimeout(setupTimeout);
         resolveReady();
         return;
