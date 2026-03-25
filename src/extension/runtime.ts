@@ -4,7 +4,20 @@
  * @module extension/runtime
  */
 
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { validateScopeAccess, hasScope } from "../scopes/scope-validator.js";
+
+function debugLog(msg: string): void {
+  try {
+    const dir = join(homedir(), ".multicorn");
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, "extension-debug.log"), `${new Date().toISOString()} ${msg}\n`);
+  } catch {
+    /* ignore */
+  }
+}
 import { createActionLogger } from "../logger/action-logger.js";
 import type { Scope } from "../types/index.js";
 import type { ActionLogger } from "../logger/action-logger.js";
@@ -84,11 +97,15 @@ export class ShieldExtensionRuntime {
       );
     }
 
+    debugLog(`[SHIELD] Resolving agent record for name=${cfg.agentName} baseUrl=${cfg.baseUrl}`);
     const agentRecord = await resolveAgentRecord(
       cfg.agentName,
       cfg.apiKey,
       cfg.baseUrl,
       cfg.logger,
+    );
+    debugLog(
+      `[SHIELD] Agent record resolved: id=${agentRecord.id.length > 0 ? agentRecord.id : "(empty)"} scopeCount=${String(agentRecord.scopes.length)} authInvalid=${String(agentRecord.authInvalid === true)}`,
     );
 
     this.agentId = agentRecord.id;
@@ -160,6 +177,9 @@ export class ShieldExtensionRuntime {
         requestedScope !== undefined
           ? { service: requestedScope.service, permissionLevel: requestedScope.permissionLevel }
           : undefined;
+      debugLog(
+        `[SHIELD] ensureConsent: calling waitForConsent agentId=${this.agentId} scope=${scopeParam !== undefined ? `${scopeParam.service}:${scopeParam.permissionLevel}` : "default"}`,
+      );
       const scopes = await waitForConsent(
         this.agentId,
         this.config.agentName,
@@ -168,6 +188,9 @@ export class ShieldExtensionRuntime {
         this.config.dashboardUrl,
         this.config.logger,
         scopeParam,
+      );
+      debugLog(
+        `[SHIELD] ensureConsent: waitForConsent returned scopeCount=${String(scopes.length)}`,
       );
       this.grantedScopes = scopes;
       await saveCachedScopes(this.config.agentName, this.agentId, scopes, this.config.apiKey);
@@ -215,7 +238,9 @@ export class ShieldExtensionRuntime {
       });
 
       if (!validation.allowed) {
+        debugLog(`[SHIELD] Before ensureConsent() for tool=${toolName}`);
         await this.ensureConsent(requestedScope);
+        debugLog(`[SHIELD] After ensureConsent() for tool=${toolName}`);
         validation = validateScopeAccess(this.grantedScopes, requestedScope);
         if (!validation.allowed) {
           if (this.actionLogger !== null && cfg.agentName.trim().length > 0) {

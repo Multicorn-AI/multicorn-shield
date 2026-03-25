@@ -4,13 +4,34 @@
  * @module extension/child-manager
  */
 
-import { spawn, type ChildProcess } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { execSync, spawn, type ChildProcess } from "node:child_process";
 import { JsonRpcChildSession } from "./json-rpc-child.js";
 import type { McpServerEntry } from "./config-reader.js";
 import type { McpToolDefinition } from "./tool-router.js";
 import { parseToolsListResult } from "./tool-router.js";
 import type { ProxyLogger } from "../proxy/logger.js";
 import { PACKAGE_VERSION } from "../package-meta.js";
+
+function debugLog(msg: string): void {
+  try {
+    const dir = join(homedir(), ".multicorn");
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, "extension-debug.log"), `${new Date().toISOString()} ${msg}\n`);
+  } catch {
+    /* ignore */
+  }
+}
+
+function resolveCommand(command: string): string {
+  try {
+    return execSync(`which ${command}`, { encoding: "utf8" }).trim();
+  } catch {
+    return command;
+  }
+}
 
 export interface ManagedChild {
   readonly serverName: string;
@@ -57,10 +78,22 @@ export class ChildManager {
   private async startOne(serverName: string, entry: McpServerEntry): Promise<ManagedChild> {
     const env = { ...process.env, ...entry.env } as NodeJS.ProcessEnv;
 
-    const child = spawn(entry.command, [...entry.args], {
+    const spawnStartMs = Date.now();
+    const resolvedCommand = resolveCommand(entry.command);
+    const argsJson = JSON.stringify(entry.args);
+    debugLog(
+      `[SHIELD] Spawning MCP child "${serverName}": command=${entry.command} resolved=${resolvedCommand} args=${argsJson} t0=${String(spawnStartMs)}`,
+    );
+
+    const child = spawn(resolvedCommand, [...entry.args], {
       stdio: ["pipe", "pipe", "pipe"],
       env,
     });
+
+    const pid = child.pid;
+    debugLog(
+      `[SHIELD] Spawn returned for "${serverName}" pid=${pid !== undefined ? String(pid) : "unknown"}`,
+    );
 
     child.on("error", (err) => {
       this.logger.error("MCP child process error.", { serverName, error: err.message });
@@ -89,6 +122,11 @@ export class ChildManager {
     });
 
     session.notify("notifications/initialized", {});
+
+    const handshakeMs = Date.now() - spawnStartMs;
+    debugLog(
+      `[SHIELD] MCP child "${serverName}" initialize handshake done in ${String(handshakeMs)}ms`,
+    );
 
     return { serverName, process: child, session };
   }

@@ -4,7 +4,20 @@
  * @module extension/server
  */
 
+import { appendFileSync, mkdirSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import * as z from "zod/v4";
+
+function debugLog(msg: string): void {
+  try {
+    const dir = join(homedir(), ".multicorn");
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(join(dir, "extension-debug.log"), `${new Date().toISOString()} ${msg}\n`);
+  } catch {
+    /* ignore */
+  }
+}
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -30,6 +43,8 @@ import {
 import { buildToolRouter } from "./tool-router.js";
 import { ShieldExtensionRuntime } from "./runtime.js";
 import { PACKAGE_VERSION } from "../package-meta.js";
+
+const SETUP_TIMEOUT_MS = 15_000;
 
 const ARGS_SCHEMA = z.record(z.string(), z.unknown());
 
@@ -81,6 +96,9 @@ function asCallToolResult(value: unknown): CallToolResult {
 }
 
 export async function runShieldExtension(): Promise<void> {
+  const debugBaseUrl = process.env["MULTICORN_BASE_URL"] ?? "";
+  const debugApiKeyPrefix = process.env["MULTICORN_API_KEY"]?.slice(0, 8) ?? "";
+  console.error(`[SHIELD-DEBUG] BASE_URL=${debugBaseUrl} API_KEY=${debugApiKeyPrefix}...`);
   const logger = createLogger(readLogLevel());
 
   const apiKey = readApiKey();
@@ -102,6 +120,14 @@ export async function runShieldExtension(): Promise<void> {
 
   const toolRegistry = new Map<string, RegisteredShieldTool>();
 
+  toolRegistry.set("multicorn_shield_ping", {
+    description: "Diagnostic ping to verify Shield extension is running inside Claude Desktop.",
+    call: () =>
+      Promise.resolve({
+        content: [{ type: "text", text: "Shield extension is running." }],
+      }),
+  });
+
   // McpServer cannot express connect-first + deferred tools without SDK internals; Server is the supported low-level API here.
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional
   const server = new Server(
@@ -109,8 +135,7 @@ export async function runShieldExtension(): Promise<void> {
     { capabilities: { tools: { listChanged: true } } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    await readyPromise;
+  server.setRequestHandler(ListToolsRequestSchema, () => {
     const tools = Array.from(toolRegistry.entries()).map(([name, entry]) => ({
       name,
       description: entry.description,
@@ -120,9 +145,12 @@ export async function runShieldExtension(): Promise<void> {
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    await readyPromise;
     const toolName = request.params.name;
-    const registered = toolRegistry.get(toolName);
+    let registered = toolRegistry.get(toolName);
+    if (registered === undefined) {
+      await readyPromise;
+      registered = toolRegistry.get(toolName);
+    }
     if (registered === undefined) {
       return {
         isError: true,
@@ -158,7 +186,18 @@ export async function runShieldExtension(): Promise<void> {
   let runtime: ShieldExtensionRuntime | undefined;
 
   void (async () => {
+    const setupTimeout = setTimeout(() => {
+      rejectReady(
+        new Error(
+          "[SHIELD] Background setup timed out after 15 seconds. " +
+            "Steps include reading Claude Desktop MCP config, starting child MCP servers, " +
+            "listing tools, and starting the Shield runtime. See ~/.multicorn/extension-debug.log for earlier [SHIELD] lines.",
+        ),
+      );
+    }, SETUP_TIMEOUT_MS);
+
     try {
+      debugLog("[SHIELD] About to read Claude Desktop MCP config.");
       const desktop = await readClaudeDesktopMcpConfig();
       if (desktop !== null) {
         await writeExtensionBackup(desktop.configPath, desktop.mcpServers);
@@ -175,8 +214,26 @@ export async function runShieldExtension(): Promise<void> {
         }
       }
 
+      const serverCount = Object.keys(childEntries).length;
+      debugLog(
+        `[SHIELD] Config read; ${String(serverCount)} MCP server(s) to wrap (excluding Shield).`,
+      );
+
       childManager = new ChildManager({ logger });
-      await childManager.startAll(childEntries);
+      debugLog("[SHIELD] About to start all child MCP servers.");
+      const startedChildren = await childManager.startAll(childEntries);
+      debugLog(
+        `[SHIELD] Child MCP servers started: ${String(startedChildren.length)} process(es).`,
+      );
+
+      if (startedChildren.length === 0) {
+        debugLog("[SHIELD] No children started; ping-only mode.");
+        await server.sendToolListChanged();
+        debugLog("[SHIELD] Setup complete (ping-only mode); signaling ready.");
+        clearTimeout(setupTimeout);
+        resolveReady();
+        return;
+      }
 
       const toolsByServer = await childManager.listToolsForAll();
       const { tools: routedTools, routing } = buildToolRouter(toolsByServer, logger);
@@ -188,7 +245,9 @@ export async function runShieldExtension(): Promise<void> {
         dashboardUrl,
         logger,
       });
+      debugLog("[SHIELD] About to start Shield extension runtime.");
       await runtime.start();
+      debugLog("[SHIELD] Shield extension runtime started successfully.");
 
       const rt = runtime;
       const cm = childManager;
@@ -236,9 +295,13 @@ export async function runShieldExtension(): Promise<void> {
       }
 
       await server.sendToolListChanged();
+      debugLog("[SHIELD] Setup complete; signaling ready.");
+      clearTimeout(setupTimeout);
       resolveReady();
     } catch (error) {
+      clearTimeout(setupTimeout);
       const message = error instanceof Error ? error.message : String(error);
+      debugLog(`[SHIELD] Setup failed: ${message}`);
       logger.error(`Shield extension setup failed: ${message}`, {});
       rejectReady(error);
     }

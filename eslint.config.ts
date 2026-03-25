@@ -76,6 +76,8 @@ export default tseslint.config(
       "node_modules/",
       "docs/",
       "*.config.*",
+      /* Packaged .mcpb output; not part of tsconfig project */
+      "extension-pack/**",
       "scripts/multicorn-ops/**",
       /* Claude Code plugin hooks: plain Node scripts, not part of tsconfig */
       "plugins/**/hooks/**/*.js",
