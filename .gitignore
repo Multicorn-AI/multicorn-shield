@@ -33,3 +33,6 @@ npm-debug.log*
 # Temporary files
 tmp/
 .tmp/
+
+# MCPB staging (mcpb pack)
+extension-pack/

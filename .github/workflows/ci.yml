@@ -211,6 +211,9 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Validate MCPB extension manifest
+        run: pnpm run validate:extension
+
   trigger-learn-rebuild:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest

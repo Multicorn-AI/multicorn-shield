@@ -1,5 +1,12 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
-import { deriveDashboardUrl, buildConsentUrl } from "../consent.js";
+import { describe, it, expect, vi, afterEach, beforeEach } from "vitest";
+
+const fetchGrantedScopesMock = vi.hoisted(() => vi.fn());
+
+vi.mock("../shield-client.js", () => ({
+  fetchGrantedScopes: fetchGrantedScopesMock,
+}));
+
+import { deriveDashboardUrl, buildConsentUrl, waitForConsent } from "../consent.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -35,6 +42,14 @@ describe("deriveDashboardUrl", () => {
   it("handles 127.0.0.1 with different ports", () => {
     expect(deriveDashboardUrl("http://127.0.0.1:3000")).toBe("http://127.0.0.1:5173/");
   });
+
+  it("adds http when localhost has no protocol", () => {
+    expect(deriveDashboardUrl("localhost:8080")).toBe("http://localhost:5173/");
+  });
+
+  it("adds http when 127.0.0.1 has no protocol", () => {
+    expect(deriveDashboardUrl("127.0.0.1:9000")).toBe("http://127.0.0.1:5173/");
+  });
 });
 
 describe("buildConsentUrl", () => {
@@ -67,5 +82,41 @@ describe("buildConsentUrl", () => {
   it("builds URL without scope when scope is undefined", () => {
     const url = buildConsentUrl("openclaw", "https://app.multicorn.ai", undefined);
     expect(url).toBe("https://app.multicorn.ai/consent?agent=openclaw");
+  });
+});
+
+describe("waitForConsent", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchGrantedScopesMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns scopes when the API reports permissions after polling", async () => {
+    fetchGrantedScopesMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ service: "gmail", permissionLevel: "read" }]);
+
+    const pending = waitForConsent("agent-id", "OpenClaw", "api-key", "https://api.multicorn.ai", {
+      service: "terminal",
+      permissionLevel: "execute",
+    });
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const scopes = await pending;
+    expect(scopes).toHaveLength(1);
+    expect(scopes[0]?.service).toBe("gmail");
+  });
+
+  it("throws when consent times out", async () => {
+    fetchGrantedScopesMock.mockResolvedValue([]);
+
+    const pending = waitForConsent("agent-id", "OpenClaw", "api-key", "https://api.multicorn.ai");
+    const assertion = expect(pending).rejects.toThrow(/Consent not granted/);
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 5_000);
+    await assertion;
   });
 });

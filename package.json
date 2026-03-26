@@ -20,7 +20,8 @@
     }
   },
   "bin": {
-    "multicorn-proxy": "./dist/multicorn-proxy.js"
+    "multicorn-proxy": "./dist/multicorn-proxy.js",
+    "multicorn-shield": "./dist/multicorn-shield.js"
   },
   "files": [
     "dist",
@@ -41,7 +42,11 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "docs": "typedoc",
-    "clean": "rm -rf dist coverage docs/api",
+    "clean": "rm -rf dist coverage docs/api extension-pack",
+    "stage-extension-pack": "rm -rf extension-pack && mkdir -p extension-pack/server && cp manifest.json extension-pack/ && cp icon.png extension-pack/ && cp dist/shield-extension.js extension-pack/server/index.js",
+    "validate:extension": "pnpm run stage-extension-pack && mcpb validate extension-pack/manifest.json",
+    "build:extension": "tsup",
+    "pack:extension": "pnpm run build && pnpm run stage-extension-pack && mcpb validate extension-pack/manifest.json && mcpb pack extension-pack dist/multicorn-shield.mcpb",
     "size": "size-limit",
     "prepublishOnly": "pnpm run clean && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build",
     "prepare": "husky",
@@ -59,12 +64,16 @@
     ]
   },
   "dependencies": {
-    "lit": "^3.2.0"
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "lit": "^3.2.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@anthropic-ai/mcpb": "^2.1.2",
     "@eslint/js": "^9.19.0",
     "@open-wc/testing-helpers": "^3.0.1",
+    "@size-limit/file": "^11.1.6",
+    "@types/node": "^22.0.0",
     "@vitest/coverage-istanbul": "^3.0.5",
     "eslint": "^9.19.0",
     "eslint-config-prettier": "^10.0.1",
@@ -75,7 +84,6 @@
     "jsdom": "^25.0.1",
     "lint-staged": "^16.2.7",
     "prettier": "^3.4.2",
-    "@size-limit/file": "^11.1.6",
     "size-limit": "^11.1.6",
     "tsup": "^8.3.6",
     "typedoc": "^0.28.17",
@@ -120,7 +128,8 @@
     "overrides": {
       "flatted": ">=3.4.2",
       "minimatch": ">=10.2.3",
-      "rollup": ">=4.59.0"
+      "rollup": ">=4.59.0",
+      "picomatch": ">=4.0.4"
     }
   }
 }
