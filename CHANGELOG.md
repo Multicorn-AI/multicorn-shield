@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - Unreleased
+
+### Added
+
+- Claude Desktop Extension (.mcpb) for one-click install. Packages Shield as a Desktop Extension that wraps existing MCP servers, enforces permissions via the Shield API, and logs all tool calls. Install by opening the .mcpb file in Claude Desktop.
+- npx multicorn-shield restore command to recover original MCP server config after disabling the extension.
+
 ## [0.2.1] - 2026-03-23
 
 ### Security
