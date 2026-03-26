@@ -70,12 +70,20 @@ export default tseslint.config(
     },
   },
   {
+    files: ["vitest.config.ts"],
+    rules: {
+      /* Vitest expects a default export from this file. */
+      "no-restricted-exports": "off",
+    },
+  },
+  {
     ignores: [
       "dist/",
       "coverage/",
       "node_modules/",
       "docs/",
-      "*.config.*",
+      "eslint.config.ts",
+      "tsup.config.ts",
       /* Packaged .mcpb output; not part of tsconfig project */
       "extension-pack/**",
       "scripts/multicorn-ops/**",

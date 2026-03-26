@@ -1,6 +1,6 @@
 # Desktop Extension (.mcpb) research spike
 
-Answers the four questions for SR-04 before implementation. Sources: Anthropic Desktop Extensions article, open MCPB manifest spec (`anthropics/dxt` MANIFEST.md), and the multicorn-shield codebase.
+Research notes for the Claude Desktop Extension (.mcpb): four design questions answered before implementation. Sources: Anthropic Desktop Extensions article, open MCPB manifest spec (`anthropics/dxt` MANIFEST.md), and the multicorn-shield codebase.
 
 ## (1) Can a .mcpb extension act as a proxy or wrapper for other MCP servers?
 

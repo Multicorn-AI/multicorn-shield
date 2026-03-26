@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   loadCachedScopes,
   saveCachedScopes,
@@ -7,6 +7,8 @@ import {
   registerAgent,
   fetchGrantedScopes,
   resolveAgentRecord,
+  ShieldAuthError,
+  waitForConsent,
 } from "./consent.js";
 import type { ProxyLogger } from "./logger.js";
 
@@ -214,6 +216,22 @@ describe("registerAgent", () => {
       "Failed to register agent",
     );
   });
+
+  it("throws ShieldAuthError when the service returns 401", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+
+    await expect(registerAgent("agent-x", "mcs_key", "https://api.multicorn.ai")).rejects.toThrow(
+      ShieldAuthError,
+    );
+  });
+
+  it("throws ShieldAuthError when the service returns 403", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+
+    await expect(registerAgent("agent-x", "mcs_key", "https://api.multicorn.ai")).rejects.toThrow(
+      ShieldAuthError,
+    );
+  });
 });
 
 describe("fetchGrantedScopes", () => {
@@ -352,6 +370,11 @@ describe("deriveDashboardUrl", () => {
     const { deriveDashboardUrl } = await import("./consent.js");
     expect(deriveDashboardUrl("not-a-url")).toBe("https://app.multicorn.ai");
   });
+
+  it("falls back to production app URL for http non-localhost", async () => {
+    const { deriveDashboardUrl } = await import("./consent.js");
+    expect(deriveDashboardUrl("http://example.com")).toBe("https://app.multicorn.ai");
+  });
 });
 
 describe("findAgentByName", () => {
@@ -392,6 +415,16 @@ describe("findAgentByName", () => {
           success: true,
           data: [{ name: "my-mcp-server" }], // Missing id
         }),
+    });
+
+    const result = await findAgentByName("my-mcp-server", "mcs_key", "https://api.multicorn.ai");
+    expect(result).toBeNull();
+  });
+
+  it("returns null when response json() fails", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.reject(new Error("parse fail")),
     });
 
     const result = await findAgentByName("my-mcp-server", "mcs_key", "https://api.multicorn.ai");
@@ -582,6 +615,138 @@ describe("resolveAgentRecord", () => {
       expect.stringContaining("scopes.json"),
       expect.anything(),
       expect.anything(),
+    );
+  });
+
+  it("returns authInvalid when the list endpoint returns 403", async () => {
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 });
+
+    const result = await resolveAgentRecord(
+      "my-agent",
+      "mcs_key",
+      "https://api.multicorn.ai",
+      mockLogger,
+    );
+
+    expect(result.authInvalid).toBe(true);
+    expect(result.scopes).toEqual([]);
+  });
+
+  it("returns authInvalid when registration fails with ShieldAuthError", async () => {
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: [] }),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
+
+    const result = await resolveAgentRecord(
+      "new-agent",
+      "mcs_key",
+      "https://api.multicorn.ai",
+      mockLogger,
+    );
+
+    expect(result.authInvalid).toBe(true);
+  });
+});
+
+describe("waitForConsent", () => {
+  const mockInfo = vi.fn();
+  const mockLogger: ProxyLogger = {
+    debug: vi.fn(),
+    info: mockInfo,
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockInfo.mockClear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("throws when polling times out without scopes", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: { id: "agent-id", permissions: [] },
+        }),
+    });
+
+    const pending = waitForConsent(
+      "agent-id",
+      "Agent",
+      "key",
+      "https://api.multicorn.ai",
+      "https://app.multicorn.ai",
+      mockLogger,
+      { service: "calendar", permissionLevel: "execute" },
+    );
+
+    const assertion = expect(pending).rejects.toThrow(/Consent not granted/);
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000 + 5_000);
+    await assertion;
+  });
+
+  it("returns scopes once the API reports permissions", async () => {
+    let calls = 0;
+    global.fetch = vi.fn().mockImplementation(() => {
+      calls += 1;
+      if (calls < 2) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { id: "agent-id", permissions: [] },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              id: "agent-id",
+              permissions: [
+                {
+                  service: "gmail",
+                  read: true,
+                  write: false,
+                  execute: false,
+                  revoked_at: null,
+                },
+              ],
+            },
+          }),
+      });
+    });
+
+    const pending = waitForConsent(
+      "agent-id",
+      "Agent",
+      "key",
+      "https://api.multicorn.ai",
+      "https://app.multicorn.ai",
+      mockLogger,
+    );
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    const scopes = await pending;
+    expect(scopes.some((s) => s.service === "gmail")).toBe(true);
+    expect(mockInfo).toHaveBeenCalledWith(
+      "Permissions granted.",
+      expect.objectContaining({ agent: "Agent" }),
     );
   });
 });

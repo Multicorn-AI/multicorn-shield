@@ -20,7 +20,7 @@ async function main(): Promise<void> {
 
   process.stderr.write(
     [
-      "multicorn-shield: Shield CLI",
+      "Multicorn Shield command-line tool",
       "",
       "Usage:",
       "  npx multicorn-shield restore",

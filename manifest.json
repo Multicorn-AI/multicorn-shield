@@ -3,7 +3,7 @@
   "name": "multicorn-shield",
   "display_name": "Multicorn Shield",
   "version": "0.2.1",
-  "description": "Permission controls and audit logging for your MCP servers. Wraps servers from Claude Desktop config and checks every tool call with Shield.",
+  "description": "Adds permission controls and audit logging to your AI agent's tools.",
   "author": {
     "name": "Multicorn AI",
     "url": "https://multicorn.ai"

@@ -61,6 +61,16 @@ describe("parseJsonRpcLine", () => {
     const result = parseJsonRpcLine(line);
     expect(result?.id).toBeNull();
   });
+
+  it("returns null when parsed value is not an object", () => {
+    expect(parseJsonRpcLine(JSON.stringify(42))).toBeNull();
+    expect(parseJsonRpcLine(JSON.stringify(["a"]))).toBeNull();
+  });
+
+  it("returns null when id is an invalid type", () => {
+    const line = JSON.stringify({ jsonrpc: "2.0", id: {}, method: "ping" });
+    expect(parseJsonRpcLine(line)).toBeNull();
+  });
 });
 
 describe("extractToolCallParams", () => {
@@ -141,6 +151,11 @@ describe("buildBlockedResponse", () => {
   it("uses error code -32000", () => {
     const response = buildBlockedResponse(1, "gmail", "execute", testDashboardUrl);
     expect(response.error?.code).toBe(-32000);
+  });
+
+  it("handles empty service for display name", () => {
+    const response = buildBlockedResponse(1, "", "execute", testDashboardUrl);
+    expect(response.error?.message).toContain("Configure permissions");
   });
 });
 

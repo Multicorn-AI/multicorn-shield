@@ -58,7 +58,7 @@ See the [full MCP proxy guide](https://multicorn.ai/docs/mcp-proxy) for Claude C
 
 Install Shield without the terminal: download the `.mcpb` bundle (or use **Install** from the Shield product page), open it in Claude Desktop, and enter your API key when prompted. The extension reads your existing MCP servers from `claude_desktop_config.json`, runs them as child processes, merges their tools, and checks every `tools/call` with the Shield API. Activity still shows up in your [Multicorn dashboard](https://app.multicorn.ai).
 
-**Disable or uninstall recovery:** On each start the extension saves a copy of your `mcpServers` block to `~/.multicorn/extension-backup.json`. If you turn the extension off and need your original Claude Desktop MCP entries back, run:
+**Disable or uninstall recovery:** On each start the extension saves a copy of your `mcpServers` block to `~/.multicorn/extension-backup.json` with restricted file permissions (owner read/write only). If you turn the extension off and need your original Claude Desktop MCP entries back, run:
 
 ```bash
 npx multicorn-shield restore
@@ -67,8 +67,6 @@ npx multicorn-shield restore
 Then restart Claude Desktop. That overwrites `mcpServers` in your config with the last backup.
 
 **Duplicate tool names:** If two MCP servers expose the same tool name, the first server in your config file keeps the name. The duplicate is skipped and a warning is written to the extension logs (stderr). Rename tools on the server side if you need both.
-
-**Extension icon:** The repo ships a minimal placeholder `icon.png` for packaging. TODO: replace with a proper PNG export from the Multicorn learn site favicon at `multicorn-learn/public/learn/favicon.svg` (relative to the monorepo root).
 
 Build the bundle locally (requires a full `pnpm build` first):
 
