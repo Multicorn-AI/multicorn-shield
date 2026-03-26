@@ -299,7 +299,7 @@ export async function resolveAgentRecord(
   return { ...agent, scopes };
 }
 
-function buildConsentUrl(
+export function buildConsentUrl(
   agentName: string,
   scopes: readonly string[],
   dashboardUrl: string,

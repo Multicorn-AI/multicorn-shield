@@ -33,26 +33,31 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { createLogger, isValidLogLevel, type LogLevel } from "../proxy/logger.js";
 import { deriveDashboardUrl } from "../proxy/consent.js";
-import { ChildManager } from "./child-manager.js";
+import { readClaudeDesktopMcpConfig, writeExtensionBackup } from "./config-reader.js";
 import {
-  readClaudeDesktopMcpConfig,
-  writeExtensionBackup,
-  isShieldExtensionEntry,
-  type McpServerEntry,
-} from "./config-reader.js";
-import { buildToolRouter } from "./tool-router.js";
+  fetchProxyConfigs,
+  ProxyConfigFetchError,
+  ProxySession,
+  buildProxyToolRouter,
+  resultSuggestsConsentNeeded,
+  type ProxyConfigItem,
+  type McpToolDefinition,
+} from "./proxy-client.js";
 import { ShieldExtensionRuntime } from "./runtime.js";
 import { PACKAGE_VERSION } from "../package-meta.js";
 
 const SETUP_TIMEOUT_MS = 15_000;
 
-const NO_CHILDREN_STATUS_MESSAGE = `Multicorn Shield could not start. No child MCP servers were found.
+function noProxyConfigStatusMessage(dashboardUrl: string): string {
+  const base = dashboardUrl.replace(/\/+$/, "");
+  return `Multicorn Shield is active but no hosted proxy configurations were found for your account.
 
-If you are using Claude Desktop, add your MCP servers to claude_desktop_config.json and restart Claude Desktop, or use the local proxy instead:
+Create one in the dashboard (Proxy setup), then restart Claude Desktop:
 
-  npx multicorn-proxy --wrap <your-mcp-server-command>
+  ${base}/proxy
 
-The hosted proxy for one-click setup is coming soon.`;
+Your API key is used for both the Shield API and hosted proxy routes.`;
+}
 
 const ARGS_SCHEMA = z.record(z.string(), z.unknown());
 
@@ -92,17 +97,6 @@ function readLogLevel(): LogLevel {
   return "info";
 }
 
-function asCallToolResult(value: unknown): CallToolResult {
-  if (typeof value !== "object" || value === null) {
-    return { content: [{ type: "text", text: String(value) }] };
-  }
-  const obj = value as Record<string, unknown>;
-  if (Array.isArray(obj["content"])) {
-    return value as CallToolResult;
-  }
-  return { content: [{ type: "text", text: JSON.stringify(value) }] };
-}
-
 export async function runShieldExtension(): Promise<void> {
   const debugBaseUrl = process.env["MULTICORN_BASE_URL"] ?? "";
   const debugApiKeyPrefix = process.env["MULTICORN_API_KEY"]?.slice(0, 8) ?? "";
@@ -128,7 +122,6 @@ export async function runShieldExtension(): Promise<void> {
 
   const toolRegistry = new Map<string, RegisteredShieldTool>();
 
-  // McpServer cannot express connect-first + deferred tools without SDK internals; Server is the supported low-level API here.
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- intentional
   const server = new Server(
     { name: "multicorn-shield", version: PACKAGE_VERSION },
@@ -182,22 +175,23 @@ export async function runShieldExtension(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  let childManager: ChildManager | undefined;
   let runtime: ShieldExtensionRuntime | undefined;
+  const proxySessions: ProxySession[] = [];
 
   void (async () => {
     const setupTimeout = setTimeout(() => {
       rejectReady(
         new Error(
           "[SHIELD] Background setup timed out after 15 seconds. " +
-            "Steps include reading Claude Desktop MCP config, starting child MCP servers, " +
-            "listing tools, and starting the Shield runtime. See ~/.multicorn/extension-debug.log for earlier [SHIELD] lines.",
+            "Steps include backup of Claude config, fetching proxy configs from Shield, " +
+            "initializing hosted proxy sessions and listing tools. " +
+            "See ~/.multicorn/extension-debug.log for earlier [SHIELD] lines.",
         ),
       );
     }, SETUP_TIMEOUT_MS);
 
     try {
-      debugLog("[SHIELD] About to read Claude Desktop MCP config.");
+      debugLog("[SHIELD] Reading Claude Desktop MCP config for backup.");
       const desktop = await readClaudeDesktopMcpConfig();
       if (desktop !== null) {
         await writeExtensionBackup(desktop.configPath, desktop.mcpServers);
@@ -205,46 +199,50 @@ export async function runShieldExtension(): Promise<void> {
         logger.warn("Could not read Claude Desktop config. No MCP backup was written.", {});
       }
 
-      const childEntries: Record<string, McpServerEntry> = {};
-      if (desktop !== null) {
-        for (const [name, entry] of Object.entries(desktop.mcpServers)) {
-          if (!isShieldExtensionEntry(name, entry)) {
-            childEntries[name] = entry;
-          }
+      let configs: readonly ProxyConfigItem[];
+      try {
+        debugLog("[SHIELD] Fetching proxy configs from Shield API.");
+        configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS);
+      } catch (e) {
+        clearTimeout(setupTimeout);
+        if (e instanceof ProxyConfigFetchError) {
+          const msg =
+            e.kind === "auth"
+              ? e.message
+              : `${e.message} (${dashboardUrl.replace(/\/+$/, "")}/proxy)`;
+          toolRegistry.set("multicorn_shield_status", {
+            description: "Reports Shield API or proxy config errors during extension setup.",
+            call: () =>
+              Promise.resolve({
+                isError: true,
+                content: [{ type: "text", text: msg }],
+              }),
+          });
+          await server.sendToolListChanged();
+          debugLog(`[SHIELD] Proxy config fetch failed (${e.kind}); status tool only.`);
+          resolveReady();
+          return;
         }
+        throw e;
       }
 
-      const serverCount = Object.keys(childEntries).length;
-      debugLog(
-        `[SHIELD] Config read; ${String(serverCount)} MCP server(s) to wrap (excluding Shield).`,
-      );
+      debugLog(`[SHIELD] Proxy config count: ${String(configs.length)}.`);
 
-      childManager = new ChildManager({ logger });
-      debugLog("[SHIELD] About to start all child MCP servers.");
-      const startedChildren = await childManager.startAll(childEntries);
-      debugLog(
-        `[SHIELD] Child MCP servers started: ${String(startedChildren.length)} process(es).`,
-      );
-
-      if (startedChildren.length === 0) {
-        debugLog("[SHIELD] No children started; registering multicorn_shield_status only.");
+      if (configs.length === 0) {
+        debugLog("[SHIELD] No proxy configs; registering multicorn_shield_status only.");
         toolRegistry.set("multicorn_shield_status", {
-          description: "Reports why Shield could not start when no wrapped MCP servers were found.",
+          description: "Setup instructions when no hosted proxy configs exist for this API key.",
           call: () =>
             Promise.resolve({
               isError: true,
-              content: [{ type: "text", text: NO_CHILDREN_STATUS_MESSAGE }],
+              content: [{ type: "text", text: noProxyConfigStatusMessage(dashboardUrl) }],
             }),
         });
         await server.sendToolListChanged();
-        debugLog("[SHIELD] Setup complete (no children); signaling ready.");
         clearTimeout(setupTimeout);
         resolveReady();
         return;
       }
-
-      const toolsByServer = await childManager.listToolsForAll();
-      const { tools: routedTools, routing } = buildToolRouter(toolsByServer, logger);
 
       runtime = new ShieldExtensionRuntime({
         apiKey,
@@ -253,52 +251,84 @@ export async function runShieldExtension(): Promise<void> {
         dashboardUrl,
         logger,
       });
-      debugLog("[SHIELD] About to start Shield extension runtime.");
+      debugLog("[SHIELD] Starting extension runtime (agent resolution).");
       await runtime.start();
-      debugLog("[SHIELD] Shield extension runtime started successfully.");
+      debugLog(
+        `[SHIELD] Runtime ready agentId=${runtime.getAgentId().length > 0 ? "(set)" : "(empty)"} authInvalid=${String(runtime.isAuthInvalid())}`,
+      );
+
+      const toolsByProxy = new Map<string, readonly McpToolDefinition[]>();
+      const sessionByProxyUrl = new Map<string, ProxySession>();
+
+      for (const cfg of configs) {
+        const session = new ProxySession(cfg.proxy_url, apiKey);
+        try {
+          debugLog(`[SHIELD] Initializing proxy session for ${cfg.server_name}.`);
+          await session.initialize();
+          const list = await session.listTools();
+          toolsByProxy.set(cfg.proxy_url, list);
+          sessionByProxyUrl.set(cfg.proxy_url, session);
+          proxySessions.push(session);
+          debugLog(`[SHIELD] tools/list from ${cfg.server_name}: ${String(list.length)} tool(s).`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          logger.warn("Failed to list tools from hosted proxy.", {
+            serverName: cfg.server_name,
+            proxyUrl: cfg.proxy_url,
+            error: message,
+          });
+          debugLog(`[SHIELD] Proxy session failed for ${cfg.server_name}: ${message}`);
+          await session.close();
+        }
+      }
+
+      const { tools: routedTools, routing } = buildProxyToolRouter(toolsByProxy, logger);
 
       const rt = runtime;
-      const cm = childManager;
 
       for (const tool of routedTools) {
-        const sourceServer = routing.get(tool.name);
-        if (sourceServer === undefined) continue;
+        const proxyUrl = routing.get(tool.name);
+        if (proxyUrl === undefined) continue;
+        const session = sessionByProxyUrl.get(proxyUrl);
+        if (session === undefined) continue;
 
         toolRegistry.set(tool.name, {
           description: tool.description ?? "",
           call: async (args) => {
-            const decision = await rt.evaluateToolCall(tool.name);
-            if (!decision.allow) {
-              return decision.result;
-            }
-
-            const child = cm.getChildByServerName(sourceServer);
-            if (child === undefined) {
+            if (rt.isAuthInvalid()) {
               return {
                 isError: true,
                 content: [
                   {
                     type: "text",
-                    text: `Shield could not route tool "${tool.name}" to MCP server "${sourceServer}".`,
+                    text: "Action blocked: Shield API key is invalid or has been revoked. Update the Multicorn Shield extension settings in Claude Desktop.",
                   },
                 ],
               };
             }
-
-            try {
-              const result = await child.session.request("tools/call", {
-                name: tool.name,
-                arguments: args,
-              });
-              return asCallToolResult(result);
-            } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              return {
-                isError: true,
-                content: [{ type: "text", text: `Tool call failed: ${message}` }],
-              };
+            const result = await session.callTool(tool.name, args);
+            if (resultSuggestsConsentNeeded(result)) {
+              rt.openConsentBrowserOnce();
             }
+            return result;
           },
+        });
+      }
+
+      if (toolRegistry.size === 0) {
+        logger.warn("No tools registered after proxy setup; check proxy URLs and MCP servers.", {});
+        toolRegistry.set("multicorn_shield_status", {
+          description: "Reports when hosted proxies returned no tools.",
+          call: () =>
+            Promise.resolve({
+              isError: true,
+              content: [
+                {
+                  type: "text",
+                  text: `No MCP tools were discovered from your hosted proxy URLs. Confirm each proxy's upstream MCP server is reachable (${dashboardUrl.replace(/\/+$/, "")}/proxy).`,
+                },
+              ],
+            }),
         });
       }
 
@@ -311,6 +341,7 @@ export async function runShieldExtension(): Promise<void> {
       const message = error instanceof Error ? error.message : String(error);
       debugLog(`[SHIELD] Setup failed: ${message}`);
       logger.error(`Shield extension setup failed: ${message}`, {});
+      await Promise.all(proxySessions.map((s) => s.close().catch(() => undefined)));
       rejectReady(error);
     }
   })();
@@ -319,7 +350,7 @@ export async function runShieldExtension(): Promise<void> {
     if (runtime !== undefined) {
       await runtime.stop();
     }
-    childManager?.stopAll();
+    await Promise.all(proxySessions.map((s) => s.close().catch(() => undefined)));
     await server.close();
   };
 
