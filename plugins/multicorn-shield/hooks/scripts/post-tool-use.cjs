@@ -182,6 +182,7 @@ async function main() {
     actionType,
     status: "approved",
     metadata,
+    platform: "claude-code",
   };
 
   try {

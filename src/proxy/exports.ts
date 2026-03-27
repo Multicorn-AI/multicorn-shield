@@ -23,6 +23,7 @@ export {
 export {
   fetchGrantedScopes,
   findAgentByName,
+  registerAgent,
   deriveDashboardUrl,
   ShieldAuthError,
   type AgentRecord,

@@ -66,6 +66,7 @@ export class ShieldExtensionRuntime {
       cfg.apiKey,
       cfg.baseUrl,
       cfg.logger,
+      "claude-desktop",
     );
     debugLog(
       `[SHIELD] Agent record resolved: id=${agentRecord.id.length > 0 ? agentRecord.id : "(empty)"} authInvalid=${String(agentRecord.authInvalid === true)}`,
@@ -92,7 +93,7 @@ export class ShieldExtensionRuntime {
     }
 
     this.consentBrowserOpened = true;
-    const consentUrl = buildConsentUrl(name, [], this.config.dashboardUrl);
+    const consentUrl = buildConsentUrl(name, [], this.config.dashboardUrl, "claude-desktop");
     this.config.logger.info("Opening consent page in your browser.", { url: consentUrl });
     process.stderr.write(
       `\nPermission may be required. Opening consent page...\n${consentUrl}\n\n`,
