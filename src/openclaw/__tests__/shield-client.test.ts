@@ -170,7 +170,7 @@ describe("registerAgent", () => {
       `${TEST_BASE_URL}/api/v1/agents`,
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ name: "openclaw" }),
+        body: JSON.stringify({ name: "openclaw", platform: "openclaw" }),
       }),
     );
   });

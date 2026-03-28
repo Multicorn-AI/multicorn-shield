@@ -251,7 +251,7 @@ export async function registerAgent(
       "Content-Type": "application/json",
       [AUTH_HEADER]: apiKey,
     },
-    body: JSON.stringify({ name: agentName }),
+    body: JSON.stringify({ name: agentName, platform: "openclaw" }),
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 

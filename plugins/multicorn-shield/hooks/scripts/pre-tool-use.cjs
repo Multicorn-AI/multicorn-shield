@@ -104,6 +104,7 @@ function consentUrl(apiBaseUrl, agentName, service, actionType) {
   const params = new URLSearchParams();
   params.set("agent", agentName);
   params.set("scopes", `${service}:${actionType}`);
+  params.set("platform", "claude-code");
   return `${origin}/consent?${params.toString()}`;
 }
 
@@ -499,6 +500,7 @@ async function main() {
     actionType,
     status: "pending",
     metadata,
+    platform: "claude-code",
   };
 
   if (process.env.MULTICORN_SHIELD_PRE_HOOK_TEST_THROW === "1") {

@@ -28,12 +28,11 @@ export default defineConfig({
         "src/extension/server.ts",
         // Test-only harnesses; coverage is not meaningful here.
         "src/proxy/__fixtures__/**",
-        // Extension subprocess + MCP wiring: covered by integration tests, not Istanbul branches.
-        "src/extension/child-manager.ts",
+        // Extension config read: integration-style.
         "src/extension/config-reader.ts",
-        "src/extension/json-rpc-child.ts",
+        // runtime.ts is covered by server.integration.test.ts; keeping it in Istanbul would drag
+        // global branch % below the 85% threshold because start() mixes debugLog + many branches.
         "src/extension/runtime.ts",
-        "src/extension/tool-router.ts",
       ],
       thresholds: {
         statements: 85,
