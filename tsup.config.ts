@@ -92,4 +92,16 @@ export default defineConfig([
     outDir: "dist",
     platform: "node",
   },
+  {
+    entry: { proxy: "src/proxy/exports.ts" },
+    format: ["esm", "cjs"],
+    dts: true,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: false,
+    outDir: "dist",
+    platform: "node",
+  },
 ]);
