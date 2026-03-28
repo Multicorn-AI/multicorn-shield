@@ -140,7 +140,8 @@
       "minimatch": ">=10.2.3",
       "rollup": ">=4.59.0",
       "picomatch": ">=4.0.4",
-      "path-to-regexp": ">=8.4.0"
+      "path-to-regexp": ">=8.4.0",
+      "node-forge": ">=1.4.0"
     }
   }
 }
