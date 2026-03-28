@@ -131,6 +131,7 @@ export async function registerAgent(
   agentName: string,
   apiKey: string,
   baseUrl: string,
+  platform?: string,
 ): Promise<string> {
   const response = await fetch(`${baseUrl}/api/v1/agents`, {
     method: "POST",
@@ -138,7 +139,7 @@ export async function registerAgent(
       "Content-Type": "application/json",
       "X-Multicorn-Key": apiKey,
     },
-    body: JSON.stringify({ name: agentName }),
+    body: JSON.stringify({ name: agentName, ...(platform ? { platform } : {}) }),
     signal: AbortSignal.timeout(8000),
   });
 
@@ -218,12 +219,13 @@ export async function waitForConsent(
   dashboardUrl: string,
   logger: ProxyLogger,
   scope?: { service: string; permissionLevel: string },
+  platform?: string,
 ): Promise<readonly Scope[]> {
   // Use the provided scope if available, otherwise fall back to detected scopes
   const scopeStrings: readonly string[] = scope
     ? [`${scope.service}:${scope.permissionLevel}`]
     : detectScopeHints();
-  const consentUrl = buildConsentUrl(agentName, scopeStrings, dashboardUrl);
+  const consentUrl = buildConsentUrl(agentName, scopeStrings, dashboardUrl, platform);
 
   logger.info("Opening consent page in your browser.", { url: consentUrl });
   process.stderr.write(
@@ -256,6 +258,7 @@ export async function resolveAgentRecord(
   apiKey: string,
   baseUrl: string,
   logger: ProxyLogger,
+  platform?: string,
 ): Promise<AgentRecord> {
   // Always try the cache first. It works offline.
   const cachedScopes = await loadCachedScopes(agentName, apiKey);
@@ -275,7 +278,7 @@ export async function resolveAgentRecord(
     // Service may be unreachable. Attempt registration, fall back to offline mode.
     try {
       logger.info("Agent not found. Registering.", { agent: agentName });
-      const id = await registerAgent(agentName, apiKey, baseUrl);
+      const id = await registerAgent(agentName, apiKey, baseUrl, platform);
       agent = { id, name: agentName, scopes: [] };
       logger.info("Agent registered.", { agent: agentName, id });
     } catch (error: unknown) {
@@ -299,15 +302,19 @@ export async function resolveAgentRecord(
   return { ...agent, scopes };
 }
 
-function buildConsentUrl(
+export function buildConsentUrl(
   agentName: string,
   scopes: readonly string[],
   dashboardUrl: string,
+  platform?: string,
 ): string {
   const base = dashboardUrl.replace(/\/+$/, "");
   const params = new URLSearchParams({ agent: agentName });
   if (scopes.length > 0) {
     params.set("scopes", scopes.join(","));
+  }
+  if (platform) {
+    params.set("platform", platform);
   }
   return `${base}/consent?${params.toString()}`;
 }

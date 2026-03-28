@@ -27,7 +27,7 @@
       "args": ["${__dirname}/server/index.js"],
       "env": {
         "MULTICORN_API_KEY": "${user_config.api_key}",
-        "MULTICORN_BASE_URL": "https://api.multicorn.ai",
+        "MULTICORN_BASE_URL": "${user_config.base_url}",
         "MULTICORN_SHIELD_EXTENSION": "1"
       }
     }
@@ -39,6 +39,12 @@
       "description": "Your Multicorn Shield API key. Create one at https://app.multicorn.ai/settings/api-keys",
       "sensitive": true,
       "required": true
+    },
+    "base_url": {
+      "type": "string",
+      "title": "API base URL (optional)",
+      "description": "Defaults to https://api.multicorn.ai when empty. Use this to point at a self-hosted Shield API.",
+      "required": false
     }
   },
   "compatibility": {

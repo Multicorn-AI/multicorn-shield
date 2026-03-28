@@ -167,6 +167,7 @@ async function main(): Promise<void> {
     baseUrl: finalBaseUrl,
     dashboardUrl: finalDashboardUrl,
     logger,
+    platform: "other-mcp",
   });
 
   async function shutdown(): Promise<void> {

@@ -2,93 +2,140 @@
  * @vitest-environment node
  */
 
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
 import { ShieldExtensionRuntime } from "../runtime.js";
 import { createLogger } from "../../proxy/logger.js";
 import { deriveDashboardUrl } from "../../proxy/consent.js";
-import {
-  startMockMulticornService,
-  type MockMulticornService,
-} from "../../proxy/__fixtures__/mockMulticornService.js";
 
-const readFileMock = vi.hoisted(() => vi.fn());
-const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
-const mkdirMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const resolveAgentRecordMock = vi.hoisted(() => vi.fn());
+const openBrowserMock = vi.hoisted(() => vi.fn());
 
-vi.mock("node:fs/promises", () => {
-  const exports = {
-    readFile: readFileMock,
-    writeFile: writeFileMock,
-    mkdir: mkdirMock,
+vi.mock("../../proxy/consent.js", async (importOriginal) => {
+  const mod: Record<string, unknown> = await importOriginal();
+  return {
+    ...mod,
+    resolveAgentRecord: resolveAgentRecordMock,
+    openBrowser: openBrowserMock,
   };
-  return { default: exports, ...exports };
 });
 
-describe("Shield extension runtime (integration)", () => {
-  let mockService: MockMulticornService | undefined;
+describe("Shield extension runtime (hosted-proxy mode)", () => {
   let runtime: ShieldExtensionRuntime | undefined;
 
+  beforeEach(() => {
+    resolveAgentRecordMock.mockReset();
+    openBrowserMock.mockReset();
+  });
+
   afterEach(async () => {
-    readFileMock.mockReset();
-    writeFileMock.mockReset();
-    mkdirMock.mockReset();
     const rt = runtime;
-    const svc = mockService;
     runtime = undefined;
-    mockService = undefined;
     if (rt !== undefined) {
       await rt.stop();
     }
-    if (svc !== undefined) {
-      await svc.stop();
-    }
   });
 
-  it("allows a tool call when scopes permit execute on the service", async () => {
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-
-    mockService = await startMockMulticornService({
-      scopes: [{ service: "gmail", permissionLevel: "write" }],
+  it("resolves and stores agent id on start", async () => {
+    resolveAgentRecordMock.mockResolvedValue({
+      id: "agent-42",
+      name: "test-agent",
+      scopes: [],
     });
-    const baseUrl = mockService.baseUrl.replace("127.0.0.1", "localhost");
 
     runtime = new ShieldExtensionRuntime({
       apiKey: "test-key",
       agentName: "test-agent",
-      baseUrl,
-      dashboardUrl: deriveDashboardUrl(baseUrl),
+      baseUrl: "https://api.example.com",
+      dashboardUrl: "https://app.example.com",
       logger: createLogger("error"),
     });
 
     await runtime.start();
 
-    const decision = await runtime.evaluateToolCall("gmail_send_email");
-
-    expect(decision.allow).toBe(true);
+    expect(runtime.getAgentId()).toBe("agent-42");
+    expect(runtime.isAuthInvalid()).toBe(false);
   });
 
-  it("denies when Shield cannot reach the API (offline agent id)", async () => {
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
+  it("does not open consent when API key is invalid", async () => {
+    resolveAgentRecordMock.mockResolvedValue({
+      id: "",
+      name: "test-agent",
+      scopes: [],
+      authInvalid: true,
+    });
 
     runtime = new ShieldExtensionRuntime({
-      apiKey: "test-key",
+      apiKey: "bad",
       agentName: "test-agent",
-      // localhost is allowed by ActionLogger; port 1 should refuse so agent id stays empty.
-      baseUrl: "http://localhost:1",
-      dashboardUrl: "https://app.multicorn.ai",
+      baseUrl: "https://api.example.com",
+      dashboardUrl: deriveDashboardUrl("https://api.example.com"),
       logger: createLogger("error"),
     });
 
     await runtime.start();
+    runtime.openConsentBrowserOnce();
+    runtime.openConsentBrowserOnce();
 
-    const decision = await runtime.evaluateToolCall("gmail_send_email");
+    expect(openBrowserMock).not.toHaveBeenCalled();
+  });
 
-    expect(decision.allow).toBe(false);
-    if (!decision.allow) {
-      expect(decision.result.isError).toBe(true);
-      const text = decision.result.content[0];
-      expect(text?.type).toBe("text");
-      expect((text as { text: string }).text).toContain("unreachable");
+  it("throws when base URL is not HTTPS or localhost", async () => {
+    resolveAgentRecordMock.mockResolvedValue({ id: "x", name: "a", scopes: [] });
+
+    runtime = new ShieldExtensionRuntime({
+      apiKey: "k",
+      agentName: "a",
+      baseUrl: "http://evil.example/api",
+      dashboardUrl: "https://app.example.com",
+      logger: createLogger("error"),
+    });
+
+    await expect(runtime.start()).rejects.toThrow(/Base URL must use HTTPS/);
+  });
+
+  it("does not open consent when agent name is empty", async () => {
+    resolveAgentRecordMock.mockResolvedValue({ id: "id", name: "", scopes: [] });
+
+    runtime = new ShieldExtensionRuntime({
+      apiKey: "k",
+      agentName: "   ",
+      baseUrl: "https://api.example.com",
+      dashboardUrl: "https://app.example.com",
+      logger: createLogger("error"),
+    });
+
+    await runtime.start();
+    runtime.openConsentBrowserOnce();
+
+    expect(openBrowserMock).not.toHaveBeenCalled();
+  });
+
+  it("opens consent URL at most once per runtime instance", async () => {
+    resolveAgentRecordMock.mockResolvedValue({
+      id: "agent-99",
+      name: "claude-desktop-shield",
+      scopes: [],
+    });
+
+    runtime = new ShieldExtensionRuntime({
+      apiKey: "test-key",
+      agentName: "claude-desktop-shield",
+      baseUrl: "https://api.example.com",
+      dashboardUrl: "https://app.example.com",
+      logger: createLogger("error"),
+    });
+
+    await runtime.start();
+    runtime.openConsentBrowserOnce();
+    runtime.openConsentBrowserOnce();
+
+    expect(openBrowserMock).toHaveBeenCalledTimes(1);
+    const argv0: unknown = openBrowserMock.mock.calls[0]?.[0];
+    expect(typeof argv0).toBe("string");
+    if (typeof argv0 !== "string") {
+      throw new Error("expected consent URL string");
     }
+    expect(argv0).toContain("/consent");
+    expect(argv0).toContain("claude-desktop-shield");
   });
 });

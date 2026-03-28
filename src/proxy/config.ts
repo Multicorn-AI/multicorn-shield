@@ -412,15 +412,26 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
   // Step A: API key
   let apiKey = "";
   const existing = await loadConfig().catch(() => null);
+
+  // Resolve baseUrl: --base-url flag > config file > env var > hardcoded default.
+  // This must happen before key validation so all code paths hit the right server.
+  if (baseUrl === "https://api.multicorn.ai") {
+    if (existing !== null && existing.baseUrl.length > 0) {
+      baseUrl = existing.baseUrl;
+    } else {
+      const envBaseUrl = process.env["MULTICORN_BASE_URL"];
+      if (envBaseUrl !== undefined && envBaseUrl.length > 0) {
+        baseUrl = envBaseUrl;
+      }
+    }
+  }
+
   if (existing !== null && existing.apiKey.startsWith("mcs_") && existing.apiKey.length >= 8) {
     const masked = "mcs_..." + existing.apiKey.slice(-4);
     process.stderr.write("Found existing API key: " + style.cyan(masked) + "\n");
     const answer = await ask("Use this key? (Y/n) ");
     if (answer.trim().toLowerCase() !== "n") {
       apiKey = existing.apiKey;
-      if (baseUrl === "https://api.multicorn.ai") {
-        baseUrl = existing.baseUrl;
-      }
     }
   }
 

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Desktop Extension loads hosted proxy configs from the Shield API and forwards `tools/list` and `tools/call` over HTTP to those URLs. Child MCP processes are no longer spawned, which avoids sandbox limits in Claude Desktop.
+- Extension permissions and audit logging for wrapped tools run on the hosted proxy; the extension focuses on discovery, routing, and consent UX.
+
+### Added
+
+- Optional extension setting `base_url` (env `MULTICORN_BASE_URL`) for enterprise or self-hosted Shield API endpoints. When empty, the extension uses `https://api.multicorn.ai`.
+
 ## [0.2.2] - Unreleased
 
 ### Added

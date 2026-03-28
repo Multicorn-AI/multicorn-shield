@@ -54,6 +54,7 @@ export interface ProxyServerConfig {
   readonly logger: ProxyLogger;
   readonly spendingLimits?: SpendingLimits;
   readonly scopeRefreshIntervalMs?: number;
+  readonly platform?: string;
 }
 
 export interface ProxyServer {
@@ -131,6 +132,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         config.dashboardUrl,
         config.logger,
         scopeParam,
+        config.platform,
       );
       grantedScopes = scopes;
       await saveCachedScopes(config.agentName, agentId, scopes, config.apiKey);
@@ -309,6 +311,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
       config.apiKey,
       config.baseUrl,
       config.logger,
+      config.platform,
     );
 
     agentId = agentRecord.id;
