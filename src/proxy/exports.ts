@@ -32,3 +32,5 @@ export {
 export { createLogger, isValidLogLevel, type ProxyLogger, type LogLevel } from "./logger.js";
 
 export { validateScopeAccess } from "../scopes/scope-validator.js";
+
+export { mapMcpToolToScope } from "../mcp-tool-mapper.js";

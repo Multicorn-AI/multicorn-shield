@@ -381,6 +381,8 @@ function isPermissionShape(value: unknown): value is PermissionShape {
     typeof obj["read"] === "boolean" &&
     typeof obj["write"] === "boolean" &&
     typeof obj["execute"] === "boolean" &&
-    (obj["revoked_at"] === null || typeof obj["revoked_at"] === "string")
+    (obj["revoked_at"] === null ||
+      obj["revoked_at"] === undefined ||
+      typeof obj["revoked_at"] === "string")
   );
 }
