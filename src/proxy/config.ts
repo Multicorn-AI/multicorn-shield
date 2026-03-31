@@ -63,6 +63,7 @@ export interface ProxyConfig {
   readonly apiKey: string;
   readonly baseUrl: string;
   readonly agentName?: string;
+  readonly platform?: string;
 }
 
 export interface ApiKeyValidationResult {
@@ -383,7 +384,10 @@ async function isClaudeDesktopConnected(): Promise<boolean> {
 }
 
 // TODO SR-03: Refactor runInit into smaller functions once the interactive flow is finalized
-export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
+export async function runInit(
+  baseUrl = "https://api.multicorn.ai",
+  platform?: string,
+): Promise<ProxyConfig | null> {
   if (!process.stdin.isTTY) {
     process.stderr.write(
       style.red("Error: interactive terminal required. Cannot run init with piped input.") + "\n",
@@ -463,7 +467,11 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
   }
 
   const configuredPlatforms = new Set<number>();
-  let lastConfig: ProxyConfig = { apiKey, baseUrl };
+  let lastConfig: ProxyConfig = {
+    apiKey,
+    baseUrl,
+    ...(platform !== undefined ? { platform } : {}),
+  };
 
   let configuring = true;
   while (configuring) {
@@ -735,7 +743,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     configuredPlatforms.add(selection);
 
     // Step E: Save config
-    lastConfig = { apiKey, baseUrl, agentName };
+    lastConfig = { apiKey, baseUrl, agentName, ...(platform !== undefined ? { platform } : {}) };
     try {
       await saveConfig(lastConfig);
       process.stderr.write(style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`);
