@@ -132,7 +132,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         config.dashboardUrl,
         config.logger,
         scopeParam,
-        config.platform,
+        config.platform ?? "other-mcp",
       );
       grantedScopes = scopes;
       await saveCachedScopes(config.agentName, agentId, scopes, config.apiKey);
@@ -311,7 +311,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
       config.apiKey,
       config.baseUrl,
       config.logger,
-      config.platform,
+      config.platform ?? "other-mcp",
     );
 
     agentId = agentRecord.id;
