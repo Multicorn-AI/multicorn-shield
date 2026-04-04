@@ -5,23 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.2] - 2026-04-04
+
+### Added
+
+- Claude Desktop Extension (.mcpb) for one-click install. Packages Shield as a Desktop Extension that wraps existing MCP servers, enforces permissions via the Shield API, and logs all tool calls.
+- `npx multicorn-shield restore` command to recover original MCP server config after disabling the extension.
+- `multicorn-shield/proxy` subpath export with interceptor helpers, consent utilities, logger, scope validator, and tool mapper for hosted proxy consumers.
+- HTTP client for hosted proxy URLs (`proxy-client`) supporting Streamable HTTP transport, session management, and JSON-RPC error handling.
+- Optional extension setting `base_url` (env `MULTICORN_BASE_URL`) for enterprise or self-hosted Shield API endpoints. Defaults to `https://api.multicorn.ai` when empty.
 
 ### Changed
 
-- Desktop Extension loads hosted proxy configs from the Shield API and forwards `tools/list` and `tools/call` over HTTP to those URLs. Child MCP processes are no longer spawned, which avoids sandbox limits in Claude Desktop.
-- Extension permissions and audit logging for wrapped tools run on the hosted proxy; the extension focuses on discovery, routing, and consent UX.
-
-### Added
-
-- Optional extension setting `base_url` (env `MULTICORN_BASE_URL`) for enterprise or self-hosted Shield API endpoints. When empty, the extension uses `https://api.multicorn.ai`.
-
-## [0.2.2] - Unreleased
-
-### Added
-
-- Claude Desktop Extension (.mcpb) for one-click install. Packages Shield as a Desktop Extension that wraps existing MCP servers, enforces permissions via the Shield API, and logs all tool calls. Install by opening the .mcpb file in Claude Desktop.
-- npx multicorn-shield restore command to recover original MCP server config after disabling the extension.
+- Desktop Extension routes tool calls to hosted proxy URLs over Streamable HTTP instead of spawning child MCP processes locally. Permission enforcement and audit logging now run server-side, avoiding sandbox limits in Claude Desktop.
+- `runInit` base URL resolution checks config file and `MULTICORN_BASE_URL` env var before falling back to the default API endpoint.
+- `platform` field threaded through proxy config and CLI init flow for connection method tracking in the dashboard.
 
 ## [0.2.1] - 2026-03-23
 
