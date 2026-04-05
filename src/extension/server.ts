@@ -5,6 +5,7 @@
  */
 
 import { appendFileSync, mkdirSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import * as z from "zod/v4";
@@ -33,7 +34,12 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { createLogger, isValidLogLevel, type LogLevel } from "../proxy/logger.js";
 import { deriveDashboardUrl } from "../proxy/consent.js";
-import { readClaudeDesktopMcpConfig, writeExtensionBackup } from "./config-reader.js";
+import {
+  readClaudeDesktopMcpConfig,
+  writeExtensionBackup,
+  isShieldExtensionEntry,
+  type McpServerEntry,
+} from "./config-reader.js";
 import {
   fetchProxyConfigs,
   ProxyConfigFetchError,
@@ -47,6 +53,68 @@ import { ShieldExtensionRuntime } from "./runtime.js";
 import { PACKAGE_VERSION } from "../package-meta.js";
 
 const SETUP_TIMEOUT_MS = 15_000;
+
+function getMulticornConfigPath(): string {
+  return join(homedir(), ".multicorn", "config.json");
+}
+
+/** Optional `proxyConfigs` in ~/.multicorn/config.json (camelCase; see init / dashboard export). */
+interface LocalProxyConfigRow {
+  readonly serverName: string;
+  readonly proxyUrl: string;
+  readonly targetUrl: string;
+}
+
+function isLocalProxyConfigRow(value: unknown): value is LocalProxyConfigRow {
+  if (typeof value !== "object" || value === null) return false;
+  const o = value as Record<string, unknown>;
+  return (
+    typeof o["serverName"] === "string" &&
+    o["serverName"].length > 0 &&
+    typeof o["proxyUrl"] === "string" &&
+    o["proxyUrl"].length > 0 &&
+    typeof o["targetUrl"] === "string" &&
+    o["targetUrl"].length > 0
+  );
+}
+
+function localRowToProxyConfigItem(row: LocalProxyConfigRow): ProxyConfigItem {
+  return {
+    proxy_url: row.proxyUrl,
+    server_name: row.serverName,
+    target_url: row.targetUrl,
+  };
+}
+
+/**
+ * Reads optional `proxyConfigs` from ~/.multicorn/config.json.
+ * Invalid entries are skipped. Missing file or parse errors yield an empty list.
+ */
+async function readProxyConfigsFromLocalMulticornConfig(): Promise<readonly ProxyConfigItem[]> {
+  let raw: string;
+  try {
+    raw = await readFile(getMulticornConfigPath(), "utf8");
+  } catch {
+    return [];
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (typeof parsed !== "object" || parsed === null) return [];
+  const list = (parsed as Record<string, unknown>)["proxyConfigs"];
+  if (!Array.isArray(list)) return [];
+
+  const out: ProxyConfigItem[] = [];
+  for (const row of list) {
+    if (isLocalProxyConfigRow(row)) {
+      out.push(localRowToProxyConfigItem(row));
+    }
+  }
+  return out;
+}
 
 function noProxyConfigStatusMessage(dashboardUrl: string): string {
   const base = dashboardUrl.replace(/\/+$/, "");
@@ -78,12 +146,16 @@ interface RegisteredShieldTool {
 function readApiKey(): string | null {
   const key = process.env["MULTICORN_API_KEY"]?.trim();
   if (key === undefined || key.length === 0) return null;
+  /* Claude Desktop may pass unresolved ${user_config.*} placeholders as literal env values. */
+  if (key.startsWith("${")) return null;
   return key;
 }
 
 function readBaseUrl(): string {
   const raw = process.env["MULTICORN_BASE_URL"]?.trim();
-  return raw !== undefined && raw.length > 0 ? raw : "https://api.multicorn.ai";
+  if (raw === undefined || raw.length === 0) return "https://api.multicorn.ai";
+  if (raw.startsWith("${")) return "https://api.multicorn.ai";
+  return raw;
 }
 
 function readAgentName(): string {
@@ -95,6 +167,51 @@ function readLogLevel(): LogLevel {
   const raw = process.env["MULTICORN_LOG_LEVEL"]?.trim();
   if (raw !== undefined && isValidLogLevel(raw)) return raw;
   return "info";
+}
+
+async function autoCreateProxyConfig(
+  baseUrl: string,
+  apiKey: string,
+  serverName: string,
+  entry: McpServerEntry,
+): Promise<boolean> {
+  const targetUrl = `stdio://${entry.command}/${entry.args.join("/")}`;
+  const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/proxy/config`;
+
+  debugLog(`[SHIELD] Auto-creating proxy config for "${serverName}".`);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Multicorn-Key": apiKey,
+      },
+      body: JSON.stringify({ server_name: serverName, target_url: targetUrl }),
+      signal: AbortSignal.timeout(SETUP_TIMEOUT_MS),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    debugLog(`[SHIELD] Failed to create proxy config for "${serverName}": ${message}`);
+    return false;
+  }
+
+  if (response.status === 409) {
+    debugLog(`[SHIELD] Proxy config for "${serverName}" already exists (409), skipping.`);
+    return false;
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    debugLog(
+      `[SHIELD] Failed to create proxy config for "${serverName}": HTTP ${String(response.status)} ${body.slice(0, 200)}`,
+    );
+    return false;
+  }
+
+  debugLog(`[SHIELD] Proxy config created for "${serverName}".`);
+  return true;
 }
 
 export async function runShieldExtension(): Promise<void> {
@@ -128,7 +245,8 @@ export async function runShieldExtension(): Promise<void> {
     { capabilities: { tools: { listChanged: true } } },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, () => {
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    await readyPromise;
     const tools = Array.from(toolRegistry.entries()).map(([name, entry]) => ({
       name,
       description: entry.description,
@@ -183,8 +301,7 @@ export async function runShieldExtension(): Promise<void> {
       rejectReady(
         new Error(
           "[SHIELD] Background setup timed out after 15 seconds. " +
-            "Steps include backup of Claude config, fetching proxy configs from Shield, " +
-            "initializing hosted proxy sessions and listing tools. " +
+            "Steps include proxy config resolution, hosted proxy sessions, and Shield runtime. " +
             "See ~/.multicorn/extension-debug.log for earlier [SHIELD] lines.",
         ),
       );
@@ -199,31 +316,77 @@ export async function runShieldExtension(): Promise<void> {
         logger.warn("Could not read Claude Desktop config. No MCP backup was written.", {});
       }
 
-      let configs: readonly ProxyConfigItem[];
-      try {
-        debugLog("[SHIELD] Fetching proxy configs from Shield API.");
-        configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS);
-      } catch (e) {
-        clearTimeout(setupTimeout);
-        if (e instanceof ProxyConfigFetchError) {
-          const msg =
-            e.kind === "auth"
-              ? e.message
-              : `${e.message} (${dashboardUrl.replace(/\/+$/, "")}/proxy)`;
-          toolRegistry.set("multicorn_shield_status", {
-            description: "Reports Shield API or proxy config errors during extension setup.",
-            call: () =>
-              Promise.resolve({
-                isError: true,
-                content: [{ type: "text", text: msg }],
-              }),
-          });
-          await server.sendToolListChanged();
-          debugLog(`[SHIELD] Proxy config fetch failed (${e.kind}); status tool only.`);
-          resolveReady();
-          return;
+      const discoveredServers: Record<string, McpServerEntry> = {};
+      if (desktop !== null) {
+        for (const [name, entry] of Object.entries(desktop.mcpServers)) {
+          if (!isShieldExtensionEntry(name, entry)) {
+            discoveredServers[name] = entry;
+          }
         }
-        throw e;
+      }
+
+      const serverCount = Object.keys(discoveredServers).length;
+      debugLog(
+        `[SHIELD] Config read; ${String(serverCount)} MCP server(s) discovered (excluding Shield).`,
+      );
+
+      debugLog("[SHIELD] Resolving proxy configs (local config or API).");
+
+      let configs: readonly ProxyConfigItem[];
+      const localConfigs = await readProxyConfigsFromLocalMulticornConfig();
+      if (localConfigs.length > 0) {
+        debugLog(`[SHIELD] Loaded ${String(localConfigs.length)} proxy configs from local config.`);
+        configs = localConfigs;
+      } else {
+        debugLog("[SHIELD] No local proxy configs; fetching from API.");
+        try {
+          configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS);
+        } catch (e) {
+          clearTimeout(setupTimeout);
+          if (e instanceof ProxyConfigFetchError) {
+            const msg =
+              e.kind === "auth"
+                ? e.message
+                : `${e.message} (${dashboardUrl.replace(/\/+$/, "")}/proxy)`;
+            toolRegistry.set("multicorn_shield_status", {
+              description: "Reports Shield API or proxy config errors during extension setup.",
+              call: () =>
+                Promise.resolve({
+                  isError: true,
+                  content: [{ type: "text", text: msg }],
+                }),
+            });
+            await server.sendToolListChanged();
+            debugLog(`[SHIELD] Proxy config fetch failed (${e.kind}); status tool only.`);
+            resolveReady();
+            return;
+          }
+          throw e;
+        }
+
+        debugLog(`[SHIELD] Fetched ${String(configs.length)} proxy config(s) from API.`);
+
+        if (serverCount > 0) {
+          const existingNames = new Set(configs.map((c) => c.server_name));
+          let createdCount = 0;
+          for (const [name, entry] of Object.entries(discoveredServers)) {
+            if (!existingNames.has(name)) {
+              const created = await autoCreateProxyConfig(baseUrl, apiKey, name, entry);
+              if (created) createdCount += 1;
+            }
+          }
+          if (createdCount > 0) {
+            debugLog(
+              `[SHIELD] Auto-created ${String(createdCount)} proxy config(s); re-fetching from API.`,
+            );
+            try {
+              configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS);
+            } catch (e) {
+              const message = e instanceof Error ? e.message : String(e);
+              debugLog(`[SHIELD] Re-fetch after auto-creation failed: ${message}`);
+            }
+          }
+        }
       }
 
       debugLog(`[SHIELD] Proxy config count: ${String(configs.length)}.`);
@@ -251,7 +414,7 @@ export async function runShieldExtension(): Promise<void> {
         dashboardUrl,
         logger,
       });
-      debugLog("[SHIELD] Starting extension runtime (agent resolution).");
+      debugLog("[SHIELD] Starting extension runtime (hosted proxy path).");
       await runtime.start();
       debugLog(
         `[SHIELD] Runtime ready agentId=${runtime.getAgentId().length > 0 ? "(set)" : "(empty)"} authInvalid=${String(runtime.isAuthInvalid())}`,
@@ -333,7 +496,7 @@ export async function runShieldExtension(): Promise<void> {
       }
 
       await server.sendToolListChanged();
-      debugLog("[SHIELD] Setup complete; signaling ready.");
+      debugLog("[SHIELD] Setup complete (hosted proxy path); signaling ready.");
       clearTimeout(setupTimeout);
       resolveReady();
     } catch (error) {
