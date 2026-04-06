@@ -260,12 +260,9 @@ export async function resolveAgentRecord(
   logger: ProxyLogger,
   platform?: string,
 ): Promise<AgentRecord> {
-  // Always try the cache first. It works offline.
   const cachedScopes = await loadCachedScopes(agentName, apiKey);
   if (cachedScopes !== null && cachedScopes.length > 0) {
     logger.debug("Loaded scopes from cache.", { agent: agentName, count: cachedScopes.length });
-    // Use a placeholder id. It will be overwritten once the service is reachable.
-    return { id: "", name: agentName, scopes: cachedScopes };
   }
 
   let agent = await findAgentByName(agentName, apiKey, baseUrl);
@@ -286,10 +283,13 @@ export async function resolveAgentRecord(
         return { id: "", name: agentName, scopes: [], authInvalid: true };
       }
       const detail = error instanceof Error ? error.message : String(error);
+      if (cachedScopes !== null && cachedScopes.length > 0) {
+        logger.warn("Service unreachable. Using cached scopes.", { error: detail });
+        return { id: "", name: agentName, scopes: cachedScopes };
+      }
       logger.warn("Could not reach Multicorn service. Running with empty permissions.", {
         error: detail,
       });
-      // id: "" signals offline mode. Consent flow and action logging are skipped.
       return { id: "", name: agentName, scopes: [] };
     }
   }

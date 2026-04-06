@@ -174,6 +174,7 @@ async function autoCreateProxyConfig(
   apiKey: string,
   serverName: string,
   entry: McpServerEntry,
+  agentName: string,
 ): Promise<boolean> {
   const targetUrl = `stdio://${entry.command}/${entry.args.join("/")}`;
   const url = `${baseUrl.replace(/\/+$/, "")}/api/v1/proxy/config`;
@@ -188,7 +189,11 @@ async function autoCreateProxyConfig(
         "Content-Type": "application/json",
         "X-Multicorn-Key": apiKey,
       },
-      body: JSON.stringify({ server_name: serverName, target_url: targetUrl }),
+      body: JSON.stringify({
+        server_name: serverName,
+        target_url: targetUrl,
+        agent_name: agentName,
+      }),
       signal: AbortSignal.timeout(SETUP_TIMEOUT_MS),
     });
   } catch (error) {
@@ -371,7 +376,7 @@ export async function runShieldExtension(): Promise<void> {
           let createdCount = 0;
           for (const [name, entry] of Object.entries(discoveredServers)) {
             if (!existingNames.has(name)) {
-              const created = await autoCreateProxyConfig(baseUrl, apiKey, name, entry);
+              const created = await autoCreateProxyConfig(baseUrl, apiKey, name, entry, agentName);
               if (created) createdCount += 1;
             }
           }

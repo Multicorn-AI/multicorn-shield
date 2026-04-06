@@ -509,6 +509,14 @@ export async function runInit(
       }
     }
 
+    const platformBySelection: Record<number, string> = {
+      1: "openclaw",
+      2: "claude-code",
+      3: "claude-desktop",
+      4: "other-mcp",
+    };
+    const selectedPlatform = platformBySelection[selection] ?? "other-mcp";
+
     // Step C: Agent name
     let agentName = "";
     while (agentName.length === 0) {
@@ -743,7 +751,7 @@ export async function runInit(
     configuredPlatforms.add(selection);
 
     // Step E: Save config
-    lastConfig = { apiKey, baseUrl, agentName, ...(platform !== undefined ? { platform } : {}) };
+    lastConfig = { apiKey, baseUrl, agentName, platform: selectedPlatform };
     try {
       await saveConfig(lastConfig);
       process.stderr.write(style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`);
