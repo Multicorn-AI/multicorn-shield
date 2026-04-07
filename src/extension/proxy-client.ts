@@ -294,7 +294,7 @@ export class ProxySession {
   private closed = false;
 
   constructor(proxyUrl: string, apiKey: string, options?: ProxySessionOptions) {
-    this.proxyUrl = proxyUrl;
+    this.proxyUrl = proxyUrl.replace(/\/+$/, "") + "/mcp";
     this.apiKey = apiKey;
     this.requestTimeoutMs = options?.requestTimeoutMs ?? 60_000;
   }

@@ -164,13 +164,20 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
 
       const service = extractServiceFromToolName(toolParams.name);
       const action = extractActionFromToolName(toolParams.name);
+
+      config.logger.debug("Extracted tool identity.", {
+        tool: toolParams.name,
+        service,
+        action,
+      });
+
       const requestedScope: Scope = { service, permissionLevel: "execute" };
       const validation = validateScopeAccess(grantedScopes, requestedScope);
 
-      config.logger.debug("Tool call intercepted.", {
+      config.logger.debug("Scope validation result.", {
         tool: toolParams.name,
-        service,
         allowed: validation.allowed,
+        scopeCount: grantedScopes.length,
       });
 
       // Trigger consent if the specific scope is missing
@@ -178,6 +185,13 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         await ensureConsent(requestedScope);
         // Re-validate after consent attempt
         const revalidation = validateScopeAccess(grantedScopes, requestedScope);
+
+        config.logger.debug("Post-consent revalidation result.", {
+          tool: toolParams.name,
+          allowed: revalidation.allowed,
+          scopeCount: grantedScopes.length,
+        });
+
         if (!revalidation.allowed) {
           if (actionLogger !== null) {
             if (!config.agentName || config.agentName.trim().length === 0) {
@@ -185,12 +199,18 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
                 "[multicorn-proxy] Cannot log action: agent name not resolved\n",
               );
             } else {
+              config.logger.debug("Logging blocked action (post-consent).", {
+                agent: config.agentName,
+                service,
+                action,
+              });
               await actionLogger.logAction({
                 agent: config.agentName,
                 service,
                 actionType: action,
                 status: "blocked",
               });
+              config.logger.debug("Blocked action logged.", { tool: toolParams.name });
             }
           }
           return JSON.stringify(
@@ -210,12 +230,18 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
                   "[multicorn-proxy] Cannot log action: agent name not resolved\n",
                 );
               } else {
+                config.logger.debug("Logging blocked action (spending).", {
+                  agent: config.agentName,
+                  service,
+                  action,
+                });
                 await actionLogger.logAction({
                   agent: config.agentName,
                   service,
                   actionType: action,
                   status: "blocked",
                 });
+                config.logger.debug("Spending-blocked action logged.", { tool: toolParams.name });
               }
             }
 
@@ -234,12 +260,18 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         if (!config.agentName || config.agentName.trim().length === 0) {
           process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
         } else {
+          config.logger.debug("Logging approved action.", {
+            agent: config.agentName,
+            service,
+            action,
+          });
           await actionLogger.logAction({
             agent: config.agentName,
             service,
             actionType: action,
             status: "approved",
           });
+          config.logger.debug("Approved action logged.", { tool: toolParams.name });
         }
       }
 

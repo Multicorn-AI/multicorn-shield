@@ -50,9 +50,42 @@ function parseArgs(argv: readonly string[]): CliArgs {
         process.exit(1);
       }
       wrapCommand = next;
-      // Everything after --wrap <cmd> is forwarded to the child process.
-      // Proxy flags (--log-level, etc.) must appear before --wrap.
       wrapArgs = args.slice(i + 2);
+
+      // Strip proxy-owned flags that ended up after --wrap so they
+      // aren't forwarded to the child process.
+      const cleaned: string[] = [];
+      for (let j = 0; j < wrapArgs.length; j++) {
+        const token = wrapArgs[j];
+        if (token === "--agent-name") {
+          const value = wrapArgs[j + 1];
+          if (value !== undefined) {
+            agentName = value;
+            j++;
+          }
+        } else if (token === "--log-level") {
+          const value = wrapArgs[j + 1];
+          if (value !== undefined && isValidLogLevel(value)) {
+            logLevel = value;
+            j++;
+          }
+        } else if (token === "--base-url") {
+          const value = wrapArgs[j + 1];
+          if (value !== undefined) {
+            baseUrl = value;
+            j++;
+          }
+        } else if (token === "--dashboard-url") {
+          const value = wrapArgs[j + 1];
+          if (value !== undefined) {
+            dashboardUrl = value;
+            j++;
+          }
+        } else if (token !== undefined) {
+          cleaned.push(token);
+        }
+      }
+      wrapArgs = cleaned;
       break;
     } else if (arg === "--log-level") {
       const next = args[i + 1];
@@ -167,7 +200,7 @@ async function main(): Promise<void> {
     baseUrl: finalBaseUrl,
     dashboardUrl: finalDashboardUrl,
     logger,
-    platform: "other-mcp",
+    platform: config.platform ?? "other-mcp",
   });
 
   async function shutdown(): Promise<void> {

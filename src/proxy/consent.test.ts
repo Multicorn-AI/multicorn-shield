@@ -12,6 +12,8 @@ import {
 } from "./consent.js";
 import type { ProxyLogger } from "./logger.js";
 
+const originalFetch = globalThis.fetch;
+
 const TEST_API_KEY = "mcs_key";
 
 function cacheKey(agentName: string, apiKey: string): string {
@@ -446,6 +448,7 @@ describe("resolveAgentRecord", () => {
 
   beforeEach(() => {
     vi.resetAllMocks();
+    global.fetch = originalFetch;
     readFileMock.mockRejectedValue(new Error("ENOENT"));
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -469,6 +472,15 @@ describe("resolveAgentRecord", () => {
         }),
       );
     });
+
+    // No agent in list, then registration fails: fall back to cached scopes.
+    global.fetch = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: [] }),
+      })
+      .mockRejectedValueOnce(new Error("network error"));
 
     const result = await resolveAgentRecord(
       "my-agent",
