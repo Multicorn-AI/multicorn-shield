@@ -136,6 +136,7 @@
   "homepage": "https://multicorn.ai",
   "pnpm": {
     "overrides": {
+      "vite": ">=7.3.2",
       "flatted": ">=3.4.2",
       "minimatch": ">=10.2.3",
       "rollup": ">=4.59.0",
