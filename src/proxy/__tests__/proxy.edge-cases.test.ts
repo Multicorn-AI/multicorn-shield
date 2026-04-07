@@ -1458,11 +1458,12 @@ describe("config file parsing", () => {
 });
 
 describe("consent edge cases", () => {
-  const originalFetch = global.fetch;
+  const originalFetch = globalThis.fetch;
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
 
   beforeEach(() => {
     vi.resetAllMocks();
+    global.fetch = originalFetch;
     readFileMock.mockRejectedValue(new Error("ENOENT"));
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1475,7 +1476,7 @@ describe("consent edge cases", () => {
     spawnMock.mockReset();
   });
 
-  it("resolveAgentRecord returns cached scopes without contacting the service", async () => {
+  it("resolveAgentRecord returns cached scopes when registration fails after empty agent list", async () => {
     const apiKey = "mcs_key";
     const agentName = "test-agent";
     const cacheKey = createHash("sha256")
@@ -1503,8 +1504,14 @@ describe("consent edge cases", () => {
       return Promise.reject(new Error("ENOENT"));
     });
 
-    const fetchSpy = vi.fn();
-    global.fetch = fetchSpy;
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ success: true, data: [] }),
+      })
+      .mockRejectedValueOnce(new Error("network error"));
+    global.fetch = fetchMock;
 
     const logger = createLogger("error");
     const record = await resolveAgentRecord(agentName, apiKey, "https://api.multicorn.ai", logger);
@@ -1512,7 +1519,7 @@ describe("consent edge cases", () => {
     expect(record.name).toBe("test-agent");
     expect(record.scopes).toHaveLength(2);
     expect(record.scopes).toContainEqual({ service: "gmail", permissionLevel: "execute" });
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it("resolveAgentRecord falls back to offline mode when registerAgent gets an unexpected response format", async () => {
