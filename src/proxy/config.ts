@@ -55,7 +55,6 @@ const CONFIG_DIR = join(homedir(), ".multicorn");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
 const OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
-const OPENCLAW_MIN_VERSION = "2026.2.26";
 
 export type OpenClawUpdateResult = "updated" | "not-found" | "parse-error";
 
@@ -176,53 +175,6 @@ export async function updateOpenClawConfigIfPresent(
   return "updated";
 }
 
-interface OpenClawDetection {
-  readonly status: "not-found" | "parse-error" | "detected";
-  readonly version: string | null;
-}
-
-async function detectOpenClaw(): Promise<OpenClawDetection> {
-  let raw: string;
-  try {
-    raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
-  } catch (e) {
-    if (isErrnoException(e) && e.code === "ENOENT") {
-      return { status: "not-found", version: null };
-    }
-    throw e;
-  }
-
-  let obj: Record<string, unknown>;
-  try {
-    obj = JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return { status: "parse-error", version: null };
-  }
-
-  const meta = obj["meta"];
-  if (typeof meta === "object" && meta !== null) {
-    const v = (meta as Record<string, unknown>)["lastTouchedVersion"];
-    if (typeof v === "string" && v.length > 0) {
-      return { status: "detected", version: v };
-    }
-  }
-  return { status: "detected", version: null };
-}
-
-function isVersionAtLeast(version: string, minimum: string): boolean {
-  const vParts = version.split(".").map(Number);
-  const mParts = minimum.split(".").map(Number);
-  const len = Math.max(vParts.length, mParts.length);
-  for (let i = 0; i < len; i++) {
-    const v = vParts[i] ?? 0;
-    const m = mParts[i] ?? 0;
-    if (Number.isNaN(v) || Number.isNaN(m)) return false;
-    if (v > m) return true;
-    if (v < m) return false;
-  }
-  return true;
-}
-
 export async function validateApiKey(
   apiKey: string,
   baseUrl: string,
@@ -311,6 +263,30 @@ export function getClaudeDesktopConfigPath(): string {
 
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
+export function getCursorConfigPath(): string {
+  return join(homedir(), ".cursor", "mcp.json");
+}
+
+async function isCursorConnected(): Promise<boolean> {
+  try {
+    const raw = await readFile(getCursorConfigPath(), "utf8");
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
+    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
+    for (const entry of Object.values(mcpServers)) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const rec = entry as Record<string, unknown>;
+      const url = rec["url"];
+      if (typeof url === "string" && url.includes("multicorn")) return true;
+      const args = rec["args"];
+      if (Array.isArray(args) && args.includes("multicorn-proxy")) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export async function updateClaudeDesktopConfig(
   agentName: string,
   mcpServerCommand: string,
@@ -364,23 +340,6 @@ export async function updateClaudeDesktopConfig(
   }
   await writeFile(configPath, JSON.stringify(obj, null, 2) + "\n", { encoding: "utf8" });
   return fileExists ? "updated" : "created";
-}
-
-async function isClaudeDesktopConnected(): Promise<boolean> {
-  try {
-    const raw = await readFile(getClaudeDesktopConfigPath(), "utf8");
-    const obj = JSON.parse(raw) as Record<string, unknown>;
-    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
-    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
-    for (const entry of Object.values(mcpServers)) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const args = (entry as Record<string, unknown>)["args"];
-      if (Array.isArray(args) && args.includes("multicorn-proxy")) return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
 }
 
 // TODO SR-03: Refactor runInit into smaller functions once the interactive flow is finalized
@@ -466,291 +425,253 @@ export async function runInit(
     apiKey = key;
   }
 
-  const configuredPlatforms = new Set<number>();
+  interface ConfiguredAgent {
+    readonly platformLabel: string;
+    readonly agentName: string;
+    readonly shortName?: string;
+    readonly proxyUrl?: string;
+  }
+
+  const configuredAgents: ConfiguredAgent[] = [];
   let lastConfig: ProxyConfig = {
     apiKey,
     baseUrl,
     ...(platform !== undefined ? { platform } : {}),
   };
 
+  const platformLabels = ["OpenClaw", "Claude Code", "Cursor"];
+  const platformBySelection: Record<number, string> = {
+    1: "openclaw",
+    2: "claude-code",
+    3: "cursor",
+  };
+  const defaultAgentNames: Record<number, string> = {
+    1: "my-openclaw-agent",
+    2: "my-claude-code-agent",
+    3: "my-cursor-agent",
+  };
+
   let configuring = true;
   while (configuring) {
-    // Step B: Platform selection
+    // Step 1: Platform selection
     process.stderr.write(
       "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n",
     );
-    const platformLabels = ["OpenClaw", "Claude Code", "Claude Desktop", "Other MCP Agent"];
     const openClawConnected = await isOpenClawConnected();
     const claudeCodeConnected = isClaudeCodeConnected();
-    const claudeDesktopConnected = await isClaudeDesktopConnected();
+    const cursorConnected = await isCursorConnected();
     for (let i = 0; i < platformLabels.length; i++) {
-      const sessionMarker = configuredPlatforms.has(i + 1) ? " " + style.green("\u2713") : "";
       let connectedMarker = "";
-      if (!configuredPlatforms.has(i + 1)) {
-        if (i === 0 && openClawConnected) {
-          connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
-        } else if (i === 1 && claudeCodeConnected) {
-          connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
-        } else if (i === 2 && claudeDesktopConnected) {
-          connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
-        }
+      if (i === 0 && openClawConnected) {
+        connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
+      } else if (i === 1 && claudeCodeConnected) {
+        connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
+      } else if (i === 2 && cursorConnected) {
+        connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
       }
       process.stderr.write(
-        `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${sessionMarker}${connectedMarker}\n`,
+        `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${connectedMarker}\n`,
       );
     }
 
     let selection = 0;
     while (selection === 0) {
-      const input = await ask("Select (1-4): ");
+      const input = await ask("Select (1-3): ");
       const num = parseInt(input.trim(), 10);
-      if (num >= 1 && num <= 4) {
+      if (num >= 1 && num <= 3) {
         selection = num;
       }
     }
 
-    const platformBySelection: Record<number, string> = {
-      1: "openclaw",
-      2: "claude-code",
-      3: "claude-desktop",
-      4: "other-mcp",
-    };
-    const selectedPlatform = platformBySelection[selection] ?? "other-mcp";
+    const selectedPlatform = platformBySelection[selection] ?? "cursor";
+    const selectedLabel = platformLabels[selection - 1] ?? "Cursor";
 
-    // Step C: Agent name
+    // Step 2: Agent name (with platform-based default)
+    const defaultAgentName = defaultAgentNames[selection] ?? "my-agent";
     let agentName = "";
     while (agentName.length === 0) {
-      const input = await ask("\nWhat would you like to call this agent? ");
-      if (input.trim().length === 0) continue;
-      const transformed = normalizeAgentName(input);
+      const input = await ask(
+        `\nWhat would you like to call this agent? ${style.dim(`(${defaultAgentName})`)} `,
+      );
+      const raw = input.trim().length > 0 ? input.trim() : defaultAgentName;
+      const transformed = normalizeAgentName(raw);
       if (transformed.length === 0) {
         process.stderr.write(
           style.red("Agent name must contain letters or numbers. Please try again.") + "\n",
         );
         continue;
       }
-      if (transformed !== input.trim()) {
+      if (transformed !== raw) {
         process.stderr.write(style.yellow("Agent name set to: ") + style.cyan(transformed) + "\n");
       }
       agentName = transformed;
     }
 
-    // Step D: Platform-specific setup
     if (selection === 1) {
-      let detection: OpenClawDetection;
-      try {
-        detection = await detectOpenClaw();
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        process.stderr.write(style.red("\u2717") + ` Failed to read OpenClaw config: ${detail}\n`);
-        rl.close();
-        return null;
-      }
+      // OpenClaw: no MCP server URL or short name needed
+      process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
+      process.stderr.write(
+        "\nTo connect this agent, add the Multicorn Shield plugin to your OpenClaw agent:\n",
+      );
+      process.stderr.write("\n  " + style.cyan("openclaw plugins add multicorn-shield") + "\n");
+      process.stderr.write(
+        "\nThen start your agent. Shield will intercept tool calls automatically.\n",
+      );
+      configuredAgents.push({
+        platformLabel: selectedLabel,
+        agentName,
+      });
+    } else if (selection === 2) {
+      // Claude Code: no MCP server URL or short name needed
+      process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
+      process.stderr.write(
+        "\nTo connect this agent, install the Multicorn Shield plugin in Claude Code:\n",
+      );
+      process.stderr.write("\n  " + style.cyan("claude plugins install multicorn-shield") + "\n");
+      process.stderr.write(
+        "\nThen start a new Claude Code session. Shield will intercept tool calls automatically.\n",
+      );
+      configuredAgents.push({
+        platformLabel: selectedLabel,
+        agentName,
+      });
+    } else {
+      // Cursor: full flow with MCP server URL, short name, and proxy config
 
-      if (detection.status === "not-found") {
+      // Step 3: Target MCP server URL (required)
+      let targetUrl = "";
+      while (targetUrl.length === 0) {
         process.stderr.write(
-          style.red("\u2717") +
-            " OpenClaw is not installed. Install OpenClaw first, then run npx multicorn-proxy init again.\n",
+          "\n" +
+            style.bold("Your MCP server URL:") +
+            "\n" +
+            style.dim(
+              "The URL of the MCP server Shield will govern. Example: http://127.0.0.1:3847/mcp",
+            ) +
+            "\n",
         );
-        rl.close();
-        return null;
-      }
-
-      if (detection.status === "parse-error") {
-        process.stderr.write(
-          style.red("\u2717") +
-            " Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.\n",
-        );
-      }
-
-      if (detection.status === "detected") {
-        if (detection.version !== null) {
-          process.stderr.write(
-            style.green("\u2713") + ` OpenClaw detected ${style.dim(`(${detection.version})`)}\n`,
-          );
-          if (isVersionAtLeast(detection.version, OPENCLAW_MIN_VERSION)) {
-            process.stderr.write(
-              style.green("\u2713") + " " + style.green("Version compatible") + "\n",
-            );
-          } else {
-            process.stderr.write(
-              style.yellow("\u26A0") +
-                ` Shield has been tested with OpenClaw ${style.cyan(OPENCLAW_MIN_VERSION)} and above. Your version (${detection.version}) may work but is untested. We recommend upgrading to at least ${style.cyan(OPENCLAW_MIN_VERSION)}.\n`,
-            );
-            const answer = await ask("Continue anyway? (y/N) ");
-            if (answer.trim().toLowerCase() !== "y") {
-              rl.close();
-              return null;
-            }
-          }
-        } else {
-          process.stderr.write(
-            style.yellow("\u26A0") + " Could not detect OpenClaw version. Continuing anyway.\n",
-          );
+        const input = await ask("URL: ");
+        if (input.trim().length === 0) {
+          process.stderr.write(style.red("MCP server URL is required.") + "\n");
+          continue;
         }
+        targetUrl = input.trim();
+      }
 
-        const spinner = withSpinner("Updating OpenClaw config...");
+      // Step 4: Short name (auto-generated from agent name)
+      const defaultShortName = normalizeAgentName(agentName) || "shield-mcp";
+      const shortNameInput = await ask(
+        `\nShort name (used in your proxy URL): ${style.dim(`(${defaultShortName})`)} `,
+      );
+      const shortName =
+        shortNameInput.trim().length > 0
+          ? normalizeAgentName(shortNameInput.trim()) || defaultShortName
+          : defaultShortName;
+
+      // Step 5: Create proxy config via API
+      let proxyUrl = "";
+      let created = false;
+      while (!created) {
+        const spinner = withSpinner("Creating proxy config...");
         try {
-          const result = await updateOpenClawConfigIfPresent(apiKey, baseUrl, agentName);
-          if (result === "not-found") {
-            spinner.stop(false, "OpenClaw config disappeared unexpectedly.");
-            rl.close();
-            return null;
+          const response = await fetch(`${baseUrl}/api/v1/proxy/config`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Multicorn-Key": apiKey,
+            },
+            body: JSON.stringify({
+              server_name: shortName,
+              target_url: targetUrl,
+              platform: selectedPlatform,
+              agent_name: agentName,
+            }),
+            signal: AbortSignal.timeout(10000),
+          });
+
+          if (!response.ok) {
+            let errorMsg = `Service returned ${String(response.status)}.`;
+            try {
+              const errBody = (await response.json()) as Record<string, unknown>;
+              const errObj = errBody["error"] as Record<string, unknown> | undefined;
+              if (typeof errObj?.["message"] === "string") {
+                errorMsg = errObj["message"];
+              } else if (typeof errBody["message"] === "string") {
+                errorMsg = errBody["message"];
+              } else if (typeof errBody["detail"] === "string") {
+                errorMsg = errBody["detail"];
+              }
+            } catch {
+              // response body wasn't JSON
+            }
+            spinner.stop(false, errorMsg);
+            const retry = await ask("Try again? (Y/n) ");
+            if (retry.trim().toLowerCase() === "n") {
+              break;
+            }
+            continue;
           }
-          if (result === "parse-error") {
-            spinner.stop(
-              false,
-              "Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.",
-            );
-          } else {
-            spinner.stop(
-              true,
-              "OpenClaw config updated at " + style.cyan("~/.openclaw/openclaw.json"),
-            );
-          }
+
+          const envelope = (await response.json()) as Record<string, unknown>;
+          const data = envelope["data"] as Record<string, unknown> | undefined;
+          proxyUrl = typeof data?.["proxy_url"] === "string" ? data["proxy_url"] : "";
+          spinner.stop(true, "Proxy config created!");
+          created = true;
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
-          spinner.stop(false, `Failed to update OpenClaw config: ${detail}`);
+          spinner.stop(false, `Failed to create proxy config: ${detail}`);
+          const retry = await ask("Try again? (Y/n) ");
+          if (retry.trim().toLowerCase() === "n") {
+            break;
+          }
         }
       }
-    } else if (selection === 2) {
-      process.stderr.write("\nTo connect Claude Code to Shield:\n\n");
-      process.stderr.write(
-        "  " +
-          style.bold("Step 1") +
-          " - Add the Multicorn marketplace:\n" +
-          "    " +
-          style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
-          "\n\n",
-      );
-      process.stderr.write(
-        "  " +
-          style.bold("Step 2") +
-          " - Install the plugin:\n" +
-          "    " +
-          style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
-          "\n\n",
-      );
-      process.stderr.write(
-        "  " +
-          style.bold("Step 3") +
-          " - Start Claude Code:\n" +
-          "    " +
-          style.cyan("claude") +
-          "\n\n",
-      );
-      process.stderr.write(
-        style.dim("Run /plugin inside Claude Code to confirm multicorn-shield is installed.") +
-          "\n",
-      );
-      process.stderr.write(
-        style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
-      );
-    } else if (selection === 3) {
-      const mcpCommand = await ask(
-        "\nWhat MCP server should Shield govern for this agent?\nThis is the command you'd normally use to start your MCP server.\nExample: npx -y @modelcontextprotocol/server-filesystem /tmp\nLeave blank to skip and configure later: ",
-      );
 
-      if (mcpCommand.trim().length === 0) {
-        const configPath = getClaudeDesktopConfigPath();
-        process.stderr.write("\n" + style.dim("Add this to your Claude Desktop config at:") + "\n");
-        process.stderr.write("  " + style.cyan(configPath) + "\n\n");
-        const snippet = JSON.stringify(
+      if (created && proxyUrl.length > 0) {
+        process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
+        process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+
+        const mcpSnippet = JSON.stringify(
           {
             mcpServers: {
-              [agentName]: {
-                command: "npx",
-                args: [
-                  "multicorn-proxy",
-                  "--wrap",
-                  "<your-mcp-server-command>",
-                  "--agent-name",
-                  agentName,
-                ],
+              [shortName]: {
+                url: proxyUrl,
+                headers: {
+                  Authorization: `Bearer ${apiKey}`,
+                },
               },
             },
           },
           null,
           2,
         );
-        process.stderr.write(style.cyan(snippet) + "\n\n");
-      } else {
-        let shouldWrite = true;
-        const spinner = withSpinner("Updating Claude Desktop config...");
-        try {
-          let result = await updateClaudeDesktopConfig(agentName, mcpCommand.trim());
-          if (result === "skipped") {
-            spinner.stop(false, `Agent "${agentName}" already exists in Claude Desktop config.`);
-            const overwrite = await ask("Overwrite the existing entry? (y/N) ");
-            if (overwrite.trim().toLowerCase() === "y") {
-              const retrySpinner = withSpinner("Updating Claude Desktop config...");
-              result = await updateClaudeDesktopConfig(agentName, mcpCommand.trim(), true);
-              retrySpinner.stop(
-                true,
-                "Claude Desktop config updated at " + style.cyan(getClaudeDesktopConfigPath()),
-              );
-            } else {
-              shouldWrite = false;
-              process.stderr.write(style.dim("Skipped. Existing config left unchanged.") + "\n");
-            }
-          } else if (result === "parse-error") {
-            spinner.stop(false, "Claude Desktop config file contains invalid JSON.");
-            const configPath = getClaudeDesktopConfigPath();
-            process.stderr.write(
-              style.yellow("\u26A0") +
-                " Fix the JSON in " +
-                style.cyan(configPath) +
-                " or add this entry manually:\n\n",
-            );
-            const snippet = JSON.stringify(
-              {
-                mcpServers: {
-                  [agentName]: {
-                    command: "npx",
-                    args: [
-                      "multicorn-proxy",
-                      "--wrap",
-                      ...mcpCommand.trim().split(/\s+/),
-                      "--agent-name",
-                      agentName,
-                    ],
-                  },
-                },
-              },
-              null,
-              2,
-            );
-            process.stderr.write(style.cyan(snippet) + "\n\n");
-          } else {
-            const verb = result === "created" ? "Created" : "Updated";
-            spinner.stop(
-              true,
-              verb + " Claude Desktop config at " + style.cyan(getClaudeDesktopConfigPath()),
-            );
-            process.stderr.write(style.dim("Restart Claude Desktop to pick up changes.") + "\n");
-          }
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          spinner.stop(false, `Failed to update Claude Desktop config: ${detail}`);
-          shouldWrite = false;
-        }
 
-        void shouldWrite;
+        process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
+        process.stderr.write(style.cyan(mcpSnippet) + "\n\n");
+        process.stderr.write(
+          style.dim("Replace YOUR_SHIELD_API_KEY with your API key if not shown above.") + "\n",
+        );
+        process.stderr.write(
+          style.dim(
+            "Then restart Cursor and check Settings > Tools & MCPs for a green status indicator.",
+          ) + "\n",
+        );
+        process.stderr.write(
+          style.dim(
+            `Ask Cursor to use your MCP server by its short name. For example: "use the ${shortName} tool to list files in /tmp"`,
+          ) + "\n",
+        );
+
+        configuredAgents.push({
+          platformLabel: selectedLabel,
+          agentName,
+          shortName,
+          proxyUrl,
+        });
       }
-    } else {
-      process.stderr.write("\n" + style.dim("Start the Shield proxy with:") + "\n");
-      process.stderr.write(
-        "  " +
-          style.cyan(
-            `npx multicorn-proxy --wrap <your-mcp-server-command> --agent-name ${agentName}`,
-          ) +
-          "\n\n",
-      );
     }
 
-    configuredPlatforms.add(selection);
-
-    // Step E: Save config
+    // Save local config
     lastConfig = { apiKey, baseUrl, agentName, platform: selectedPlatform };
     try {
       await saveConfig(lastConfig);
@@ -760,14 +681,9 @@ export async function runInit(
       process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
     }
 
-    // Step F: Configure another agent
-    if (configuredPlatforms.size >= 4) {
-      configuring = false;
-      continue;
-    }
-
-    const another = await ask("\nWould you like to configure another agent? (y/N) ");
-    if (another.trim().toLowerCase() !== "y") {
+    // Step 6: Connect another?
+    const another = await ask("\nConnect another agent? (Y/n) ");
+    if (another.trim().toLowerCase() === "n") {
       configuring = false;
     }
   }
@@ -775,63 +691,15 @@ export async function runInit(
   rl.close();
 
   // Summary
-  process.stderr.write("\n" + style.bold(style.violet("Setup complete")) + "\n\n");
-  const allPlatforms = ["OpenClaw", "Claude Code", "Claude Desktop", "Other MCP Agent"];
-  for (const idx of configuredPlatforms) {
-    process.stderr.write(`  ${style.green("\u2713")} ${allPlatforms[idx - 1] ?? ""}\n`);
+  if (configuredAgents.length > 0) {
+    process.stderr.write("\n" + style.bold(style.violet("Setup complete")) + "\n\n");
+    for (const agent of configuredAgents) {
+      process.stderr.write(
+        `  ${style.green("\u2713")} ${agent.platformLabel} - ${style.cyan(agent.agentName)}${agent.proxyUrl != null ? ` ${style.dim(`(${agent.proxyUrl})`)}` : ""}\n`,
+      );
+    }
+    process.stderr.write("\n");
   }
-
-  // Next steps grouped by platform
-  process.stderr.write("\n" + style.bold(style.violet("Next steps")) + "\n");
-
-  const blocks: string[] = [];
-
-  if (configuredPlatforms.has(1)) {
-    blocks.push(
-      "\n" +
-        style.bold("To complete your OpenClaw setup:") +
-        "\n" +
-        "  \u2192 Restart your gateway: " +
-        style.cyan("openclaw gateway restart") +
-        "\n" +
-        "  \u2192 Start a session: " +
-        style.cyan("openclaw tui") +
-        "\n",
-    );
-  }
-  if (configuredPlatforms.has(2)) {
-    blocks.push(
-      "\n" +
-        style.bold("To complete your Claude Code setup:") +
-        "\n" +
-        "  \u2192 Add marketplace: " +
-        style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
-        "\n" +
-        "  \u2192 Install plugin: " +
-        style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
-        "\n",
-    );
-  }
-  if (configuredPlatforms.has(3)) {
-    blocks.push(
-      "\n" +
-        style.bold("To complete your Claude Desktop setup:") +
-        "\n" +
-        "  \u2192 Restart Claude Desktop to pick up config changes\n",
-    );
-  }
-  if (configuredPlatforms.has(4)) {
-    blocks.push(
-      "\n" +
-        style.bold("To complete your Other MCP Agent setup:") +
-        "\n" +
-        "  \u2192 Start your agent with: " +
-        style.cyan("npx multicorn-proxy --wrap <your-server> --agent-name <name>") +
-        "\n",
-    );
-  }
-
-  process.stderr.write(blocks.join("") + "\n");
 
   return lastConfig;
 }
