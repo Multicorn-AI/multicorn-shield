@@ -68,6 +68,8 @@ interface MulticornConfig {
   apiKey?: string;
   baseUrl?: string;
   agentName?: string;
+  agents?: readonly { readonly name: string; readonly platform: string }[];
+  defaultAgent?: string;
 }
 
 interface ShieldConfig {
@@ -89,6 +91,25 @@ function loadMulticornConfig(): MulticornConfig | null {
   }
 }
 
+function agentNameFromOpenclawPlatform(cfg: MulticornConfig | null): string | undefined {
+  if (cfg === null) return undefined;
+  const list = cfg.agents;
+  if (!Array.isArray(list)) return undefined;
+  for (const e of list) {
+    if (
+      typeof e === "object" &&
+      e !== null &&
+      "platform" in e &&
+      "name" in e &&
+      (e as { platform: string }).platform === "openclaw" &&
+      typeof (e as { name: string }).name === "string"
+    ) {
+      return (e as { name: string }).name;
+    }
+  }
+  return undefined;
+}
+
 /**
  * Read config. API key and base URL: ~/.multicorn/config.json first (cached at startup), then env.
  * Agent name and fail mode: plugin config then env.
@@ -105,6 +126,7 @@ function readConfig(): ShieldConfig {
   const agentName =
     asString(pc["agentName"]) ??
     process.env["MULTICORN_AGENT_NAME"] ??
+    agentNameFromOpenclawPlatform(cachedMulticornConfig) ??
     asString(cachedMulticornConfig?.agentName) ??
     null;
   const failMode = "closed" as const;

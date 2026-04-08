@@ -1,5 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { loadConfig, saveConfig, validateApiKey } from "./config.js";
+import {
+  loadConfig,
+  saveConfig,
+  validateApiKey,
+  getAgentByPlatform,
+  getDefaultAgent,
+  collectAgentsFromConfig,
+  type ProxyConfig,
+} from "./config.js";
 
 const readFileMock = vi.hoisted(() => vi.fn());
 const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
@@ -96,6 +104,146 @@ describe("loadConfig", () => {
     const result = await loadConfig();
 
     expect(result).toBeNull();
+  });
+
+  it("auto-migrates legacy format with agentName and platform and writes back", async () => {
+    const legacy = {
+      apiKey: "mcs_legacy",
+      baseUrl: "https://api.multicorn.ai",
+      agentName: "legacy-agent",
+      platform: "openclaw",
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(legacy));
+    writeFileMock.mockResolvedValue(undefined);
+
+    const result = await loadConfig();
+
+    expect(writeFileMock).toHaveBeenCalled();
+    expect(result?.agents).toEqual([{ name: "legacy-agent", platform: "openclaw" }]);
+    expect(result?.defaultAgent).toBe("legacy-agent");
+    expect(result).not.toHaveProperty("agentName");
+  });
+
+  it("auto-migrates legacy format without platform using unknown", async () => {
+    const legacy = {
+      apiKey: "mcs_legacy",
+      baseUrl: "https://api.multicorn.ai",
+      agentName: "solo-agent",
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(legacy));
+    writeFileMock.mockResolvedValue(undefined);
+
+    const result = await loadConfig();
+
+    expect(result?.agents?.[0]?.platform).toBe("unknown");
+    expect(result?.defaultAgent).toBe("solo-agent");
+  });
+
+  it("does not migrate when agentName is absent", async () => {
+    const minimal = { apiKey: "mcs_only", baseUrl: "https://api.multicorn.ai" };
+    readFileMock.mockResolvedValue(JSON.stringify(minimal));
+
+    const result = await loadConfig();
+
+    expect(writeFileMock).not.toHaveBeenCalled();
+    expect(result?.agents).toBeUndefined();
+  });
+
+  it("reads new multi-agent format without migrating", async () => {
+    const next = {
+      apiKey: "mcs_x",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [
+        { name: "a", platform: "openclaw" },
+        { name: "b", platform: "claude-code" },
+      ],
+      defaultAgent: "b",
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(next));
+
+    const result = await loadConfig();
+
+    expect(writeFileMock).not.toHaveBeenCalled();
+    expect(result?.agents?.length).toBe(2);
+    expect(result?.defaultAgent).toBe("b");
+  });
+});
+
+describe("getAgentByPlatform", () => {
+  const sample: ProxyConfig = {
+    apiKey: "k",
+    baseUrl: "https://api.multicorn.ai",
+    agents: [
+      { name: "oc", platform: "openclaw" },
+      { name: "cc", platform: "claude-code" },
+    ],
+  };
+
+  it("returns the entry matching platform", () => {
+    expect(getAgentByPlatform(sample, "claude-code")?.name).toBe("cc");
+  });
+
+  it("returns undefined when no platform matches", () => {
+    expect(getAgentByPlatform(sample, "cursor")).toBeUndefined();
+  });
+});
+
+describe("getDefaultAgent", () => {
+  it("returns the agent named by defaultAgent", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [
+        { name: "first", platform: "openclaw" },
+        { name: "second", platform: "claude-code" },
+      ],
+      defaultAgent: "second",
+    };
+    expect(getDefaultAgent(cfg)?.name).toBe("second");
+  });
+
+  it("returns first agent when defaultAgent is unset", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [{ name: "only", platform: "cursor" }],
+    };
+    expect(getDefaultAgent(cfg)?.name).toBe("only");
+  });
+
+  it("returns undefined when agents is empty", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [],
+    };
+    expect(getDefaultAgent(cfg)).toBeUndefined();
+  });
+
+  it("returns undefined when agents is missing", () => {
+    const cfg: ProxyConfig = { apiKey: "k", baseUrl: "https://api.multicorn.ai" };
+    expect(getDefaultAgent(cfg)).toBeUndefined();
+  });
+});
+
+describe("collectAgentsFromConfig", () => {
+  it("collects from agents array", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [{ name: "x", platform: "p" }],
+    };
+    expect(collectAgentsFromConfig(cfg)).toEqual([{ name: "x", platform: "p" }]);
+  });
+
+  it("falls back to legacy agentName and platform", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agentName: "old",
+      platform: "openclaw",
+    };
+    expect(collectAgentsFromConfig(cfg)).toEqual([{ name: "old", platform: "openclaw" }]);
   });
 });
 

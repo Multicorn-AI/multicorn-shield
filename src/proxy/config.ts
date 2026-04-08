@@ -66,11 +66,21 @@ const OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 
 export type OpenClawUpdateResult = "updated" | "not-found" | "parse-error";
 
+/** One registered agent in ~/.multicorn/config.json (multi-agent model). */
+export interface AgentEntry {
+  readonly name: string;
+  readonly platform: string;
+}
+
 export interface ProxyConfig {
   readonly apiKey: string;
   readonly baseUrl: string;
+  /** @deprecated Prefer `agents` + lookup by platform. */
   readonly agentName?: string;
+  /** @deprecated Prefer `agents` + lookup by platform. */
   readonly platform?: string;
+  readonly agents?: readonly AgentEntry[];
+  readonly defaultAgent?: string;
 }
 
 export interface ApiKeyValidationResult {
@@ -119,12 +129,66 @@ function isProxyConfig(value: unknown): value is ProxyConfig {
   return typeof obj["apiKey"] === "string" && typeof obj["baseUrl"] === "string";
 }
 
+function isAgentEntry(value: unknown): value is AgentEntry {
+  if (typeof value !== "object" || value === null) return false;
+  const o = value as Record<string, unknown>;
+  return typeof o["name"] === "string" && typeof o["platform"] === "string";
+}
+
+/**
+ * Returns the first agent whose platform matches (e.g. "claude-code", "openclaw").
+ */
+export function getAgentByPlatform(config: ProxyConfig, platform: string): AgentEntry | undefined {
+  const list = config.agents;
+  if (list === undefined || list.length === 0) return undefined;
+  return list.find((a) => a.platform === platform);
+}
+
+/**
+ * Resolves the default agent: matches `defaultAgent` name, else first entry, else undefined.
+ */
+export function getDefaultAgent(config: ProxyConfig): AgentEntry | undefined {
+  const list = config.agents;
+  if (list === undefined || list.length === 0) return undefined;
+  const defName = config.defaultAgent;
+  if (typeof defName === "string" && defName.length > 0) {
+    const match = list.find((a) => a.name === defName);
+    if (match !== undefined) return match;
+  }
+  return list[0];
+}
+
+/**
+ * Builds a mutable list of agents from config (new `agents` array or legacy fields).
+ */
+export function collectAgentsFromConfig(cfg: ProxyConfig | null): AgentEntry[] {
+  if (cfg === null) return [];
+  if (cfg.agents !== undefined && cfg.agents.length > 0) {
+    return cfg.agents.map((a) => ({ name: a.name, platform: a.platform }));
+  }
+  const raw = cfg as unknown as Record<string, unknown>;
+  const legacyName = raw["agentName"];
+  const legacyPlatform = raw["platform"];
+  if (typeof legacyName === "string" && legacyName.length > 0) {
+    const plat =
+      typeof legacyPlatform === "string" && legacyPlatform.length > 0 ? legacyPlatform : "unknown";
+    return [{ name: legacyName, platform: plat }];
+  }
+  return [];
+}
+
 // ---------------------------------------------------------------------------
 // Config load / save
 // ---------------------------------------------------------------------------
 
 /**
  * Loads the proxy config from ~/.multicorn/config.json.
+ * Migrates legacy single-agent shape to `agents` + `defaultAgent` on first read and writes back.
+ *
+ * **Persisted shape:** migration removes top-level `agentName` and `platform` from disk in favor of
+ * `agents` + `defaultAgent`. Out-of-repo tools that read the raw JSON must switch to the new fields
+ * (breaking change for that contract only; in-repo callers are updated).
+ *
  * @returns The parsed config, or null if the file is missing or invalid.
  */
 export async function loadConfig(): Promise<ProxyConfig | null> {
@@ -132,10 +196,63 @@ export async function loadConfig(): Promise<ProxyConfig | null> {
     const raw = await readFile(CONFIG_PATH, "utf8");
     const parsed: unknown = JSON.parse(raw);
     if (!isProxyConfig(parsed)) return null;
-    return parsed;
+    const obj = parsed as unknown as Record<string, unknown>;
+    const agentNameRaw = obj["agentName"];
+    const agentsRaw = obj["agents"];
+    const hasNonEmptyAgents =
+      Array.isArray(agentsRaw) && agentsRaw.length > 0 && agentsRaw.every((e) => isAgentEntry(e));
+    const needsMigrate =
+      typeof agentNameRaw === "string" && agentNameRaw.length > 0 && !hasNonEmptyAgents;
+
+    if (!needsMigrate) {
+      return parsed;
+    }
+
+    const platform =
+      typeof obj["platform"] === "string" && obj["platform"].length > 0
+        ? obj["platform"]
+        : "unknown";
+    const next: Record<string, unknown> = { ...obj };
+    delete next["agentName"];
+    delete next["platform"];
+    next["agents"] = [{ name: agentNameRaw, platform }];
+    next["defaultAgent"] = agentNameRaw;
+    const migrated = next as unknown as ProxyConfig;
+    await saveConfig(migrated);
+    return migrated;
   } catch {
     return null;
   }
+}
+
+/**
+ * Removes an agent by name from the config file. Clears `defaultAgent` if it pointed at that name.
+ * @returns true if the agent was found and removed.
+ */
+export async function deleteAgentByName(name: string): Promise<boolean> {
+  const config = await loadConfig();
+  if (config === null) return false;
+  const agents = collectAgentsFromConfig(config);
+  const idx = agents.findIndex((a) => a.name === name);
+  if (idx === -1) return false;
+  const nextAgents = agents.filter((_, i) => i !== idx);
+  let defaultAgent = config.defaultAgent;
+  if (defaultAgent === name) {
+    defaultAgent = undefined;
+  }
+  const raw = { ...(config as unknown as Record<string, unknown>) };
+  if (nextAgents.length > 0) {
+    raw["agents"] = nextAgents;
+  } else {
+    delete raw["agents"];
+  }
+  if (defaultAgent !== undefined && defaultAgent.length > 0) {
+    raw["defaultAgent"] = defaultAgent;
+  } else {
+    delete raw["defaultAgent"];
+  }
+  await saveConfig(raw as unknown as ProxyConfig);
+  return true;
 }
 
 /**
@@ -677,13 +794,9 @@ function printClaudeCodeInstructions(): void {
  * Runs the interactive init flow: validates an API key, selects a platform,
  * and configures one or more agents.
  * @param baseUrl - The Shield API base URL (defaults to production).
- * @param platform - Optional platform override to skip the selection prompt.
  * @returns The last saved config, or null if the user exited early.
  */
-export async function runInit(
-  baseUrl = "https://api.multicorn.ai",
-  platform?: string,
-): Promise<ProxyConfig | null> {
+export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
   if (!process.stdin.isTTY) {
     process.stderr.write(
       style.red("Error: interactive terminal required. Cannot run init with piped input.") + "\n",
@@ -772,12 +885,23 @@ export async function runInit(
     return null;
   }
 
-  // Agent configuration loop
+  // Agent configuration loop (append to `agents`, no silent duplicate platforms)
   const configuredAgents: ConfiguredAgent[] = [];
+  let currentAgents: AgentEntry[] = collectAgentsFromConfig(existing);
   let lastConfig: ProxyConfig = {
     apiKey,
     baseUrl,
-    ...(platform !== undefined ? { platform } : {}),
+    ...(currentAgents.length > 0
+      ? {
+          agents: currentAgents,
+          defaultAgent:
+            existing !== null &&
+            typeof existing.defaultAgent === "string" &&
+            existing.defaultAgent.length > 0
+              ? existing.defaultAgent
+              : (currentAgents[currentAgents.length - 1]?.name ?? ""),
+        }
+      : {}),
   };
 
   let configuring = true;
@@ -786,14 +910,33 @@ export async function runInit(
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
 
+    const existingForPlatform = currentAgents.find((a) => a.platform === selectedPlatform);
+    if (existingForPlatform !== undefined) {
+      process.stderr.write(
+        `\nAn agent for ${selectedLabel} already exists: ${style.cyan(existingForPlatform.name)}\n`,
+      );
+      const replace = await ask("Replace it? (Y/n) ");
+      if (replace.trim().toLowerCase() === "n") {
+        const another = await ask("\nConnect another agent? (Y/n) ");
+        if (another.trim().toLowerCase() === "n") {
+          configuring = false;
+        }
+        continue;
+      }
+    }
+
     const agentName = await promptAgentName(ask, selectedPlatform);
+
+    let setupSucceeded = false;
 
     if (selection === 1) {
       printOpenClawInstructions();
       configuredAgents.push({ platformLabel: selectedLabel, agentName });
+      setupSucceeded = true;
     } else if (selection === 2) {
       printClaudeCodeInstructions();
       configuredAgents.push({ platformLabel: selectedLabel, agentName });
+      setupSucceeded = true;
     } else {
       const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
 
@@ -832,17 +975,33 @@ export async function runInit(
           shortName,
           proxyUrl,
         });
+        setupSucceeded = true;
       }
     }
 
-    // Save local config
-    lastConfig = { apiKey, baseUrl, agentName, platform: selectedPlatform };
-    try {
-      await saveConfig(lastConfig);
-      process.stderr.write(style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`);
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
+    if (setupSucceeded) {
+      currentAgents = currentAgents.filter((a) => a.platform !== selectedPlatform);
+      currentAgents.push({ name: agentName, platform: selectedPlatform });
+      const raw =
+        existing !== null
+          ? { ...(existing as unknown as Record<string, unknown>) }
+          : ({} as Record<string, unknown>);
+      raw["apiKey"] = apiKey;
+      raw["baseUrl"] = baseUrl;
+      raw["agents"] = currentAgents;
+      raw["defaultAgent"] = agentName;
+      delete raw["agentName"];
+      delete raw["platform"];
+      lastConfig = raw as unknown as ProxyConfig;
+      try {
+        await saveConfig(lastConfig);
+        process.stderr.write(
+          style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`,
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
+      }
     }
 
     // Connect another?

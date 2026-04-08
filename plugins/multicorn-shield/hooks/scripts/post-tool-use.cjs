@@ -38,6 +38,29 @@ function readStdin() {
 }
 
 /**
+ * Resolves agent name: agents[] with platform claude-code, else legacy agentName.
+ * Keep in sync with pre-tool-use.cjs.
+ * @param {Record<string, unknown>} obj
+ * @returns {string}
+ */
+function resolveClaudeCodeAgentName(obj) {
+  const agents = obj.agents;
+  if (Array.isArray(agents)) {
+    for (const entry of agents) {
+      if (
+        entry &&
+        typeof entry === "object" &&
+        /** @type {{ platform?: string; name?: string }} */ (entry).platform === "claude-code" &&
+        typeof /** @type {{ platform?: string; name?: string }} */ (entry).name === "string"
+      ) {
+        return /** @type {{ name: string }} */ (entry).name;
+      }
+    }
+  }
+  return typeof obj.agentName === "string" ? obj.agentName : "";
+}
+
+/**
  * @returns {{ apiKey: string; baseUrl: string; agentName: string } | null}
  */
 function loadConfig() {
@@ -50,7 +73,7 @@ function loadConfig() {
       typeof obj.baseUrl === "string" && obj.baseUrl.length > 0
         ? obj.baseUrl.replace(/\/+$/, "")
         : "https://api.multicorn.ai";
-    const agentName = typeof obj.agentName === "string" ? obj.agentName : "";
+    const agentName = resolveClaudeCodeAgentName(obj);
     return { apiKey, baseUrl, agentName };
   } catch {
     return null;
