@@ -51,7 +51,7 @@ function resolveClaudeCodeAgentName(obj) {
         entry &&
         typeof entry === "object" &&
         /** @type {{ platform?: string; name?: string }} */ (entry).platform === "claude-code" &&
-        typeof /** @type {{ platform?: string; name?: string }} */ (entry).name === "string"
+        typeof (/** @type {{ platform?: string; name?: string }} */ (entry).name) === "string"
       ) {
         return /** @type {{ name: string }} */ (entry).name;
       }
