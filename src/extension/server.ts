@@ -4,7 +4,7 @@
  * @module extension/server
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -159,8 +159,33 @@ function readBaseUrl(): string {
 }
 
 function readAgentName(): string {
+  try {
+    const rawFile = readFileSync(getMulticornConfigPath(), "utf8");
+    const obj = JSON.parse(rawFile) as Record<string, unknown>;
+    const agents = obj["agents"];
+    if (Array.isArray(agents)) {
+      for (const e of agents) {
+        if (
+          typeof e === "object" &&
+          e !== null &&
+          (e as { platform?: string }).platform === "claude-desktop" &&
+          typeof (e as { name?: string }).name === "string"
+        ) {
+          const n = (e as { name: string }).name.trim();
+          if (n.length > 0) {
+            return n;
+          }
+        }
+      }
+    }
+  } catch {
+    // Config file missing or malformed - fall through to env var and default.
+  }
   const raw = process.env["MULTICORN_AGENT_NAME"]?.trim();
-  return raw !== undefined && raw.length > 0 ? raw : "claude-desktop-shield";
+  if (raw !== undefined && raw.length > 0 && !raw.startsWith("${")) {
+    return raw;
+  }
+  return "claude-desktop-shield";
 }
 
 function readLogLevel(): LogLevel {

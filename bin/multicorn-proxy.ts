@@ -10,19 +10,28 @@
  * @module bin/multicorn-proxy
  */
 
-import { loadConfig, runInit } from "../src/proxy/config.js";
+import {
+  loadConfig,
+  runInit,
+  collectAgentsFromConfig,
+  deleteAgentByName,
+  getAgentByPlatform,
+  getDefaultAgent,
+  type ProxyConfig,
+} from "../src/proxy/config.js";
 import { createProxyServer } from "../src/proxy/index.js";
 import { createLogger, isValidLogLevel, type LogLevel } from "../src/proxy/logger.js";
 import { deriveDashboardUrl } from "../src/proxy/consent.js";
 
 interface CliArgs {
-  readonly subcommand: "init" | "wrap" | "help";
+  readonly subcommand: "init" | "wrap" | "help" | "agents" | "delete-agent";
   readonly wrapCommand: string;
   readonly wrapArgs: readonly string[];
   readonly logLevel: LogLevel;
   readonly baseUrl: string;
   readonly dashboardUrl: string;
   readonly agentName: string;
+  readonly deleteAgentName: string;
 }
 
 function parseArgs(argv: readonly string[]): CliArgs {
@@ -35,12 +44,25 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let baseUrl = "https://api.multicorn.ai";
   let dashboardUrl = "";
   let agentName = "";
+  let deleteAgentName = "";
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
     if (arg === "init") {
       subcommand = "init";
+    } else if (arg === "agents") {
+      subcommand = "agents";
+    } else if (arg === "delete-agent") {
+      subcommand = "delete-agent";
+      const name = args[i + 1];
+      if (name === undefined || name.startsWith("-")) {
+        process.stderr.write("Error: delete-agent requires an agent name.\n");
+        process.stderr.write("Example: npx multicorn-proxy delete-agent my-agent\n");
+        process.exit(1);
+      }
+      deleteAgentName = name;
+      i++;
     } else if (arg === "--wrap") {
       subcommand = "wrap";
       const next = args[i + 1];
@@ -114,7 +136,16 @@ function parseArgs(argv: readonly string[]): CliArgs {
     }
   }
 
-  return { subcommand, wrapCommand, wrapArgs, logLevel, baseUrl, dashboardUrl, agentName };
+  return {
+    subcommand,
+    wrapCommand,
+    wrapArgs,
+    logLevel,
+    baseUrl,
+    dashboardUrl,
+    agentName,
+    deleteAgentName,
+  };
 }
 
 function printHelp(): void {
@@ -125,6 +156,12 @@ function printHelp(): void {
       "Usage:",
       "  npx multicorn-proxy init",
       "      Interactive setup. Saves API key to ~/.multicorn/config.json.",
+      "",
+      "  npx multicorn-proxy agents",
+      "      List configured agents and show which is the default.",
+      "",
+      "  npx multicorn-proxy delete-agent <name>",
+      "      Remove a saved agent.",
       "",
       "  npx multicorn-proxy --wrap <command> [args...]",
       "      Start <command> as an MCP server and proxy all tool calls through",
@@ -159,6 +196,39 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cli.subcommand === "agents") {
+    const config = await loadConfig();
+    if (config === null) {
+      process.stderr.write(
+        "No config found. Run `npx multicorn-proxy init` to set up your API key.\n",
+      );
+      process.exit(1);
+    }
+    const agents = collectAgentsFromConfig(config);
+    if (agents.length === 0) {
+      process.stderr.write("No agents configured. Run `npx multicorn-proxy init` to add one.\n");
+      process.exit(0);
+    }
+    const def = config.defaultAgent;
+    process.stdout.write("Configured agents:\n");
+    for (const a of agents) {
+      const mark = a.name === def ? " (default)" : "";
+      process.stdout.write(`${a.name} (${a.platform})${mark}\n`);
+    }
+    return;
+  }
+
+  if (cli.subcommand === "delete-agent") {
+    const safeName = cli.deleteAgentName.replace(/[^\x20-\x7E]/g, "");
+    const ok = await deleteAgentByName(cli.deleteAgentName);
+    if (!ok) {
+      process.stderr.write(`No agent named "${safeName}" in config.\n`);
+      process.exit(1);
+    }
+    process.stdout.write(`Removed agent "${safeName}".\n`);
+    return;
+  }
+
   // Validate base URL before any network calls that send the API key.
   if (
     !cli.baseUrl.startsWith("https://") &&
@@ -181,16 +251,17 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const agentName =
-    cli.agentName.length > 0
-      ? cli.agentName
-      : config.agentName !== undefined && config.agentName.length > 0
-        ? config.agentName
-        : deriveAgentName(cli.wrapCommand);
+  const agentName = resolveWrapAgentName(cli, config);
 
   const finalBaseUrl = cli.baseUrl !== "https://api.multicorn.ai" ? cli.baseUrl : config.baseUrl;
   const finalDashboardUrl =
     cli.dashboardUrl !== "" ? cli.dashboardUrl : deriveDashboardUrl(finalBaseUrl);
+
+  /* eslint-disable @typescript-eslint/no-deprecated -- legacy top-level platform until wrap supports --platform */
+  const legacyPlatform = config.platform;
+  /* eslint-enable @typescript-eslint/no-deprecated */
+  const platformForServer =
+    typeof legacyPlatform === "string" && legacyPlatform.length > 0 ? legacyPlatform : "other-mcp";
 
   const proxy = createProxyServer({
     command: cli.wrapCommand,
@@ -200,7 +271,7 @@ async function main(): Promise<void> {
     baseUrl: finalBaseUrl,
     dashboardUrl: finalDashboardUrl,
     logger,
-    platform: config.platform ?? "other-mcp",
+    platform: platformForServer,
   });
 
   async function shutdown(): Promise<void> {
@@ -218,6 +289,31 @@ async function main(): Promise<void> {
   });
 
   await proxy.start();
+}
+
+function resolveWrapAgentName(cli: CliArgs, config: ProxyConfig): string {
+  if (cli.agentName.length > 0) {
+    return cli.agentName;
+  }
+  /* eslint-disable @typescript-eslint/no-deprecated -- legacy top-level fields for wrap defaulting until --platform exists */
+  const legacyPlatform = config.platform;
+  const legacyAgentName = config.agentName;
+  /* eslint-enable @typescript-eslint/no-deprecated */
+  // After migration, config.platform is usually absent so this lookup falls through to getDefaultAgent. When --platform is added as a CLI flag, this becomes the primary resolution path.
+  const platformKey =
+    typeof legacyPlatform === "string" && legacyPlatform.length > 0 ? legacyPlatform : "other-mcp";
+  const fromPlatform = getAgentByPlatform(config, platformKey);
+  if (fromPlatform !== undefined) {
+    return fromPlatform.name;
+  }
+  const fallbackDefault = getDefaultAgent(config);
+  if (fallbackDefault !== undefined) {
+    return fallbackDefault.name;
+  }
+  if (typeof legacyAgentName === "string" && legacyAgentName.length > 0) {
+    return legacyAgentName;
+  }
+  return deriveAgentName(cli.wrapCommand);
 }
 
 function deriveAgentName(command: string): string {
