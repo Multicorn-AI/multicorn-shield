@@ -13,6 +13,10 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
 const style = {
   violet: (s: string) => `\x1b[38;2;124;58;237m${s}\x1b[0m`,
   violetLight: (s: string) => `\x1b[38;2;167;139;250m${s}\x1b[0m`,
@@ -56,6 +60,10 @@ export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
 const OPENCLAW_CONFIG_PATH = join(homedir(), ".openclaw", "openclaw.json");
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 export type OpenClawUpdateResult = "updated" | "not-found" | "parse-error";
 
 export interface ProxyConfig {
@@ -70,6 +78,55 @@ export interface ApiKeyValidationResult {
   readonly error?: string;
 }
 
+export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
+
+interface ConfiguredAgent {
+  readonly platformLabel: string;
+  readonly agentName: string;
+  readonly shortName?: string;
+  readonly proxyUrl?: string;
+}
+
+type AskFn = (question: string) => Promise<string>;
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+const ANSI_PATTERN = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*[a-zA-Z]", "g");
+
+function stripAnsi(str: string): string {
+  return str.replace(ANSI_PATTERN, "");
+}
+
+function normalizeAgentName(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-{2,}/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 50);
+}
+
+function isErrnoException(e: unknown): e is NodeJS.ErrnoException {
+  return typeof e === "object" && e !== null && "code" in e;
+}
+
+function isProxyConfig(value: unknown): value is ProxyConfig {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj["apiKey"] === "string" && typeof obj["baseUrl"] === "string";
+}
+
+// ---------------------------------------------------------------------------
+// Config load / save
+// ---------------------------------------------------------------------------
+
+/**
+ * Loads the proxy config from ~/.multicorn/config.json.
+ * @returns The parsed config, or null if the file is missing or invalid.
+ */
 export async function loadConfig(): Promise<ProxyConfig | null> {
   try {
     const raw = await readFile(CONFIG_PATH, "utf8");
@@ -81,6 +138,10 @@ export async function loadConfig(): Promise<ProxyConfig | null> {
   }
 }
 
+/**
+ * Persists the proxy config to ~/.multicorn/config.json with restricted permissions.
+ * @param config - The config to save.
+ */
 export async function saveConfig(config: ProxyConfig): Promise<void> {
   await mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
   // Mode 0o600: owner read/write only. Prevents other users from reading the API key.
@@ -90,14 +151,16 @@ export async function saveConfig(config: ProxyConfig): Promise<void> {
   });
 }
 
-function isErrnoException(e: unknown): e is NodeJS.ErrnoException {
-  return typeof e === "object" && e !== null && "code" in e;
-}
+// ---------------------------------------------------------------------------
+// OpenClaw config
+// ---------------------------------------------------------------------------
 
 /**
- * If ~/.openclaw/openclaw.json exists, set MULTICORN_API_KEY, MULTICORN_BASE_URL,
- * and optionally MULTICORN_AGENT_NAME under hooks.internal.entries["multicorn-shield"].env.
- * Returns the outcome so the caller can decide how to message the user.
+ * Updates ~/.openclaw/openclaw.json with Shield credentials if the file exists.
+ * @param apiKey - The Shield API key to store.
+ * @param baseUrl - The Shield API base URL to store.
+ * @param agentName - Optional agent name to register.
+ * @returns The outcome of the update attempt.
  */
 export async function updateOpenClawConfigIfPresent(
   apiKey: string,
@@ -151,7 +214,6 @@ export async function updateOpenClawConfigIfPresent(
   if (agentName !== undefined) {
     env["MULTICORN_AGENT_NAME"] = agentName;
 
-    // Overwrite the default agent (first entry) in agents.list so the TUI picks up the name
     const agentsList = obj["agents"] as Record<string, unknown> | undefined;
     const list = agentsList?.["list"];
     if (Array.isArray(list) && list.length > 0) {
@@ -175,6 +237,16 @@ export async function updateOpenClawConfigIfPresent(
   return "updated";
 }
 
+// ---------------------------------------------------------------------------
+// API key validation
+// ---------------------------------------------------------------------------
+
+/**
+ * Validates an API key against the Shield service.
+ * @param apiKey - The API key to validate.
+ * @param baseUrl - The Shield API base URL.
+ * @returns Validation result indicating whether the key is accepted.
+ */
 export async function validateApiKey(
   apiKey: string,
   baseUrl: string,
@@ -206,15 +278,9 @@ export async function validateApiKey(
   }
 }
 
-function normalizeAgentName(raw: string): string {
-  return raw
-    .toLowerCase()
-    .replace(/\s+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-{2,}/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 50);
-}
+// ---------------------------------------------------------------------------
+// Connection status
+// ---------------------------------------------------------------------------
 
 async function isOpenClawConnected(): Promise<boolean> {
   try {
@@ -240,6 +306,45 @@ function isClaudeCodeConnected(): boolean {
   }
 }
 
+/**
+ * Returns the path to the Cursor MCP config file.
+ * @returns Absolute path to ~/.cursor/mcp.json.
+ */
+export function getCursorConfigPath(): string {
+  return join(homedir(), ".cursor", "mcp.json");
+}
+
+/**
+ * Checks whether a Multicorn proxy entry exists in the Cursor MCP config.
+ * @returns True if an existing Multicorn entry was found.
+ */
+export async function isCursorConnected(): Promise<boolean> {
+  try {
+    const raw = await readFile(getCursorConfigPath(), "utf8");
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
+    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
+    for (const entry of Object.values(mcpServers)) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const rec = entry as Record<string, unknown>;
+      const url = rec["url"];
+      if (typeof url === "string" && url.includes("multicorn")) return true;
+      const args = rec["args"];
+      if (Array.isArray(args) && args.includes("multicorn-proxy")) return true;
+    }
+    return false;
+  } catch (err) {
+    process.stderr.write(
+      `Warning: could not check Cursor connection status: ${err instanceof Error ? err.message : String(err)}\n`,
+    );
+    return false;
+  }
+}
+
+/**
+ * Returns the platform-specific path to the Claude Desktop config file.
+ * @returns Absolute path to claude_desktop_config.json.
+ */
 export function getClaudeDesktopConfigPath(): string {
   switch (process.platform) {
     case "win32":
@@ -261,32 +366,17 @@ export function getClaudeDesktopConfigPath(): string {
   }
 }
 
-export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
+// ---------------------------------------------------------------------------
+// Claude Desktop config
+// ---------------------------------------------------------------------------
 
-export function getCursorConfigPath(): string {
-  return join(homedir(), ".cursor", "mcp.json");
-}
-
-async function isCursorConnected(): Promise<boolean> {
-  try {
-    const raw = await readFile(getCursorConfigPath(), "utf8");
-    const obj = JSON.parse(raw) as Record<string, unknown>;
-    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
-    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
-    for (const entry of Object.values(mcpServers)) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const rec = entry as Record<string, unknown>;
-      const url = rec["url"];
-      if (typeof url === "string" && url.includes("multicorn")) return true;
-      const args = rec["args"];
-      if (Array.isArray(args) && args.includes("multicorn-proxy")) return true;
-    }
-    return false;
-  } catch {
-    return false;
-  }
-}
-
+/**
+ * Adds or updates a Multicorn proxy entry in the Claude Desktop config.
+ * @param agentName - The agent name to register as an MCP server key.
+ * @param mcpServerCommand - The command string the proxy should wrap.
+ * @param overwrite - If true, overwrite an existing entry with the same name.
+ * @returns The outcome of the update attempt.
+ */
 export async function updateClaudeDesktopConfig(
   agentName: string,
   mcpServerCommand: string,
@@ -342,7 +432,254 @@ export async function updateClaudeDesktopConfig(
   return fileExists ? "updated" : "created";
 }
 
-// TODO SR-03: Refactor runInit into smaller functions once the interactive flow is finalized
+// detectOpenClaw and isVersionAtLeast were removed in the CLI rewrite (Apr 2026).
+// Platform detection is now handled by checking for registered agents via the API.
+// Version gating is enforced server-side.
+
+// ---------------------------------------------------------------------------
+// Init flow - extracted helpers
+// ---------------------------------------------------------------------------
+
+const PLATFORM_LABELS = ["OpenClaw", "Claude Code", "Cursor"];
+const PLATFORM_BY_SELECTION: Record<number, string> = {
+  1: "openclaw",
+  2: "claude-code",
+  3: "cursor",
+};
+const DEFAULT_AGENT_NAMES: Record<string, string> = {
+  openclaw: "my-openclaw-agent",
+  "claude-code": "my-claude-code-agent",
+  cursor: "my-cursor-agent",
+};
+
+async function promptPlatformSelection(ask: AskFn): Promise<number> {
+  process.stderr.write(
+    "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n",
+  );
+
+  const connectedFlags = [
+    await isOpenClawConnected(),
+    isClaudeCodeConnected(),
+    await isCursorConnected(),
+  ];
+
+  for (let i = 0; i < PLATFORM_LABELS.length; i++) {
+    const marker = connectedFlags[i] ? " " + style.green("\u2713") + style.dim(" connected") : "";
+    process.stderr.write(
+      `  ${style.violet(String(i + 1))}. ${PLATFORM_LABELS[i] ?? ""}${marker}\n`,
+    );
+  }
+
+  let selection = 0;
+  while (selection === 0) {
+    const input = await ask("Select (1-3): ");
+    const num = parseInt(input.trim(), 10);
+    if (num >= 1 && num <= 3) {
+      selection = num;
+    }
+  }
+  return selection;
+}
+
+async function promptAgentName(ask: AskFn, platform: string): Promise<string> {
+  const defaultAgentName = DEFAULT_AGENT_NAMES[platform] ?? "my-agent";
+
+  let agentName = "";
+  while (agentName.length === 0) {
+    const input = await ask(
+      `\nWhat would you like to call this agent? ${style.dim(`(${defaultAgentName})`)} `,
+    );
+    const raw = input.trim().length > 0 ? input.trim() : defaultAgentName;
+    const transformed = normalizeAgentName(raw);
+    if (transformed.length === 0) {
+      process.stderr.write(
+        style.red("Agent name must contain letters or numbers. Please try again.") + "\n",
+      );
+      continue;
+    }
+    if (transformed !== raw) {
+      process.stderr.write(style.yellow("Agent name set to: ") + style.cyan(transformed) + "\n");
+    }
+    agentName = transformed;
+  }
+  return agentName;
+}
+
+async function promptProxyConfig(
+  ask: AskFn,
+  agentName: string,
+): Promise<{ targetUrl: string; shortName: string }> {
+  let targetUrl = "";
+  while (targetUrl.length === 0) {
+    process.stderr.write(
+      "\n" +
+        style.bold("Target MCP server URL:") +
+        "\n" +
+        style.dim(
+          "The URL of the MCP server you want Shield to protect. Example: https://your-server.example.com/mcp",
+        ) +
+        "\n",
+    );
+    const input = await ask("URL: ");
+    if (input.trim().length === 0) {
+      process.stderr.write(style.red("MCP server URL is required.") + "\n");
+      continue;
+    }
+    try {
+      new URL(input.trim());
+    } catch {
+      process.stderr.write(
+        style.red(
+          "\u2717 That does not look like a valid URL. Please enter a full URL including the scheme (e.g. https://your-server.example.com/mcp).",
+        ) + "\n",
+      );
+      continue;
+    }
+    targetUrl = input.trim();
+  }
+
+  const defaultShortName = normalizeAgentName(agentName) || "shield-mcp";
+  const shortNameInput = await ask(
+    `\nShort name (a nickname for this connection, used in your proxy URL): ${style.dim(`(${defaultShortName})`)} `,
+  );
+  const shortName =
+    shortNameInput.trim().length > 0
+      ? normalizeAgentName(shortNameInput.trim()) || defaultShortName
+      : defaultShortName;
+
+  return { targetUrl, shortName };
+}
+
+async function createProxyConfig(
+  baseUrl: string,
+  apiKey: string,
+  agentName: string,
+  targetUrl: string,
+  serverName: string,
+  platform: string,
+): Promise<string> {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/v1/proxy/config`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Multicorn-Key": apiKey,
+      },
+      body: JSON.stringify({
+        server_name: serverName,
+        target_url: targetUrl,
+        platform,
+        agent_name: agentName,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to create proxy config: ${detail}`);
+  }
+
+  if (!response.ok) {
+    let errorMsg = `Shield API returned an error (HTTP ${String(response.status)}). Check your agent name and target URL, then try again.`;
+    try {
+      const errBody = (await response.json()) as Record<string, unknown>;
+      const errObj = errBody["error"] as Record<string, unknown> | undefined;
+      if (typeof errObj?.["message"] === "string") {
+        errorMsg = stripAnsi(errObj["message"]);
+      } else if (typeof errBody["message"] === "string") {
+        errorMsg = stripAnsi(errBody["message"]);
+      } else if (typeof errBody["detail"] === "string") {
+        errorMsg = stripAnsi(errBody["detail"]);
+      }
+    } catch {
+      // response body wasn't JSON
+    }
+    throw new Error(errorMsg);
+  }
+
+  const envelope = (await response.json()) as Record<string, unknown>;
+  const data = envelope["data"] as Record<string, unknown> | undefined;
+  return typeof data?.["proxy_url"] === "string" ? data["proxy_url"] : "";
+}
+
+function printPlatformSnippet(platform: string, routingToken: string, shortName: string): void {
+  const mcpSnippet = JSON.stringify(
+    {
+      mcpServers: {
+        [shortName]: {
+          url: routingToken,
+          headers: {
+            Authorization: "Bearer YOUR_SHIELD_API_KEY",
+          },
+        },
+      },
+    },
+    null,
+    2,
+  );
+
+  if (platform === "openclaw") {
+    process.stderr.write("\n" + style.dim("Add this to your OpenClaw agent config:") + "\n\n");
+  } else if (platform === "claude-code") {
+    process.stderr.write("\n" + style.dim("Add this to your Claude Code MCP config:") + "\n\n");
+  } else {
+    process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
+  }
+
+  process.stderr.write(style.cyan(mcpSnippet) + "\n\n");
+  process.stderr.write(
+    style.dim(
+      "Replace YOUR_SHIELD_API_KEY with your API key. Find it in Settings > API keys at https://app.multicorn.ai/settings/api-keys",
+    ) + "\n",
+  );
+
+  if (platform === "cursor") {
+    process.stderr.write(
+      style.dim(
+        "Then restart Cursor and check Settings > Tools & MCPs for a green status indicator.",
+      ) + "\n",
+    );
+    process.stderr.write(
+      style.dim(
+        `Ask Cursor to use your MCP server by its short name. For example: "use the ${shortName} tool to list files in /tmp"`,
+      ) + "\n",
+    );
+  }
+}
+
+function printOpenClawInstructions(): void {
+  process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
+  process.stderr.write(
+    "\nTo connect this agent, add the Multicorn Shield plugin to your OpenClaw agent:\n",
+  );
+  process.stderr.write("\n  " + style.cyan("openclaw plugins add multicorn-shield") + "\n");
+  process.stderr.write(
+    "\nThen start your agent. Shield will monitor and protect tool calls automatically.\n",
+  );
+}
+
+function printClaudeCodeInstructions(): void {
+  process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
+  process.stderr.write(
+    "\nTo connect this agent, install the Multicorn Shield plugin in Claude Code:\n",
+  );
+  process.stderr.write("\n  " + style.cyan("claude plugins install multicorn-shield") + "\n");
+  process.stderr.write(
+    "\nThen start a new Claude Code session. Shield will monitor and protect tool calls automatically.\n",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main init
+// ---------------------------------------------------------------------------
+
+/**
+ * Runs the interactive init flow: validates an API key, selects a platform,
+ * and configures one or more agents.
+ * @param baseUrl - The Shield API base URL (defaults to production).
+ * @param platform - Optional platform override to skip the selection prompt.
+ * @returns The last saved config, or null if the user exited early.
+ */
 export async function runInit(
   baseUrl = "https://api.multicorn.ai",
   platform?: string,
@@ -355,14 +692,10 @@ export async function runInit(
   }
 
   const rl = createInterface({ input: process.stdin, output: process.stderr });
-
-  function ask(question: string): Promise<string> {
-    return new Promise((resolve) => {
-      rl.question(question, (answer) => {
-        resolve(answer);
-      });
+  const ask: AskFn = (question) =>
+    new Promise((resolve) => {
+      rl.question(question, resolve);
     });
-  }
 
   // Banner + header
   process.stderr.write("\n" + BANNER + "\n");
@@ -372,12 +705,10 @@ export async function runInit(
     style.dim("Get your API key at https://app.multicorn.ai/settings/api-keys") + "\n\n",
   );
 
-  // Step A: API key
-  let apiKey = "";
+  // Load existing config
   const existing = await loadConfig().catch(() => null);
 
   // Resolve baseUrl: --base-url flag > config file > env var > hardcoded default.
-  // This must happen before key validation so all code paths hit the right server.
   if (baseUrl === "https://api.multicorn.ai") {
     if (existing !== null && existing.baseUrl.length > 0) {
       baseUrl = existing.baseUrl;
@@ -388,6 +719,9 @@ export async function runInit(
       }
     }
   }
+
+  // API key prompt
+  let apiKey = "";
 
   if (existing !== null && existing.apiKey.startsWith("mcs_") && existing.apiKey.length >= 8) {
     const masked = "mcs_..." + existing.apiKey.slice(-4);
@@ -425,13 +759,20 @@ export async function runInit(
     apiKey = key;
   }
 
-  interface ConfiguredAgent {
-    readonly platformLabel: string;
-    readonly agentName: string;
-    readonly shortName?: string;
-    readonly proxyUrl?: string;
+  // Enforce HTTPS on baseUrl (localhost exception for local dev)
+  if (
+    !baseUrl.startsWith("https://") &&
+    !baseUrl.startsWith("http://localhost") &&
+    !baseUrl.startsWith("http://127.0.0.1")
+  ) {
+    process.stderr.write(
+      style.red(`\u2717 Shield API base URL must use HTTPS. Got: ${baseUrl}`) + "\n",
+    );
+    rl.close();
+    return null;
   }
 
+  // Agent configuration loop
   const configuredAgents: ConfiguredAgent[] = [];
   let lastConfig: ProxyConfig = {
     apiKey,
@@ -439,187 +780,41 @@ export async function runInit(
     ...(platform !== undefined ? { platform } : {}),
   };
 
-  const platformLabels = ["OpenClaw", "Claude Code", "Cursor"];
-  const platformBySelection: Record<number, string> = {
-    1: "openclaw",
-    2: "claude-code",
-    3: "cursor",
-  };
-  const defaultAgentNames: Record<number, string> = {
-    1: "my-openclaw-agent",
-    2: "my-claude-code-agent",
-    3: "my-cursor-agent",
-  };
-
   let configuring = true;
   while (configuring) {
-    // Step 1: Platform selection
-    process.stderr.write(
-      "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n",
-    );
-    const openClawConnected = await isOpenClawConnected();
-    const claudeCodeConnected = isClaudeCodeConnected();
-    const cursorConnected = await isCursorConnected();
-    for (let i = 0; i < platformLabels.length; i++) {
-      let connectedMarker = "";
-      if (i === 0 && openClawConnected) {
-        connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
-      } else if (i === 1 && claudeCodeConnected) {
-        connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
-      } else if (i === 2 && cursorConnected) {
-        connectedMarker = " " + style.green("\u2713") + style.dim(" connected");
-      }
-      process.stderr.write(
-        `  ${style.violet(String(i + 1))}. ${platformLabels[i] ?? ""}${connectedMarker}\n`,
-      );
-    }
+    const selection = await promptPlatformSelection(ask);
+    const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
+    const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
 
-    let selection = 0;
-    while (selection === 0) {
-      const input = await ask("Select (1-3): ");
-      const num = parseInt(input.trim(), 10);
-      if (num >= 1 && num <= 3) {
-        selection = num;
-      }
-    }
-
-    const selectedPlatform = platformBySelection[selection] ?? "cursor";
-    const selectedLabel = platformLabels[selection - 1] ?? "Cursor";
-
-    // Step 2: Agent name (with platform-based default)
-    const defaultAgentName = defaultAgentNames[selection] ?? "my-agent";
-    let agentName = "";
-    while (agentName.length === 0) {
-      const input = await ask(
-        `\nWhat would you like to call this agent? ${style.dim(`(${defaultAgentName})`)} `,
-      );
-      const raw = input.trim().length > 0 ? input.trim() : defaultAgentName;
-      const transformed = normalizeAgentName(raw);
-      if (transformed.length === 0) {
-        process.stderr.write(
-          style.red("Agent name must contain letters or numbers. Please try again.") + "\n",
-        );
-        continue;
-      }
-      if (transformed !== raw) {
-        process.stderr.write(style.yellow("Agent name set to: ") + style.cyan(transformed) + "\n");
-      }
-      agentName = transformed;
-    }
+    const agentName = await promptAgentName(ask, selectedPlatform);
 
     if (selection === 1) {
-      // OpenClaw: no MCP server URL or short name needed
-      process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
-      process.stderr.write(
-        "\nTo connect this agent, add the Multicorn Shield plugin to your OpenClaw agent:\n",
-      );
-      process.stderr.write("\n  " + style.cyan("openclaw plugins add multicorn-shield") + "\n");
-      process.stderr.write(
-        "\nThen start your agent. Shield will intercept tool calls automatically.\n",
-      );
-      configuredAgents.push({
-        platformLabel: selectedLabel,
-        agentName,
-      });
+      printOpenClawInstructions();
+      configuredAgents.push({ platformLabel: selectedLabel, agentName });
     } else if (selection === 2) {
-      // Claude Code: no MCP server URL or short name needed
-      process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
-      process.stderr.write(
-        "\nTo connect this agent, install the Multicorn Shield plugin in Claude Code:\n",
-      );
-      process.stderr.write("\n  " + style.cyan("claude plugins install multicorn-shield") + "\n");
-      process.stderr.write(
-        "\nThen start a new Claude Code session. Shield will intercept tool calls automatically.\n",
-      );
-      configuredAgents.push({
-        platformLabel: selectedLabel,
-        agentName,
-      });
+      printClaudeCodeInstructions();
+      configuredAgents.push({ platformLabel: selectedLabel, agentName });
     } else {
-      // Cursor: full flow with MCP server URL, short name, and proxy config
+      const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
 
-      // Step 3: Target MCP server URL (required)
-      let targetUrl = "";
-      while (targetUrl.length === 0) {
-        process.stderr.write(
-          "\n" +
-            style.bold("Your MCP server URL:") +
-            "\n" +
-            style.dim(
-              "The URL of the MCP server Shield will govern. Example: http://127.0.0.1:3847/mcp",
-            ) +
-            "\n",
-        );
-        const input = await ask("URL: ");
-        if (input.trim().length === 0) {
-          process.stderr.write(style.red("MCP server URL is required.") + "\n");
-          continue;
-        }
-        targetUrl = input.trim();
-      }
-
-      // Step 4: Short name (auto-generated from agent name)
-      const defaultShortName = normalizeAgentName(agentName) || "shield-mcp";
-      const shortNameInput = await ask(
-        `\nShort name (used in your proxy URL): ${style.dim(`(${defaultShortName})`)} `,
-      );
-      const shortName =
-        shortNameInput.trim().length > 0
-          ? normalizeAgentName(shortNameInput.trim()) || defaultShortName
-          : defaultShortName;
-
-      // Step 5: Create proxy config via API
       let proxyUrl = "";
       let created = false;
       while (!created) {
         const spinner = withSpinner("Creating proxy config...");
         try {
-          const response = await fetch(`${baseUrl}/api/v1/proxy/config`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Multicorn-Key": apiKey,
-            },
-            body: JSON.stringify({
-              server_name: shortName,
-              target_url: targetUrl,
-              platform: selectedPlatform,
-              agent_name: agentName,
-            }),
-            signal: AbortSignal.timeout(10000),
-          });
-
-          if (!response.ok) {
-            let errorMsg = `Service returned ${String(response.status)}.`;
-            try {
-              const errBody = (await response.json()) as Record<string, unknown>;
-              const errObj = errBody["error"] as Record<string, unknown> | undefined;
-              if (typeof errObj?.["message"] === "string") {
-                errorMsg = errObj["message"];
-              } else if (typeof errBody["message"] === "string") {
-                errorMsg = errBody["message"];
-              } else if (typeof errBody["detail"] === "string") {
-                errorMsg = errBody["detail"];
-              }
-            } catch {
-              // response body wasn't JSON
-            }
-            spinner.stop(false, errorMsg);
-            const retry = await ask("Try again? (Y/n) ");
-            if (retry.trim().toLowerCase() === "n") {
-              break;
-            }
-            continue;
-          }
-
-          const envelope = (await response.json()) as Record<string, unknown>;
-          const data = envelope["data"] as Record<string, unknown> | undefined;
-          proxyUrl = typeof data?.["proxy_url"] === "string" ? data["proxy_url"] : "";
+          proxyUrl = await createProxyConfig(
+            baseUrl,
+            apiKey,
+            agentName,
+            targetUrl,
+            shortName,
+            selectedPlatform,
+          );
           spinner.stop(true, "Proxy config created!");
           created = true;
         } catch (error) {
           const detail = error instanceof Error ? error.message : String(error);
-          spinner.stop(false, `Failed to create proxy config: ${detail}`);
+          spinner.stop(false, detail);
           const retry = await ask("Try again? (Y/n) ");
           if (retry.trim().toLowerCase() === "n") {
             break;
@@ -630,38 +825,7 @@ export async function runInit(
       if (created && proxyUrl.length > 0) {
         process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
         process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
-
-        const mcpSnippet = JSON.stringify(
-          {
-            mcpServers: {
-              [shortName]: {
-                url: proxyUrl,
-                headers: {
-                  Authorization: `Bearer ${apiKey}`,
-                },
-              },
-            },
-          },
-          null,
-          2,
-        );
-
-        process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
-        process.stderr.write(style.cyan(mcpSnippet) + "\n\n");
-        process.stderr.write(
-          style.dim("Replace YOUR_SHIELD_API_KEY with your API key if not shown above.") + "\n",
-        );
-        process.stderr.write(
-          style.dim(
-            "Then restart Cursor and check Settings > Tools & MCPs for a green status indicator.",
-          ) + "\n",
-        );
-        process.stderr.write(
-          style.dim(
-            `Ask Cursor to use your MCP server by its short name. For example: "use the ${shortName} tool to list files in /tmp"`,
-          ) + "\n",
-        );
-
+        printPlatformSnippet(selectedPlatform, proxyUrl, shortName);
         configuredAgents.push({
           platformLabel: selectedLabel,
           agentName,
@@ -681,7 +845,7 @@ export async function runInit(
       process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
     }
 
-    // Step 6: Connect another?
+    // Connect another?
     const another = await ask("\nConnect another agent? (Y/n) ");
     if (another.trim().toLowerCase() === "n") {
       configuring = false;
@@ -702,10 +866,4 @@ export async function runInit(
   }
 
   return lastConfig;
-}
-
-function isProxyConfig(value: unknown): value is ProxyConfig {
-  if (typeof value !== "object" || value === null) return false;
-  const obj = value as Record<string, unknown>;
-  return typeof obj["apiKey"] === "string" && typeof obj["baseUrl"] === "string";
 }
