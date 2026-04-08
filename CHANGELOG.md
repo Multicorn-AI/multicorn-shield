@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-04-08
+
+### Added
+
+- Cursor platform support in CLI proxy setup (`npx multicorn-proxy init`)
+- Hosted proxy onboarding flow: agent name, target MCP server URL, short name, and config snippet output
+- Multi-agent setup loop: connect multiple agents in a single init session
+- Platform-specific setup instructions for OpenClaw, Claude Code, and Cursor
+- URL validation on target MCP server input
+- HTTPS enforcement on Shield API base URL (with localhost exception)
+- ANSI escape sequence stripping on server error messages
+- JSDoc comments on all exported CLI functions
+
+### Changed
+
+- CLI platform menu now shows OpenClaw, Claude Code, and Cursor (previously OpenClaw, Claude Code, Claude Desktop, Other MCP Agent)
+- Refactored `runInit` into smaller focused functions
+- Improved prompt wording for non-native English speakers
+- API key no longer printed in config snippets (replaced with placeholder)
+- Error messages now include actionable guidance
+
+### Removed
+
+- Claude Desktop and Other MCP Agent options from CLI platform menu
+- `detectOpenClaw` and `isVersionAtLeast` functions (platform detection now via API, version gating server-side)
+- Local proxy wrapping flow from `init` command
+
 ## [0.2.2] - 2026-04-04
 
 ### Added
