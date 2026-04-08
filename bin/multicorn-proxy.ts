@@ -158,10 +158,10 @@ function printHelp(): void {
       "      Interactive setup. Saves API key to ~/.multicorn/config.json.",
       "",
       "  npx multicorn-proxy agents",
-      "      List configured agents (name, platform, default marker).",
+      "      List configured agents and show which is the default.",
       "",
       "  npx multicorn-proxy delete-agent <name>",
-      "      Remove an agent from the config.",
+      "      Remove a saved agent.",
       "",
       "  npx multicorn-proxy --wrap <command> [args...]",
       "      Start <command> as an MCP server and proxy all tool calls through",
@@ -219,12 +219,13 @@ async function main(): Promise<void> {
   }
 
   if (cli.subcommand === "delete-agent") {
+    const safeName = cli.deleteAgentName.replace(/[^\x20-\x7E]/g, "");
     const ok = await deleteAgentByName(cli.deleteAgentName);
     if (!ok) {
-      process.stderr.write(`No agent named "${cli.deleteAgentName}" in config.\n`);
+      process.stderr.write(`No agent named "${safeName}" in config.\n`);
       process.exit(1);
     }
-    process.stdout.write(`Removed agent "${cli.deleteAgentName}".\n`);
+    process.stdout.write(`Removed agent "${safeName}".\n`);
     return;
   }
 
@@ -256,8 +257,9 @@ async function main(): Promise<void> {
   const finalDashboardUrl =
     cli.dashboardUrl !== "" ? cli.dashboardUrl : deriveDashboardUrl(finalBaseUrl);
 
-  const configRaw = config as unknown as Record<string, unknown>;
-  const legacyPlatform = configRaw["platform"];
+  /* eslint-disable @typescript-eslint/no-deprecated -- legacy top-level platform until wrap supports --platform */
+  const legacyPlatform = config.platform;
+  /* eslint-enable @typescript-eslint/no-deprecated */
   const platformForServer =
     typeof legacyPlatform === "string" && legacyPlatform.length > 0 ? legacyPlatform : "other-mcp";
 
@@ -293,12 +295,11 @@ function resolveWrapAgentName(cli: CliArgs, config: ProxyConfig): string {
   if (cli.agentName.length > 0) {
     return cli.agentName;
   }
-  const raw = config as unknown as Record<string, unknown>;
-  const legacyPlatform = raw["platform"];
-  const legacyAgentName = raw["agentName"];
-  // After migration, legacy `platform` is usually absent; lookup then falls through to
-  // getDefaultAgent. TODO(SR-10): once wrap mode can take an explicit platform (CLI flag or env),
-  // wire it here so getAgentByPlatform matches the intended MCP agent row.
+  /* eslint-disable @typescript-eslint/no-deprecated -- legacy top-level fields for wrap defaulting until --platform exists */
+  const legacyPlatform = config.platform;
+  const legacyAgentName = config.agentName;
+  /* eslint-enable @typescript-eslint/no-deprecated */
+  // After migration, config.platform is usually absent so this lookup falls through to getDefaultAgent. When --platform is added as a CLI flag, this becomes the primary resolution path.
   const platformKey =
     typeof legacyPlatform === "string" && legacyPlatform.length > 0 ? legacyPlatform : "other-mcp";
   const fromPlatform = getAgentByPlatform(config, platformKey);

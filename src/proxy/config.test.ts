@@ -124,6 +124,32 @@ describe("loadConfig", () => {
     expect(result).not.toHaveProperty("agentName");
   });
 
+  it("migration writes back config without legacy agentName or platform fields", async () => {
+    const legacy = {
+      apiKey: "mcs_legacy",
+      baseUrl: "https://api.multicorn.ai",
+      agentName: "legacy-agent",
+      platform: "openclaw",
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(legacy));
+    writeFileMock.mockResolvedValue(undefined);
+
+    await loadConfig();
+
+    const firstWrite = writeFileMock.mock.calls[0];
+    expect(firstWrite).toBeDefined();
+    if (firstWrite === undefined) {
+      throw new Error("expected writeFile to have been called");
+    }
+    const payload: unknown = firstWrite[1];
+    expect(typeof payload).toBe("string");
+    const writtenJson = JSON.parse(payload as string) as Record<string, unknown>;
+    expect(writtenJson).not.toHaveProperty("agentName");
+    expect(writtenJson).not.toHaveProperty("platform");
+    expect(writtenJson["agents"]).toEqual([{ name: "legacy-agent", platform: "openclaw" }]);
+    expect(writtenJson["defaultAgent"]).toBe("legacy-agent");
+  });
+
   it("auto-migrates legacy format without platform using unknown", async () => {
     const legacy = {
       apiKey: "mcs_legacy",

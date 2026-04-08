@@ -179,7 +179,7 @@ function readAgentName(): string {
       }
     }
   } catch {
-    /* use env or default */
+    // Config file missing or malformed - fall through to env var and default.
   }
   const raw = process.env["MULTICORN_AGENT_NAME"]?.trim();
   if (raw !== undefined && raw.length > 0 && !raw.startsWith("${")) {

@@ -37,9 +37,9 @@ function readStdin() {
   });
 }
 
+// Duplicated in pre-tool-use.cjs because CJS hooks cannot import shared TypeScript modules. If you change this function, update the copy in pre-tool-use.cjs to match.
 /**
- * Resolves agent name: agents[] with platform claude-code, else legacy agentName.
- * Keep in sync with pre-tool-use.cjs.
+ * Returns the agent name for the Claude Code platform from the agents array, or falls back to the legacy agentName field.
  * @param {Record<string, unknown>} obj
  * @returns {string}
  */
