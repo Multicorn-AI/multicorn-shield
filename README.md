@@ -1,4 +1,4 @@
-![Multicorn Shield](readme-header.svg)
+![Multicorn Shield](https://multicorn.ai/images/og-image-shield.png)
 
 # Multicorn Shield
 
@@ -196,7 +196,7 @@ With the dashboard you can:
 The dashboard works with both the SDK integration and the MCP proxy. No extra setup needed.
 
 <p align="center">
-  <img src="https://app.multicorn.ai/og-image-shield.png" alt="Dashboard overview showing total actions, blocked count, spend, and live activity feed" width="800" />
+  <img src="https://multicorn.ai/images/og-image-shield.png" alt="Dashboard overview showing total actions, blocked count, spend, and live activity feed" width="800" />
 </p>
 
 <p align="center">
