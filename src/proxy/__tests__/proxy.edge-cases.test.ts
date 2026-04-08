@@ -656,6 +656,55 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("claude plugin marketplace add Multicorn-AI/multicorn-shield");
   });
 
+  it("runInit completes Cursor platform with proxy URL and Cursor next steps", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockImplementation((input: unknown) => {
+      const url = typeof input === "string" ? input : String(input);
+      if (url.includes("/api/v1/proxy/config")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              data: { proxy_url: "https://hosted.proxy.example/mcp" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "cursor-agent",
+      "URL:": "https://upstream.example/mcp",
+      "Short name": "myproxy",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.[0]?.platform).toBe("cursor");
+    expect(config.defaultAgent).toBe("cursor-agent");
+    expect(stderrBuffer).toContain("To complete your Cursor setup");
+    expect(stderrBuffer).toContain("Restart Cursor");
+    expect(stderrBuffer).toContain("hosted.proxy.example");
+    expect(stderrBuffer).toContain("Bearer mcs_valid_key");
+  });
+
   it("runInit appends a second agent when user connects another platform", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
