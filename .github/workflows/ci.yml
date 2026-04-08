@@ -208,7 +208,7 @@ jobs:
       - name: Run tests with coverage
         run: pnpm test:coverage
         env:
-          NODE_OPTIONS: --max-old-space-size=4096
+          NODE_OPTIONS: --max-old-space-size=8192
 
       - name: Build
         run: pnpm build
