@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - 2026-04-08
+## [0.6.0] - 2026-04-08
 
 ### Added
 
@@ -37,32 +37,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Agent names from CLI input are sanitised before echoing to stdout/stderr to prevent terminal escape sequence injection
 
+## [0.5.0] - 2026-04-08
+
+Version number skipped. The `release:minor` script double-bumped from 0.4.0 to 0.5.0 (manual) then to 0.6.0 (automated). No separate 0.5.0 release exists on npm.
+
 ## [0.4.0] - 2026-04-08
-
-### Added
-
-- Cursor platform support in CLI proxy setup (`npx multicorn-proxy init`)
-- Hosted proxy onboarding flow: agent name, target MCP server URL, short name, and config snippet output
-- Multi-agent setup loop: connect multiple agents in a single init session
-- Platform-specific setup instructions for OpenClaw, Claude Code, and Cursor
-- URL validation on target MCP server input
-- HTTPS enforcement on Shield API base URL (with localhost exception)
-- ANSI escape sequence stripping on server error messages
-- JSDoc comments on all exported CLI functions
 
 ### Changed
 
-- CLI platform menu now shows OpenClaw, Claude Code, and Cursor (previously OpenClaw, Claude Code, Claude Desktop, Other MCP Agent)
-- Refactored `runInit` into smaller focused functions
-- Improved prompt wording for non-native English speakers
-- API key no longer printed in config snippets (replaced with placeholder)
-- Error messages now include actionable guidance
+- CLI rewrite: extracted platform selection, agent naming, and proxy config prompts into separate helper functions
+- Reduced platform options from 4 (OpenClaw, Claude Code, Claude Desktop, Other MCP Agent) to 3 (OpenClaw, Claude Code, Cursor)
+- Cursor connection detection via `~/.cursor/mcp.json`
+- Claude Code connection detection via `~/.claude/plugins/cache/multicorn-shield`
+- Cursor (selection 3) now prompts for target MCP server URL and creates a hosted proxy config via the Shield API
+- Platform-specific MCP config snippets shown after proxy config creation
+- "Connect another agent?" prompt changed from `(y/N)` default-no to `(Y/n)` default-yes
+- Setup complete summary now shows agent names and proxy URLs alongside platform labels
 
 ### Removed
 
-- Claude Desktop and Other MCP Agent options from CLI platform menu
-- `detectOpenClaw` and `isVersionAtLeast` functions (platform detection now via API, version gating server-side)
-- Local proxy wrapping flow from `init` command
+- Claude Desktop as a standalone platform option (now handled via Cursor/Other MCP path)
+- "Next steps" grouped summary at end of init (replaced by inline instructions per platform)
+- OpenClaw version detection and `updateOpenClawConfigIfPresent()` auto-config during init
+
+## [0.3.0] - 2026-04-08
+
+Version number skipped. No 0.3.0 release exists on npm.
 
 ## [0.2.2] - 2026-04-04
 
