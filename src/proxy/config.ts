@@ -91,6 +91,10 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
+  /** Menu index: 1 OpenClaw, 2 Claude Code, 3 Cursor (matches `promptPlatformSelection`). */
+  readonly selection: number;
+  /** `openclaw`, `claude-code`, or `cursor`. */
+  readonly platform: string;
   readonly platformLabel: string;
   readonly agentName: string;
   readonly shortName?: string;
@@ -271,6 +275,55 @@ export async function saveConfig(config: ProxyConfig): Promise<void> {
 // ---------------------------------------------------------------------------
 // OpenClaw config
 // ---------------------------------------------------------------------------
+
+const OPENCLAW_MIN_VERSION = "2026.2.26";
+
+interface OpenClawDetection {
+  readonly status: "not-found" | "parse-error" | "detected";
+  readonly version: string | null;
+}
+
+async function detectOpenClaw(): Promise<OpenClawDetection> {
+  let raw: string;
+  try {
+    raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      return { status: "not-found", version: null };
+    }
+    throw e;
+  }
+
+  let obj: Record<string, unknown>;
+  try {
+    obj = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return { status: "parse-error", version: null };
+  }
+
+  const meta = obj["meta"];
+  if (typeof meta === "object" && meta !== null) {
+    const v = (meta as Record<string, unknown>)["lastTouchedVersion"];
+    if (typeof v === "string" && v.length > 0) {
+      return { status: "detected", version: v };
+    }
+  }
+  return { status: "detected", version: null };
+}
+
+function isVersionAtLeast(version: string, minimum: string): boolean {
+  const vParts = version.split(".").map(Number);
+  const mParts = minimum.split(".").map(Number);
+  const len = Math.max(vParts.length, mParts.length);
+  for (let i = 0; i < len; i++) {
+    const v = vParts[i] ?? 0;
+    const m = mParts[i] ?? 0;
+    if (Number.isNaN(v) || Number.isNaN(m)) return false;
+    if (v > m) return true;
+    if (v < m) return false;
+  }
+  return true;
+}
 
 /**
  * Updates ~/.openclaw/openclaw.json with Shield credentials if the file exists.
@@ -549,10 +602,6 @@ export async function updateClaudeDesktopConfig(
   return fileExists ? "updated" : "created";
 }
 
-// detectOpenClaw and isVersionAtLeast were removed in the CLI rewrite (Apr 2026).
-// Platform detection is now handled by checking for registered agents via the API.
-// Version gating is enforced server-side.
-
 // ---------------------------------------------------------------------------
 // Init flow - extracted helpers
 // ---------------------------------------------------------------------------
@@ -719,14 +768,20 @@ async function createProxyConfig(
   return typeof data?.["proxy_url"] === "string" ? data["proxy_url"] : "";
 }
 
-function printPlatformSnippet(platform: string, routingToken: string, shortName: string): void {
+function printPlatformSnippet(
+  platform: string,
+  routingToken: string,
+  shortName: string,
+  apiKey: string,
+): void {
+  const authHeader = platform === "cursor" ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
   const mcpSnippet = JSON.stringify(
     {
       mcpServers: {
         [shortName]: {
           url: routingToken,
           headers: {
-            Authorization: "Bearer YOUR_SHIELD_API_KEY",
+            Authorization: authHeader,
           },
         },
       },
@@ -744,11 +799,13 @@ function printPlatformSnippet(platform: string, routingToken: string, shortName:
   }
 
   process.stderr.write(style.cyan(mcpSnippet) + "\n\n");
-  process.stderr.write(
-    style.dim(
-      "Replace YOUR_SHIELD_API_KEY with your API key. Find it in Settings > API keys at https://app.multicorn.ai/settings/api-keys",
-    ) + "\n",
-  );
+  if (platform !== "cursor") {
+    process.stderr.write(
+      style.dim(
+        "Replace YOUR_SHIELD_API_KEY with your API key. Find it in Settings > API keys at https://app.multicorn.ai/settings/api-keys",
+      ) + "\n",
+    );
+  }
 
   if (platform === "cursor") {
     process.stderr.write(
@@ -762,33 +819,6 @@ function printPlatformSnippet(platform: string, routingToken: string, shortName:
       ) + "\n",
     );
   }
-}
-
-function printOpenClawInstructions(): void {
-  process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
-  process.stderr.write(
-    "\nTo connect this agent, add the Multicorn Shield plugin to your OpenClaw agent:\n",
-  );
-  process.stderr.write("\n  " + style.cyan("openclaw plugins add multicorn-shield") + "\n");
-  process.stderr.write(
-    "\nThen start your agent. Shield will monitor and protect tool calls automatically.\n",
-  );
-}
-
-function printClaudeCodeInstructions(): void {
-  process.stderr.write("\n" + style.green("\u2713") + " Agent registered!\n");
-  process.stderr.write(
-    "\nTo connect this agent, install the Multicorn Shield plugin in Claude Code:\n",
-  );
-  process.stderr.write(
-    "\n  " + style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") + "\n",
-  );
-  process.stderr.write(
-    "  " + style.cyan("claude plugin install multicorn-shield@multicorn-shield") + "\n",
-  );
-  process.stderr.write(
-    "\nThen start a new Claude Code session. Shield will monitor and protect tool calls automatically.\n",
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -935,12 +965,116 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     let setupSucceeded = false;
 
     if (selection === 1) {
-      printOpenClawInstructions();
-      configuredAgents.push({ platformLabel: selectedLabel, agentName });
+      let detection: OpenClawDetection;
+      try {
+        detection = await detectOpenClaw();
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        process.stderr.write(style.red("\u2717") + ` Failed to read OpenClaw config: ${detail}\n`);
+        rl.close();
+        return null;
+      }
+
+      if (detection.status === "not-found") {
+        process.stderr.write(
+          style.red("\u2717") +
+            " OpenClaw is not installed. Install OpenClaw first, then run npx multicorn-proxy init again.\n",
+        );
+        rl.close();
+        return null;
+      }
+
+      if (detection.status === "parse-error") {
+        process.stderr.write(
+          style.red("\u2717") +
+            " Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.\n",
+        );
+      }
+
+      if (detection.status === "detected") {
+        if (detection.version !== null) {
+          process.stderr.write(
+            style.green("\u2713") + ` OpenClaw detected ${style.dim(`(${detection.version})`)}\n`,
+          );
+          if (isVersionAtLeast(detection.version, OPENCLAW_MIN_VERSION)) {
+            process.stderr.write(
+              style.green("\u2713") + " " + style.green("Version compatible") + "\n",
+            );
+          } else {
+            process.stderr.write(
+              style.yellow("\u26A0") +
+                ` Shield has been tested with OpenClaw ${style.cyan(OPENCLAW_MIN_VERSION)} and above. Your version (${detection.version}) may work but is untested. We recommend upgrading to at least ${style.cyan(OPENCLAW_MIN_VERSION)}.\n`,
+            );
+            const answer = await ask("Continue anyway? (y/N) ");
+            if (answer.trim().toLowerCase() !== "y") {
+              rl.close();
+              return null;
+            }
+          }
+        } else {
+          process.stderr.write(
+            style.yellow("\u26A0") + " Could not detect OpenClaw version. Continuing anyway.\n",
+          );
+        }
+
+        const spinner = withSpinner("Updating OpenClaw config...");
+        try {
+          const result = await updateOpenClawConfigIfPresent(apiKey, baseUrl, agentName);
+          if (result === "not-found") {
+            spinner.stop(false, "OpenClaw config disappeared unexpectedly.");
+            rl.close();
+            return null;
+          }
+          if (result === "parse-error") {
+            spinner.stop(
+              false,
+              "Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.",
+            );
+          } else {
+            spinner.stop(
+              true,
+              "OpenClaw config updated at " + style.cyan("~/.openclaw/openclaw.json"),
+            );
+          }
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          spinner.stop(false, `Failed to update OpenClaw config: ${detail}`);
+        }
+      }
+      configuredAgents.push({
+        selection,
+        platform: selectedPlatform,
+        platformLabel: selectedLabel,
+        agentName,
+      });
       setupSucceeded = true;
     } else if (selection === 2) {
-      printClaudeCodeInstructions();
-      configuredAgents.push({ platformLabel: selectedLabel, agentName });
+      process.stderr.write("\nTo connect Claude Code to Shield:\n\n");
+      process.stderr.write(
+        "  " +
+          style.bold("Step 1") +
+          " - Add the Multicorn marketplace:\n" +
+          "    " +
+          style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
+          "\n\n",
+      );
+      process.stderr.write(
+        "  " +
+          style.bold("Step 2") +
+          " - Install the plugin:\n" +
+          "    " +
+          style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
+          "\n\n",
+      );
+      process.stderr.write(
+        style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
+      );
+      configuredAgents.push({
+        selection,
+        platform: selectedPlatform,
+        platformLabel: selectedLabel,
+        agentName,
+      });
       setupSucceeded = true;
     } else {
       const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
@@ -973,8 +1107,10 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
       if (created && proxyUrl.length > 0) {
         process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
         process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
-        printPlatformSnippet(selectedPlatform, proxyUrl, shortName);
+        printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
         configuredAgents.push({
+          selection,
+          platform: selectedPlatform,
           platformLabel: selectedLabel,
           agentName,
           shortName,
@@ -1027,6 +1163,68 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
       );
     }
     process.stderr.write("\n");
+
+    const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
+
+    // Next steps grouped by platform
+    process.stderr.write("\n" + style.bold(style.violet("Next steps")) + "\n");
+
+    const blocks: string[] = [];
+
+    if (configuredPlatforms.has("openclaw")) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your OpenClaw setup:") +
+          "\n" +
+          "  \u2192 Restart your gateway: " +
+          style.cyan("openclaw gateway restart") +
+          "\n" +
+          "  \u2192 Start a session: " +
+          style.cyan("openclaw tui") +
+          "\n",
+      );
+    }
+    if (configuredPlatforms.has("claude-code")) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Claude Code setup:") +
+          "\n" +
+          "  \u2192 Add marketplace: " +
+          style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
+          "\n" +
+          "  \u2192 Install plugin: " +
+          style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
+          "\n",
+      );
+    }
+    if (configuredPlatforms.has("claude-desktop")) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Claude Desktop setup:") +
+          "\n" +
+          "  \u2192 Restart Claude Desktop to pick up config changes\n",
+      );
+    }
+    if (configuredPlatforms.has("cursor")) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Cursor setup:") +
+          "\n" +
+          "  \u2192 Restart Cursor to pick up MCP config changes\n",
+      );
+    }
+    if (configuredPlatforms.has("other-mcp")) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Other MCP Agent setup:") +
+          "\n" +
+          "  \u2192 Start your agent with: " +
+          style.cyan("npx multicorn-proxy --wrap <your-server> --agent-name <name>") +
+          "\n",
+      );
+    }
+
+    process.stderr.write(blocks.join("") + "\n");
   }
 
   return lastConfig;
