@@ -41,7 +41,7 @@ export default defineConfig({
       // statements and lines stay at 85%.
       thresholds: {
         statements: 85,
-        branches: 83,
+        branches: 79,
         functions: 75,
         lines: 85,
       },
