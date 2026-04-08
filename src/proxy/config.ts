@@ -780,7 +780,12 @@ function printClaudeCodeInstructions(): void {
   process.stderr.write(
     "\nTo connect this agent, install the Multicorn Shield plugin in Claude Code:\n",
   );
-  process.stderr.write("\n  " + style.cyan("claude plugins install multicorn-shield") + "\n");
+  process.stderr.write(
+    "\n  " + style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") + "\n",
+  );
+  process.stderr.write(
+    "  " + style.cyan("claude plugin install multicorn-shield@multicorn-shield") + "\n",
+  );
   process.stderr.write(
     "\nThen start a new Claude Code session. Shield will monitor and protect tool calls automatically.\n",
   );
