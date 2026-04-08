@@ -88,6 +88,11 @@ vi.mock("node:child_process", async (importOriginal) => {
 });
 /* eslint-enable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion */
 
+/** Minimal ~/.openclaw/openclaw.json so `detectOpenClaw()` succeeds (version >= OPENCLAW_MIN_VERSION). */
+const MINIMAL_OPENCLAW_JSON = JSON.stringify({
+  meta: { lastTouchedVersion: "2026.3.1" },
+});
+
 function waitFor(predicate: () => boolean, timeout = 5000, interval = 50): Promise<void> {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -393,10 +398,10 @@ describe("config file parsing", () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
@@ -420,10 +425,10 @@ describe("config file parsing", () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
@@ -446,10 +451,10 @@ describe("config file parsing", () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
 
     let fetchCallCount = 0;
@@ -480,10 +485,10 @@ describe("config file parsing", () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
 
     let fetchCallCount = 0;
@@ -518,10 +523,8 @@ describe("config file parsing", () => {
       apiKey: "mcs_existing_key1",
       baseUrl: "https://api.multicorn.ai",
     });
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) => {
-      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
       if (path.includes("config.json")) return Promise.resolve(existingConfig);
       return Promise.reject(new Error("ENOENT"));
     });
@@ -550,10 +553,8 @@ describe("config file parsing", () => {
       apiKey: "mcs_old_key1234",
       baseUrl: "https://api.multicorn.ai",
     });
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) => {
-      if (path.includes(".openclaw")) return Promise.reject(enoent);
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
       if (path.includes("config.json")) return Promise.resolve(existingConfig);
       return Promise.reject(new Error("ENOENT"));
     });
@@ -578,10 +579,10 @@ describe("config file parsing", () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
@@ -596,7 +597,9 @@ describe("config file parsing", () => {
 
     expect(config).not.toBeNull();
     if (!config) throw new Error("expected config");
-    expect(config.agentName).toBe("my-cool-agent");
+    expect(config.agents?.[0]?.name).toBe("my-cool-agent");
+    expect(config.agents?.[0]?.platform).toBe("openclaw");
+    expect(config.defaultAgent).toBe("my-cool-agent");
     expect(stderrBuffer).toContain("Agent name set to:");
   });
 
@@ -604,10 +607,10 @@ describe("config file parsing", () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
@@ -622,7 +625,8 @@ describe("config file parsing", () => {
 
     expect(config).not.toBeNull();
     if (!config) throw new Error("expected config");
-    expect(config.agentName).toBe("valid-name");
+    expect(config.agents?.[0]?.name).toBe("valid-name");
+    expect(config.defaultAgent).toBe("valid-name");
     expect(stderrBuffer).toContain("must contain letters or numbers");
   });
 
@@ -630,10 +634,10 @@ describe("config file parsing", () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
@@ -647,8 +651,123 @@ describe("config file parsing", () => {
     const config = await runInit("https://api.multicorn.ai");
 
     expect(config).not.toBeNull();
-    expect(stderrBuffer).toContain("claude plugins install multicorn-shield");
-    expect(stderrBuffer).toContain("Agent registered");
+    expect(stderrBuffer).toContain("claude plugin install multicorn-shield@multicorn-shield");
+    expect(stderrBuffer).toContain("Step 1");
+    expect(stderrBuffer).toContain("claude plugin marketplace add Multicorn-AI/multicorn-shield");
+  });
+
+  it("runInit completes Cursor platform with proxy URL and Cursor next steps", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockImplementation((input: unknown) => {
+      const url = typeof input === "string" ? input : String(input);
+      if (url.includes("/api/v1/proxy/config")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              data: { proxy_url: "https://hosted.proxy.example/mcp" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "3",
+      "call this agent": "cursor-agent",
+      "URL:": "https://upstream.example/mcp",
+      "Short name": "myproxy",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.[0]?.platform).toBe("cursor");
+    expect(config.defaultAgent).toBe("cursor-agent");
+    expect(stderrBuffer).toContain("To complete your Cursor setup");
+    expect(stderrBuffer).toContain("Restart Cursor");
+    expect(stderrBuffer).toContain("hosted.proxy.example");
+    expect(stderrBuffer).toContain("Bearer mcs_valid_key");
+  });
+
+  it("runInit appends a second agent when user connects another platform", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: ["1", "2"],
+      "call this agent": ["first-openclaw", "second-claude-code"],
+      "Connect another": ["y", "n"],
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.length).toBe(2);
+    expect(config.agents?.map((a) => a.platform)).toEqual(["openclaw", "claude-code"]);
+    expect(config.defaultAgent).toBe("second-claude-code");
+  });
+
+  it("runInit prompts to replace when platform already exists and updates entry", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) {
+        return Promise.resolve(
+          JSON.stringify({
+            apiKey: "mcs_existing_key1",
+            baseUrl: "https://api.multicorn.ai",
+            agents: [{ name: "old-openclaw", platform: "openclaw" }],
+            defaultAgent: "old-openclaw",
+          }),
+        );
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "Use this key": "y",
+      Select: "1",
+      "Replace it?": "y",
+      "call this agent": "new-openclaw",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.length).toBe(1);
+    expect(config.agents?.[0]?.name).toBe("new-openclaw");
+    expect(config.agents?.[0]?.platform).toBe("openclaw");
+    expect(config.defaultAgent).toBe("new-openclaw");
   });
 
   it("updateOpenClawConfigIfPresent creates agents.list when missing", async () => {
@@ -866,10 +985,10 @@ describe("config file parsing", () => {
     captureStderr();
     mkdirMock.mockResolvedValue(undefined);
     writeFileMock.mockRejectedValue(new Error("disk full"));
-    const enoent = new Error("ENOENT") as NodeJS.ErrnoException;
-    enoent.code = "ENOENT";
     readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw") ? Promise.reject(enoent) : Promise.reject(new Error("ENOENT")),
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
     );
     global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
 
