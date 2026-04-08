@@ -38,6 +38,8 @@ npm install -g multicorn-shield
 npx multicorn-proxy init
 ```
 
+The init wizard supports multiple agents. Run it again to add agents on different platforms (OpenClaw, Claude Code, Cursor) without losing existing config. Use `npx multicorn-proxy agents` to see configured agents.
+
 **Step 3: Wrap your MCP server**
 
 ```bash
@@ -194,7 +196,7 @@ With the dashboard you can:
 The dashboard works with both the SDK integration and the MCP proxy. No extra setup needed.
 
 <p align="center">
-  <img src="https://multicorn.ai/images/screenshots/overview-page.png" alt="Dashboard overview showing total actions, blocked count, spend, and live activity feed" width="800" />
+  <img src="https://app.multicorn.ai/og-image-shield.png" alt="Dashboard overview showing total actions, blocked count, spend, and live activity feed" width="800" />
 </p>
 
 <p align="center">

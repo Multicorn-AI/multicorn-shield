@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-04-08
+
+### Added
+
+- Multi-agent config support: `~/.multicorn/config.json` now stores an `agents` array with per-platform entries instead of a single `agentName`
+- New CLI commands: `npx multicorn-proxy agents` (list configured agents) and `npx multicorn-proxy delete-agent <name>` (remove an agent)
+- New exported helpers: `getAgentByPlatform()`, `getDefaultAgent()`, `collectAgentsFromConfig()`, `deleteAgentByName()`
+- `AgentEntry` interface exported from the SDK
+- Automatic migration: legacy single-agent configs are upgraded to the new format on first read and written back to disk
+- Platform-based agent lookup in Claude Code hooks (`pre-tool-use.cjs`, `post-tool-use.cjs`), OpenClaw plugin, and Claude Desktop extension
+- CLI agent name sanitisation: `delete-agent` strips non-printable characters before echoing to terminal
+
+### Changed
+
+- `ProxyConfig` interface now includes optional `agents` (readonly `AgentEntry[]`) and `defaultAgent` fields
+- `agentName` and `platform` fields on `ProxyConfig` are deprecated (kept for backward compatibility during migration)
+- `runInit()` appends to the agents array instead of overwriting; detects duplicate platforms and prompts to replace
+- Restored inline OpenClaw setup flow with version detection, auto-config of `~/.openclaw/openclaw.json`, and "Next steps" instructions (`openclaw gateway restart`, `openclaw tui`)
+- Restored inline Claude Code setup instructions (marketplace add, plugin install, start claude, `/plugin` verification)
+- "Next steps" summary restored at end of init wizard with per-platform instructions
+- Help text clarified for non-technical users ("List configured agents and show which is the default", "Remove a saved agent")
+- CJS hook duplication comment updated to explain why shared modules are not possible
+
+### Fixed
+
+- Running `npx multicorn-proxy init` for a second platform no longer overwrites the first agent's config
+- `delete-agent` clears `defaultAgent` when deleting the default agent instead of leaving a dangling reference
+
+### Security
+
+- Agent names from CLI input are sanitised before echoing to stdout/stderr to prevent terminal escape sequence injection
+
 ## [0.4.0] - 2026-04-08
 
 ### Added
