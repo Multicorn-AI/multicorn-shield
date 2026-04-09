@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   loadConfig,
+  readBaseUrlFromConfig,
   saveConfig,
   validateApiKey,
   getAgentByPlatform,
@@ -192,6 +193,30 @@ describe("loadConfig", () => {
     expect(writeFileMock).not.toHaveBeenCalled();
     expect(result?.agents?.length).toBe(2);
     expect(result?.defaultAgent).toBe("b");
+  });
+});
+
+describe("readBaseUrlFromConfig", () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it("returns undefined when the file does not exist (brand new install)", async () => {
+    readFileMock.mockRejectedValue(Object.assign(new Error("ENOENT"), { code: "ENOENT" }));
+
+    await expect(readBaseUrlFromConfig()).resolves.toBeUndefined();
+  });
+
+  it("returns undefined when JSON has no baseUrl", async () => {
+    readFileMock.mockResolvedValue(JSON.stringify({ apiKey: "mcs_x" }));
+
+    await expect(readBaseUrlFromConfig()).resolves.toBeUndefined();
+  });
+
+  it("returns baseUrl when present even if loadConfig would reject the file", async () => {
+    readFileMock.mockResolvedValue(JSON.stringify({ baseUrl: "https://self-hosted.example.com" }));
+
+    await expect(readBaseUrlFromConfig()).resolves.toBe("https://self-hosted.example.com");
   });
 });
 

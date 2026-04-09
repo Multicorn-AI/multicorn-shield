@@ -185,6 +185,42 @@ export function collectAgentsFromConfig(cfg: ProxyConfig | null): AgentEntry[] {
 // Config load / save
 // ---------------------------------------------------------------------------
 
+type ParseConfigFileResult =
+  | { readonly kind: "ok"; readonly value: unknown }
+  | { readonly kind: "missing" }
+  | { readonly kind: "readError"; readonly message: string }
+  | { readonly kind: "parseError" };
+
+/**
+ * Reads {@link CONFIG_PATH} and parses JSON. Single place for file read + parse used by
+ * {@link loadConfig} and {@link readBaseUrlFromConfig}.
+ */
+async function parseConfigFile(): Promise<ParseConfigFileResult> {
+  try {
+    const raw = await readFile(CONFIG_PATH, "utf8");
+    try {
+      return { kind: "ok", value: JSON.parse(raw) as unknown };
+    } catch {
+      return { kind: "parseError" };
+    }
+  } catch (error) {
+    if (isErrnoException(error) && error.code === "ENOENT") {
+      return { kind: "missing" };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return { kind: "readError", message };
+  }
+}
+
+/** Whether the URL uses HTTPS or http://localhost / http://127.0.0.1 (local dev). */
+export function isAllowedShieldApiBaseUrl(url: string): boolean {
+  return (
+    url.startsWith("https://") ||
+    url.startsWith("http://localhost") ||
+    url.startsWith("http://127.0.0.1")
+  );
+}
+
 /**
  * Loads the proxy config from ~/.multicorn/config.json.
  * Migrates legacy single-agent shape to `agents` + `defaultAgent` on first read and writes back.
@@ -196,37 +232,60 @@ export function collectAgentsFromConfig(cfg: ProxyConfig | null): AgentEntry[] {
  * @returns The parsed config, or null if the file is missing or invalid.
  */
 export async function loadConfig(): Promise<ProxyConfig | null> {
-  try {
-    const raw = await readFile(CONFIG_PATH, "utf8");
-    const parsed: unknown = JSON.parse(raw);
-    if (!isProxyConfig(parsed)) return null;
-    const obj = parsed as unknown as Record<string, unknown>;
-    const agentNameRaw = obj["agentName"];
-    const agentsRaw = obj["agents"];
-    const hasNonEmptyAgents =
-      Array.isArray(agentsRaw) && agentsRaw.length > 0 && agentsRaw.every((e) => isAgentEntry(e));
-    const needsMigrate =
-      typeof agentNameRaw === "string" && agentNameRaw.length > 0 && !hasNonEmptyAgents;
+  const result = await parseConfigFile();
+  if (result.kind !== "ok") return null;
+  const parsed = result.value;
+  if (!isProxyConfig(parsed)) return null;
+  const obj = parsed as unknown as Record<string, unknown>;
+  const agentNameRaw = obj["agentName"];
+  const agentsRaw = obj["agents"];
+  const hasNonEmptyAgents =
+    Array.isArray(agentsRaw) && agentsRaw.length > 0 && agentsRaw.every((e) => isAgentEntry(e));
+  const needsMigrate =
+    typeof agentNameRaw === "string" && agentNameRaw.length > 0 && !hasNonEmptyAgents;
 
-    if (!needsMigrate) {
-      return parsed;
-    }
-
-    const platform =
-      typeof obj["platform"] === "string" && obj["platform"].length > 0
-        ? obj["platform"]
-        : "unknown";
-    const next: Record<string, unknown> = { ...obj };
-    delete next["agentName"];
-    delete next["platform"];
-    next["agents"] = [{ name: agentNameRaw, platform }];
-    next["defaultAgent"] = agentNameRaw;
-    const migrated = next as unknown as ProxyConfig;
-    await saveConfig(migrated);
-    return migrated;
-  } catch {
-    return null;
+  if (!needsMigrate) {
+    return parsed;
   }
+
+  const platform =
+    typeof obj["platform"] === "string" && obj["platform"].length > 0 ? obj["platform"] : "unknown";
+  const next: Record<string, unknown> = { ...obj };
+  delete next["agentName"];
+  delete next["platform"];
+  next["agents"] = [{ name: agentNameRaw, platform }];
+  next["defaultAgent"] = agentNameRaw;
+  const migrated = next as unknown as ProxyConfig;
+  await saveConfig(migrated);
+  return migrated;
+}
+
+/**
+ * Reads `baseUrl` from ~/.multicorn/config.json without requiring a full valid {@link ProxyConfig}.
+ * Used when {@link loadConfig} returns null (e.g. missing or invalid `apiKey`) but `baseUrl` may still be set.
+ *
+ * @returns The stored base URL, or `undefined` if the file is missing, unreadable, not JSON, or has no non-empty `baseUrl`.
+ */
+export async function readBaseUrlFromConfig(): Promise<string | undefined> {
+  const result = await parseConfigFile();
+  if (result.kind === "missing") return undefined;
+  if (result.kind === "readError") {
+    process.stderr.write(
+      style.yellow(`Warning: could not read base URL from config file: ${result.message}`) + "\n",
+    );
+    return undefined;
+  }
+  if (result.kind === "parseError") {
+    process.stderr.write(
+      style.yellow("Warning: could not parse ~/.multicorn/config.json as JSON.") + "\n",
+    );
+    return undefined;
+  }
+  const parsed = result.value;
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const u = (parsed as Record<string, unknown>)["baseUrl"];
+  if (typeof u !== "string" || u.length === 0) return undefined;
+  return u;
 }
 
 /**
@@ -825,13 +884,16 @@ function printPlatformSnippet(
 // Main init
 // ---------------------------------------------------------------------------
 
+const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
+
 /**
  * Runs the interactive init flow: validates an API key, selects a platform,
  * and configures one or more agents.
- * @param baseUrl - The Shield API base URL (defaults to production).
+ * @param explicitBaseUrl - Optional Shield API base URL from `--base-url`. When omitted, resolution uses
+ *   full config, then partial config file, then `MULTICORN_BASE_URL`, then the production default.
  * @returns The last saved config, or null if the user exited early.
  */
-export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
+export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | null> {
   if (!process.stdin.isTTY) {
     process.stderr.write(
       style.red("Error: interactive terminal required. Cannot run init with piped input.") + "\n",
@@ -856,16 +918,33 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
   // Load existing config
   const existing = await loadConfig().catch(() => null);
 
-  // Resolve baseUrl: --base-url flag > config file > env var > hardcoded default.
-  if (baseUrl === "https://api.multicorn.ai") {
-    if (existing !== null && existing.baseUrl.length > 0) {
-      baseUrl = existing.baseUrl;
+  // Resolve baseUrl: explicit CLI arg > full config > partial config file > env var > hardcoded default.
+  let resolvedBaseUrl: string;
+  if (explicitBaseUrl !== undefined && explicitBaseUrl.trim().length > 0) {
+    resolvedBaseUrl = explicitBaseUrl.trim();
+  } else if (existing !== null && existing.baseUrl.length > 0) {
+    resolvedBaseUrl = existing.baseUrl;
+  } else {
+    const fromFile = await readBaseUrlFromConfig();
+    if (fromFile !== undefined && fromFile.length > 0) {
+      resolvedBaseUrl = fromFile;
     } else {
       const envBaseUrl = process.env["MULTICORN_BASE_URL"];
-      if (envBaseUrl !== undefined && envBaseUrl.length > 0) {
-        baseUrl = envBaseUrl;
-      }
+      resolvedBaseUrl =
+        envBaseUrl !== undefined && envBaseUrl.trim().length > 0
+          ? envBaseUrl.trim()
+          : DEFAULT_SHIELD_API_BASE_URL;
     }
+  }
+
+  if (!isAllowedShieldApiBaseUrl(resolvedBaseUrl)) {
+    process.stderr.write(
+      style.red(
+        "Base URL must use HTTPS (or http://localhost for local development). Received a non-HTTPS URL from config. Use --base-url to override.",
+      ) + "\n",
+    );
+    rl.close();
+    return null;
   }
 
   // API key prompt
@@ -892,7 +971,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     const spinner = withSpinner("Validating key...");
     let result: Awaited<ReturnType<typeof validateApiKey>>;
     try {
-      result = await validateApiKey(key, baseUrl);
+      result = await validateApiKey(key, resolvedBaseUrl);
     } catch (error) {
       spinner.stop(false, "Validation failed");
       throw error;
@@ -907,25 +986,12 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
     apiKey = key;
   }
 
-  // Enforce HTTPS on baseUrl (localhost exception for local dev)
-  if (
-    !baseUrl.startsWith("https://") &&
-    !baseUrl.startsWith("http://localhost") &&
-    !baseUrl.startsWith("http://127.0.0.1")
-  ) {
-    process.stderr.write(
-      style.red(`\u2717 Shield API base URL must use HTTPS. Got: ${baseUrl}`) + "\n",
-    );
-    rl.close();
-    return null;
-  }
-
   // Agent configuration loop (append to `agents`, no silent duplicate platforms)
   const configuredAgents: ConfiguredAgent[] = [];
   let currentAgents: AgentEntry[] = collectAgentsFromConfig(existing);
   let lastConfig: ProxyConfig = {
     apiKey,
-    baseUrl,
+    baseUrl: resolvedBaseUrl,
     ...(currentAgents.length > 0
       ? {
           agents: currentAgents,
@@ -1019,7 +1085,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
 
         const spinner = withSpinner("Updating OpenClaw config...");
         try {
-          const result = await updateOpenClawConfigIfPresent(apiKey, baseUrl, agentName);
+          const result = await updateOpenClawConfigIfPresent(apiKey, resolvedBaseUrl, agentName);
           if (result === "not-found") {
             spinner.stop(false, "OpenClaw config disappeared unexpectedly.");
             rl.close();
@@ -1085,7 +1151,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
         const spinner = withSpinner("Creating proxy config...");
         try {
           proxyUrl = await createProxyConfig(
-            baseUrl,
+            resolvedBaseUrl,
             apiKey,
             agentName,
             targetUrl,
@@ -1128,7 +1194,7 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
           ? { ...(existing as unknown as Record<string, unknown>) }
           : ({} as Record<string, unknown>);
       raw["apiKey"] = apiKey;
-      raw["baseUrl"] = baseUrl;
+      raw["baseUrl"] = resolvedBaseUrl;
       raw["agents"] = currentAgents;
       raw["defaultAgent"] = agentName;
       delete raw["agentName"];

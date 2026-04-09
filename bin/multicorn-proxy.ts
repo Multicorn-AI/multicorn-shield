@@ -17,6 +17,7 @@ import {
   deleteAgentByName,
   getAgentByPlatform,
   getDefaultAgent,
+  isAllowedShieldApiBaseUrl,
   type ProxyConfig,
 } from "../src/proxy/config.js";
 import { createProxyServer } from "../src/proxy/index.js";
@@ -28,7 +29,8 @@ interface CliArgs {
   readonly wrapCommand: string;
   readonly wrapArgs: readonly string[];
   readonly logLevel: LogLevel;
-  readonly baseUrl: string;
+  /** Set only when `--base-url` appears on the command line (omit default so init can resolve from config). */
+  readonly baseUrl: string | undefined;
   readonly dashboardUrl: string;
   readonly agentName: string;
   readonly deleteAgentName: string;
@@ -41,7 +43,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let wrapCommand = "";
   let wrapArgs: string[] = [];
   let logLevel: LogLevel = "info";
-  let baseUrl = "https://api.multicorn.ai";
+  let baseUrl: string | undefined = undefined;
   let dashboardUrl = "";
   let agentName = "";
   let deleteAgentName = "";
@@ -229,20 +231,17 @@ async function main(): Promise<void> {
     return;
   }
 
-  // Validate base URL before any network calls that send the API key.
-  if (
-    !cli.baseUrl.startsWith("https://") &&
-    !cli.baseUrl.startsWith("http://localhost") &&
-    !cli.baseUrl.startsWith("http://127.0.0.1")
-  ) {
-    process.stderr.write(
-      `Error: --base-url must use HTTPS. Received: "${cli.baseUrl}"\n` +
-        "Use https:// or http://localhost for local development.\n",
-    );
-    process.exit(1);
+  // --wrap mode: validate explicit --base-url before disk read when the flag is set.
+  if (cli.baseUrl !== undefined && cli.baseUrl.length > 0) {
+    if (!isAllowedShieldApiBaseUrl(cli.baseUrl)) {
+      process.stderr.write(
+        "Error: --base-url must use HTTPS. Received a non-HTTPS URL.\n" +
+          "Use https:// or http://localhost for local development.\n",
+      );
+      process.exit(1);
+    }
   }
 
-  // --wrap mode
   const config = await loadConfig();
   if (config === null) {
     process.stderr.write(
@@ -251,9 +250,20 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  const agentName = resolveWrapAgentName(cli, config);
+  const finalBaseUrl =
+    cli.baseUrl !== undefined && cli.baseUrl.length > 0 ? cli.baseUrl : config.baseUrl;
 
-  const finalBaseUrl = cli.baseUrl !== "https://api.multicorn.ai" ? cli.baseUrl : config.baseUrl;
+  if (cli.baseUrl === undefined || cli.baseUrl.length === 0) {
+    if (!isAllowedShieldApiBaseUrl(finalBaseUrl)) {
+      process.stderr.write(
+        "Error: --base-url must use HTTPS. Received a non-HTTPS URL.\n" +
+          "Use https:// or http://localhost for local development.\n",
+      );
+      process.exit(1);
+    }
+  }
+
+  const agentName = resolveWrapAgentName(cli, config);
   const finalDashboardUrl =
     cli.dashboardUrl !== "" ? cli.dashboardUrl : deriveDashboardUrl(finalBaseUrl);
 
