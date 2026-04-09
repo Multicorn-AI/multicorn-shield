@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Proxy CLI `init` command now reads `baseUrl` from `~/.multicorn/config.json` on the new-key path, not just the reuse-key path. Previously required `--base-url` flag as a workaround.
+- `--base-url` CLI flag correctly overrides config file value (previously indistinguishable from the default).
+
+### Added
+
+- `readBaseUrlFromConfig()` helper for reading base URL from partial config files.
+- `parseConfigFile()` shared helper eliminating duplicated file read/parse logic between `loadConfig` and `readBaseUrlFromConfig`.
+- `isAllowedShieldApiBaseUrl()` exported validator for HTTPS/localhost scheme checks.
+- `DEFAULT_SHIELD_API_BASE_URL` named constant replacing hardcoded fallback string.
+- HTTPS scheme validation in `runInit()` init flow (previously only enforced in wrap flow).
+
+### Changed
+
+- `runInit` parameter changed from `baseUrl = "https://api.multicorn.ai"` to `explicitBaseUrl?: string` to distinguish "no flag" from "explicitly passed default."
+- Base URL resolution priority: explicit flag > full config > partial config > env var > default.
+- HTTPS validation error messages no longer include the actual URL value.
+- Wrap flow validates `--base-url` before loading config when the flag is present.
+
 ## [0.6.0] - 2026-04-08
 
 ### Added
