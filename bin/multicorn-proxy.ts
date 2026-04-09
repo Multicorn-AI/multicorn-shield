@@ -17,6 +17,7 @@ import {
   deleteAgentByName,
   getAgentByPlatform,
   getDefaultAgent,
+  isAllowedShieldApiBaseUrl,
   type ProxyConfig,
 } from "../src/proxy/config.js";
 import { createProxyServer } from "../src/proxy/index.js";
@@ -230,7 +231,17 @@ async function main(): Promise<void> {
     return;
   }
 
-  // --wrap mode
+  // --wrap mode: validate explicit --base-url before disk read when the flag is set.
+  if (cli.baseUrl !== undefined && cli.baseUrl.length > 0) {
+    if (!isAllowedShieldApiBaseUrl(cli.baseUrl)) {
+      process.stderr.write(
+        "Error: --base-url must use HTTPS. Received a non-HTTPS URL.\n" +
+          "Use https:// or http://localhost for local development.\n",
+      );
+      process.exit(1);
+    }
+  }
+
   const config = await loadConfig();
   if (config === null) {
     process.stderr.write(
@@ -242,17 +253,14 @@ async function main(): Promise<void> {
   const finalBaseUrl =
     cli.baseUrl !== undefined && cli.baseUrl.length > 0 ? cli.baseUrl : config.baseUrl;
 
-  // Validate base URL before any network calls that send the API key.
-  if (
-    !finalBaseUrl.startsWith("https://") &&
-    !finalBaseUrl.startsWith("http://localhost") &&
-    !finalBaseUrl.startsWith("http://127.0.0.1")
-  ) {
-    process.stderr.write(
-      `Error: --base-url must use HTTPS. Received: "${finalBaseUrl}"\n` +
-        "Use https:// or http://localhost for local development.\n",
-    );
-    process.exit(1);
+  if (cli.baseUrl === undefined || cli.baseUrl.length === 0) {
+    if (!isAllowedShieldApiBaseUrl(finalBaseUrl)) {
+      process.stderr.write(
+        "Error: --base-url must use HTTPS. Received a non-HTTPS URL.\n" +
+          "Use https:// or http://localhost for local development.\n",
+      );
+      process.exit(1);
+    }
   }
 
   const agentName = resolveWrapAgentName(cli, config);

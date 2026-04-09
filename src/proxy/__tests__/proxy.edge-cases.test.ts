@@ -650,6 +650,28 @@ describe("config file parsing", () => {
     expect(agentsFetchCall[0]).toContain("only-base.example.com");
   });
 
+  it("runInit rejects non-HTTPS base URL from config.json", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const insecureBase = JSON.stringify({
+      baseUrl: "http://evil.example.com",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(insecureBase);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn();
+
+    const config = await runInit();
+
+    expect(config).toBeNull();
+    expect(stderrBuffer).toContain("HTTPS");
+    expect(stderrBuffer).toContain("base-url");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it("runInit keeps explicit --base-url over config.json base URL", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
