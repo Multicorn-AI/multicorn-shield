@@ -575,6 +575,143 @@ describe("config file parsing", () => {
     expect(config.apiKey).toBe("mcs_new_key");
   });
 
+  it("runInit reads base URL from config.json when user enters a new key", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingConfig = JSON.stringify({
+      apiKey: "mcs_old_key1234",
+      baseUrl: "https://enterprise.example.com",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(existingConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    global.fetch = fetchMock;
+
+    mockPrompts({
+      "Use this key": "n",
+      "API key": "mcs_new_key",
+      Select: "1",
+      "call this agent": "my-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit();
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.baseUrl).toBe("https://enterprise.example.com");
+    expect(config.apiKey).toBe("mcs_new_key");
+    const agentsFetchCall = fetchMock.mock.calls.find(
+      (c): c is [string, ...unknown[]] =>
+        typeof c[0] === "string" && c[0].includes("/api/v1/agents"),
+    );
+    expect(agentsFetchCall).toBeDefined();
+    if (agentsFetchCall === undefined) throw new Error("expected /api/v1/agents fetch");
+    expect(agentsFetchCall[0]).toContain("enterprise.example.com");
+  });
+
+  it("runInit reads base URL from config.json when apiKey is missing (partial config)", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const partialOnlyBase = JSON.stringify({
+      baseUrl: "https://only-base.example.com",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(partialOnlyBase);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    global.fetch = fetchMock;
+
+    mockPrompts({
+      "API key": "mcs_new_key",
+      Select: "1",
+      "call this agent": "solo-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit();
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.baseUrl).toBe("https://only-base.example.com");
+    const agentsFetchCall = fetchMock.mock.calls.find(
+      (c): c is [string, ...unknown[]] =>
+        typeof c[0] === "string" && c[0].includes("/api/v1/agents"),
+    );
+    expect(agentsFetchCall).toBeDefined();
+    if (agentsFetchCall === undefined) throw new Error("expected /api/v1/agents fetch");
+    expect(agentsFetchCall[0]).toContain("only-base.example.com");
+  });
+
+  it("runInit rejects non-HTTPS base URL from config.json", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const insecureBase = JSON.stringify({
+      baseUrl: "http://evil.example.com",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(insecureBase);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn();
+
+    const config = await runInit();
+
+    expect(config).toBeNull();
+    expect(stderrBuffer).toContain("HTTPS");
+    expect(stderrBuffer).toContain("base-url");
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("runInit keeps explicit --base-url over config.json base URL", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingConfig = JSON.stringify({
+      apiKey: "mcs_existing",
+      baseUrl: "https://from-file.example.com",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(existingConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    global.fetch = fetchMock;
+
+    mockPrompts({
+      "Use this key": "n",
+      "API key": "mcs_new_after_override",
+      Select: "1",
+      "call this agent": "my-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://explicit-override.example.com");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.baseUrl).toBe("https://explicit-override.example.com");
+    expect(config.apiKey).toBe("mcs_new_after_override");
+    const agentsFetchCall = fetchMock.mock.calls.find(
+      (c): c is [string, ...unknown[]] =>
+        typeof c[0] === "string" && c[0].includes("/api/v1/agents"),
+    );
+    expect(agentsFetchCall).toBeDefined();
+    if (agentsFetchCall === undefined) throw new Error("expected /api/v1/agents fetch");
+    expect(agentsFetchCall[0]).toContain("explicit-override.example.com");
+    expect(agentsFetchCall[0]).not.toContain("from-file.example.com");
+  });
+
   it("runInit normalizes agent name with spaces and uppercase", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
