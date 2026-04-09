@@ -230,6 +230,25 @@ export async function loadConfig(): Promise<ProxyConfig | null> {
 }
 
 /**
+ * Reads `baseUrl` from ~/.multicorn/config.json without requiring a full valid {@link ProxyConfig}.
+ * Used when {@link loadConfig} returns null (e.g. missing or invalid `apiKey`) but `baseUrl` may still be set.
+ *
+ * @returns The stored base URL, or `undefined` if the file is missing, unreadable, not JSON, or has no non-empty `baseUrl`.
+ */
+export async function readBaseUrlFromConfig(): Promise<string | undefined> {
+  try {
+    const raw = await readFile(CONFIG_PATH, "utf8");
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return undefined;
+    const u = (parsed as Record<string, unknown>)["baseUrl"];
+    if (typeof u !== "string" || u.length === 0) return undefined;
+    return u;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Removes an agent by name from the config file. Clears `defaultAgent` if it pointed at that name.
  * @returns true if the agent was found and removed.
  */
@@ -825,13 +844,16 @@ function printPlatformSnippet(
 // Main init
 // ---------------------------------------------------------------------------
 
+const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
+
 /**
  * Runs the interactive init flow: validates an API key, selects a platform,
  * and configures one or more agents.
- * @param baseUrl - The Shield API base URL (defaults to production).
+ * @param baseUrl - Optional Shield API base URL from `--base-url`. When omitted, resolution uses
+ *   full config, then partial config file, then `MULTICORN_BASE_URL`, then the production default.
  * @returns The last saved config, or null if the user exited early.
  */
-export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<ProxyConfig | null> {
+export async function runInit(baseUrl?: string): Promise<ProxyConfig | null> {
   if (!process.stdin.isTTY) {
     process.stderr.write(
       style.red("Error: interactive terminal required. Cannot run init with piped input.") + "\n",
@@ -856,17 +878,25 @@ export async function runInit(baseUrl = "https://api.multicorn.ai"): Promise<Pro
   // Load existing config
   const existing = await loadConfig().catch(() => null);
 
-  // Resolve baseUrl: --base-url flag > config file > env var > hardcoded default.
-  if (baseUrl === "https://api.multicorn.ai") {
-    if (existing !== null && existing.baseUrl.length > 0) {
-      baseUrl = existing.baseUrl;
+  // Resolve baseUrl: explicit CLI arg > full config > partial config file > env var > hardcoded default.
+  let resolvedBaseUrl: string;
+  if (baseUrl !== undefined && baseUrl.trim().length > 0) {
+    resolvedBaseUrl = baseUrl.trim();
+  } else if (existing !== null && existing.baseUrl.length > 0) {
+    resolvedBaseUrl = existing.baseUrl;
+  } else {
+    const fromFile = await readBaseUrlFromConfig();
+    if (fromFile !== undefined && fromFile.length > 0) {
+      resolvedBaseUrl = fromFile;
     } else {
       const envBaseUrl = process.env["MULTICORN_BASE_URL"];
-      if (envBaseUrl !== undefined && envBaseUrl.length > 0) {
-        baseUrl = envBaseUrl;
-      }
+      resolvedBaseUrl =
+        envBaseUrl !== undefined && envBaseUrl.trim().length > 0
+          ? envBaseUrl.trim()
+          : DEFAULT_SHIELD_API_BASE_URL;
     }
   }
+  baseUrl = resolvedBaseUrl;
 
   // API key prompt
   let apiKey = "";
