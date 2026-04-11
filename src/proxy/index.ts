@@ -350,6 +350,18 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     grantedScopes = agentRecord.scopes;
     authInvalid = agentRecord.authInvalid === true;
 
+    if (authInvalid) {
+      config.logger.error("API key rejected by the Multicorn service.", {
+        agent: config.agentName,
+      });
+      process.stderr.write(
+        "\nError: API key was rejected by the Multicorn service.\n" +
+          "Check your key at https://app.multicorn.ai/settings#api-keys " +
+          "or run `npx multicorn-proxy init` to reconfigure.\n\n",
+      );
+      throw new Error("API key was rejected by the Multicorn service.");
+    }
+
     config.logger.info("Agent resolved.", {
       agent: config.agentName,
       id: agentId,
