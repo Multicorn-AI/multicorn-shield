@@ -18,13 +18,19 @@ import {
   getAgentByPlatform,
   getDefaultAgent,
   isAllowedShieldApiBaseUrl,
+  DEFAULT_SHIELD_API_BASE_URL,
   type ProxyConfig,
 } from "../src/proxy/config.js";
 import { createProxyServer } from "../src/proxy/index.js";
-import { createLogger, isValidLogLevel, type LogLevel } from "../src/proxy/logger.js";
+import {
+  createLogger,
+  isValidLogLevel,
+  type LogLevel,
+  type ProxyLogger,
+} from "../src/proxy/logger.js";
 import { deriveDashboardUrl } from "../src/proxy/consent.js";
 
-interface CliArgs {
+export interface CliArgs {
   readonly subcommand: "init" | "wrap" | "help" | "agents" | "delete-agent";
   readonly wrapCommand: string;
   readonly wrapArgs: readonly string[];
@@ -34,9 +40,11 @@ interface CliArgs {
   readonly dashboardUrl: string;
   readonly agentName: string;
   readonly deleteAgentName: string;
+  /** Set only when `--api-key` appears on the command line. */
+  readonly apiKey: string | undefined;
 }
 
-function parseArgs(argv: readonly string[]): CliArgs {
+export function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
 
   let subcommand: CliArgs["subcommand"] = "help";
@@ -47,6 +55,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let dashboardUrl = "";
   let agentName = "";
   let deleteAgentName = "";
+  let apiKey: string | undefined = undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -67,49 +76,61 @@ function parseArgs(argv: readonly string[]): CliArgs {
       i++;
     } else if (arg === "--wrap") {
       subcommand = "wrap";
-      const next = args[i + 1];
-      if (next === undefined || next.startsWith("-")) {
-        process.stderr.write("Error: --wrap requires a command to run.\n");
-        process.stderr.write("Example: npx multicorn-proxy --wrap my-mcp-server\n");
-        process.exit(1);
-      }
-      wrapCommand = next;
-      wrapArgs = args.slice(i + 2);
+      const tail = args.slice(i + 1);
 
-      // Strip proxy-owned flags that ended up after --wrap so they
-      // aren't forwarded to the child process.
-      const cleaned: string[] = [];
-      for (let j = 0; j < wrapArgs.length; j++) {
-        const token = wrapArgs[j];
+      // Strip proxy-owned flags from the tail. Once we encounter a
+      // non-flag token, everything from that point on belongs to the
+      // child command (even if later tokens look like flags).
+      const remaining: string[] = [];
+      for (let j = 0; j < tail.length; j++) {
+        const token = tail[j];
+        if (token === undefined) continue;
+        if (remaining.length > 0) {
+          remaining.push(token);
+          continue;
+        }
         if (token === "--agent-name") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined) {
             agentName = value;
             j++;
           }
         } else if (token === "--log-level") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined && isValidLogLevel(value)) {
             logLevel = value;
             j++;
           }
         } else if (token === "--base-url") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined) {
             baseUrl = value;
             j++;
           }
         } else if (token === "--dashboard-url") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined) {
             dashboardUrl = value;
             j++;
           }
-        } else if (token !== undefined) {
-          cleaned.push(token);
+        } else if (token === "--api-key") {
+          const value = tail[j + 1];
+          if (value !== undefined) {
+            apiKey = value;
+            j++;
+          }
+        } else {
+          remaining.push(token);
         }
       }
-      wrapArgs = cleaned;
+
+      if (remaining.length === 0) {
+        process.stderr.write("Error: --wrap requires a command to run.\n");
+        process.stderr.write("Example: npx multicorn-proxy --wrap my-mcp-server\n");
+        process.exit(1);
+      }
+      wrapCommand = remaining[0] ?? "";
+      wrapArgs = remaining.slice(1);
       break;
     } else if (arg === "--log-level") {
       const next = args[i + 1];
@@ -135,6 +156,12 @@ function parseArgs(argv: readonly string[]): CliArgs {
         agentName = next;
         i++;
       }
+    } else if (arg === "--api-key") {
+      const next = args[i + 1];
+      if (next !== undefined) {
+        apiKey = next;
+        i++;
+      }
     }
   }
 
@@ -147,6 +174,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
     dashboardUrl,
     agentName,
     deleteAgentName,
+    apiKey,
   };
 }
 
@@ -170,6 +198,7 @@ function printHelp(): void {
       "      Shield's permission layer.",
       "",
       "Options:",
+      "  --api-key <key>       Multicorn API key (overrides MULTICORN_API_KEY env var and config file)",
       "  --log-level <level>   Log level: debug | info | warn | error  (default: info)",
       "  --base-url <url>      Multicorn API base URL  (default: https://api.multicorn.ai)",
       "  --dashboard-url <url> Dashboard URL for consent page  (default: derived from --base-url)",
@@ -242,13 +271,8 @@ async function main(): Promise<void> {
     }
   }
 
-  const config = await loadConfig();
-  if (config === null) {
-    process.stderr.write(
-      "No config found. Run `npx multicorn-proxy init` to set up your API key.\n",
-    );
-    process.exit(1);
-  }
+  // Resolve API key: CLI flag > env var > config file.
+  const config = await resolveWrapConfig(cli, logger);
 
   const finalBaseUrl =
     cli.baseUrl !== undefined && cli.baseUrl.length > 0 ? cli.baseUrl : config.baseUrl;
@@ -301,6 +325,44 @@ async function main(): Promise<void> {
   await proxy.start();
 }
 
+/**
+ * Resolve the proxy config for --wrap mode.
+ * Priority: --api-key flag > MULTICORN_API_KEY env var > ~/.multicorn/config.json.
+ * When the key comes from flag or env, an in-memory config is built (nothing written to disk).
+ */
+export async function resolveWrapConfig(cli: CliArgs, logger: ProxyLogger): Promise<ProxyConfig> {
+  // 1. --api-key CLI flag
+  if (cli.apiKey !== undefined && cli.apiKey.length > 0) {
+    logger.debug("Using API key from --api-key flag.");
+    return {
+      apiKey: cli.apiKey,
+      baseUrl: cli.baseUrl ?? DEFAULT_SHIELD_API_BASE_URL,
+    };
+  }
+
+  // 2. MULTICORN_API_KEY env var
+  const envKey = process.env["MULTICORN_API_KEY"];
+  if (typeof envKey === "string" && envKey.length > 0) {
+    logger.debug("Using API key from MULTICORN_API_KEY environment variable.");
+    return {
+      apiKey: envKey,
+      baseUrl: cli.baseUrl ?? DEFAULT_SHIELD_API_BASE_URL,
+    };
+  }
+
+  // 3. Config file
+  const config = await loadConfig();
+  if (config !== null) {
+    return config;
+  }
+
+  process.stderr.write(
+    "No API key found. Provide one via the --api-key flag, the MULTICORN_API_KEY " +
+      "environment variable, or run `npx multicorn-proxy init` to set up a config file.\n",
+  );
+  process.exit(1);
+}
+
 function resolveWrapAgentName(cli: CliArgs, config: ProxyConfig): string {
   if (cli.agentName.length > 0) {
     return cli.agentName;
@@ -331,8 +393,18 @@ function deriveAgentName(command: string): string {
   return base.replace(/\.[cm]?[jt]s$/, "");
 }
 
-main().catch((error: unknown) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`Fatal error: ${message}\n`);
-  process.exit(1);
-});
+// Only run main() when executed as a script, not when imported for testing.
+const isDirectRun =
+  process.argv[1] !== undefined &&
+  (import.meta.url.endsWith(process.argv[1]) ||
+    import.meta.url === `file://${process.argv[1]}` ||
+    import.meta.url.endsWith("/multicorn-proxy.js") ||
+    import.meta.url.endsWith("/multicorn-proxy.ts"));
+
+if (isDirectRun && process.env["VITEST"] === undefined) {
+  main().catch((error: unknown) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`Fatal error: ${message}\n`);
+    process.exit(1);
+  });
+}

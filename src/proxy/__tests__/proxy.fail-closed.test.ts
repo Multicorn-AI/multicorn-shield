@@ -253,7 +253,6 @@ describe("fail-closed: auth errors", () => {
   let fakeStdin: PassThrough;
   let stdoutBuffer: string;
   let proxy: ProxyServer;
-  let startPromise: Promise<void> | undefined = undefined;
   const originalStdin = process.stdin;
   const originalStdoutWrite = process.stdout.write.bind(process.stdout);
   const originalFetch = global.fetch;
@@ -302,10 +301,6 @@ describe("fail-closed: auth errors", () => {
     return stdoutBuffer.split("\n").filter((l) => l.trim().length > 0);
   }
 
-  function sendJsonRpc(msg: Record<string, unknown>): void {
-    fakeStdin.write(JSON.stringify(msg) + "\n");
-  }
-
   beforeEach(() => {
     readFileMock.mockRejectedValue(new Error("ENOENT"));
     writeFileMock.mockResolvedValue(undefined);
@@ -319,7 +314,6 @@ describe("fail-closed: auth errors", () => {
     if (typeof proxy !== "undefined") {
       await proxy.stop();
     }
-    if (startPromise !== undefined) await startPromise.catch(() => undefined);
     Object.defineProperty(process, "stdin", {
       value: originalStdin,
       configurable: true,
@@ -330,62 +324,88 @@ describe("fail-closed: auth errors", () => {
     vi.restoreAllMocks();
   });
 
-  it("blocks with auth error when API key is invalid (401)", async () => {
+  it("start() rejects immediately when API key is invalid (401)", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
 
     const { mcpCommand, mcpArgs } = await setupStdio();
     createProxy("https://api.multicorn.ai", mcpCommand, mcpArgs);
 
-    startPromise = proxy.start();
-    await sleep(500);
-
-    sendJsonRpc({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "gmail_send_email",
-        arguments: { to: "user@example.com", subject: "Hi", body: "Hello" },
-      },
-    });
-
-    await waitFor(() => getStdoutLines().length >= 1);
-
-    const line = getStdoutLines()[0] ?? "";
-    const response = JSON.parse(line) as Record<string, unknown>;
-    const error = response["error"] as Record<string, unknown>;
-
-    expect(error["code"]).toBe(-32004);
-    expect(String(error["message"])).toContain("API key is invalid or has been revoked");
+    await expect(proxy.start()).rejects.toThrow("API key was rejected");
+    expect(getStdoutLines().length).toBe(0);
   });
 
-  it("blocks with auth error when API key is revoked (403)", async () => {
+  it("start() rejects immediately when API key is revoked (403)", async () => {
     global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 403 });
 
     const { mcpCommand, mcpArgs } = await setupStdio();
     createProxy("https://api.multicorn.ai", mcpCommand, mcpArgs);
 
-    startPromise = proxy.start();
-    await sleep(500);
+    await expect(proxy.start()).rejects.toThrow("API key was rejected");
+    expect(getStdoutLines().length).toBe(0);
+  });
 
-    sendJsonRpc({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "gmail_send_email",
-        arguments: { to: "user@example.com", subject: "Hi", body: "Hello" },
-      },
-    });
+  it("start() prints user-facing error to stderr when authInvalid", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
 
-    await waitFor(() => getStdoutLines().length >= 1);
+    const { mcpCommand, mcpArgs } = await setupStdio();
 
-    const line = getStdoutLines()[0] ?? "";
-    const response = JSON.parse(line) as Record<string, unknown>;
-    const error = response["error"] as Record<string, unknown>;
+    let stderrCapture = "";
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      encodingOrCb?: BufferEncoding | ((error?: Error | null) => void),
+      cb?: (error?: Error | null) => void,
+    ): boolean => {
+      stderrCapture += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+      const callback = typeof encodingOrCb === "function" ? encodingOrCb : cb;
+      if (callback !== undefined) callback(null);
+      return true;
+    }) as typeof process.stderr.write;
 
-    expect(error["code"]).toBe(-32004);
-    expect(String(error["message"])).toContain("API key is invalid or has been revoked");
+    createProxy("https://api.multicorn.ai", mcpCommand, mcpArgs);
+
+    try {
+      await proxy.start();
+    } catch {
+      // expected
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
+
+    expect(stderrCapture).toContain("API key was rejected by the Multicorn service");
+    expect(stderrCapture).toContain("https://app.multicorn.ai/settings#api-keys");
+  });
+
+  it("start() does not log Proxy ready or spawn child when authInvalid", async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+
+    const { mcpCommand, mcpArgs } = await setupStdio();
+
+    let stderrCapture = "";
+    const originalStderrWrite = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((
+      chunk: string | Uint8Array,
+      encodingOrCb?: BufferEncoding | ((error?: Error | null) => void),
+      cb?: (error?: Error | null) => void,
+    ): boolean => {
+      stderrCapture += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+      const callback = typeof encodingOrCb === "function" ? encodingOrCb : cb;
+      if (callback !== undefined) callback(null);
+      return true;
+    }) as typeof process.stderr.write;
+
+    createProxy("https://api.multicorn.ai", mcpCommand, mcpArgs);
+
+    try {
+      await proxy.start();
+    } catch {
+      // expected
+    } finally {
+      process.stderr.write = originalStderrWrite;
+    }
+
+    expect(stderrCapture).not.toContain("Proxy ready");
+    expect(getStdoutLines().length).toBe(0);
   });
 });
 
