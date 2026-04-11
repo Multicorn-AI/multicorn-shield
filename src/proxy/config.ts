@@ -884,7 +884,7 @@ function printPlatformSnippet(
 // Main init
 // ---------------------------------------------------------------------------
 
-const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
+export const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
 
 /**
  * Runs the interactive init flow: validates an API key, selects a platform,
