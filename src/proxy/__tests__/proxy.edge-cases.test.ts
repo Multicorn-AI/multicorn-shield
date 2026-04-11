@@ -1103,6 +1103,98 @@ describe("config file parsing", () => {
     expect(loaded.baseUrl).toBe("https://api.multicorn.ai");
   });
 
+  it("runInit option 4 summary does not render a trailing dash", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("Local MCP / Other");
+    expect(plain).not.toContain("Local MCP / Other -");
+    expect(plain).not.toMatch(/Local MCP \/ Other\s*-\s*$/m);
+  });
+
+  it("runInit option 1 summary renders platform dash agent name correctly", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "my-oc-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("OpenClaw - my-oc-agent");
+  });
+
+  it("runInit option 4 does not print a Next steps block", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).not.toContain("Next steps");
+    expect(plain).not.toContain("Other MCP Agent");
+    expect(plain).not.toContain("--agent-name");
+  });
+
+  it("runInit option 1 Next steps block still renders correctly", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "my-oc-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("Next steps");
+    expect(plain).toContain("To complete your OpenClaw setup");
+    expect(plain).toContain("openclaw gateway restart");
+  });
+
   it("runInit appends a second agent when user connects another platform", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
