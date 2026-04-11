@@ -690,10 +690,10 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
   ];
 
   for (let i = 0; i < PLATFORM_LABELS.length; i++) {
-    // Option 4 (Local MCP / Other) has no detection logic, so skip the connected marker.
+    // Option 4 (Local MCP / Other) has no detection logic, so skip the marker.
     const marker =
       i < connectedFlags.length && connectedFlags[i]
-        ? " " + style.green("\u2713") + style.dim(" connected")
+        ? " " + style.dim("\u25CF detected locally")
         : "";
     process.stderr.write(
       `  ${style.violet(String(i + 1))}. ${PLATFORM_LABELS[i] ?? ""}${marker}\n`,

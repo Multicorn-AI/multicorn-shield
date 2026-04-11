@@ -113,6 +113,11 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+const ANSI_RE = new RegExp(String.fromCharCode(27) + "\\[[0-9;]*[a-zA-Z]", "g");
+function stripAnsi(str: string): string {
+  return str.replace(ANSI_RE, "");
+}
+
 describe("graceful shutdown", () => {
   let mockService: MockMulticornService;
   let fakeStdin: PassThrough;
@@ -840,6 +845,111 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Restart Cursor");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
+  });
+
+  // --- Platform detection labels ---
+
+  it("runInit shows 'detected locally' with dot icon when a platform is detected", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    // Return OpenClaw config with Shield API key set so isOpenClawConnected() returns true.
+    const openclawWithShield = JSON.stringify({
+      meta: { lastTouchedVersion: "2026.3.1" },
+      hooks: {
+        internal: {
+          entries: {
+            "multicorn-shield": {
+              env: { MULTICORN_API_KEY: "mcs_existing_key" },
+            },
+          },
+        },
+      },
+    });
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(openclawWithShield)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "test-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("detected locally");
+    expect(plain).toContain("\u25CF");
+  });
+
+  it("runInit does not show 'connected' or checkmark in platform list", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const openclawWithShield = JSON.stringify({
+      meta: { lastTouchedVersion: "2026.3.1" },
+      hooks: {
+        internal: {
+          entries: {
+            "multicorn-shield": {
+              env: { MULTICORN_API_KEY: "mcs_existing_key" },
+            },
+          },
+        },
+      },
+    });
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(openclawWithShield)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "1",
+      "call this agent": "test-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    // The platform list section (before "API key") should not contain "connected" or checkmark.
+    expect(plain).not.toMatch(/\u2713\s*connected/);
+  });
+
+  it("runInit does not show OpenClaw as detected when Shield key is absent", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    // OpenClaw config exists but has no Shield API key entry.
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(JSON.stringify({ meta: { lastTouchedVersion: "2026.3.1" } }))
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    // OpenClaw line should not have the detected marker.
+    const lines = plain.split("\n");
+    const openclawLine = lines.find((l) => l.includes("1.") && l.includes("OpenClaw"));
+    expect(openclawLine).toBeDefined();
+    expect(openclawLine).not.toContain("detected locally");
   });
 
   // --- Option 4: Local MCP / Other ---
