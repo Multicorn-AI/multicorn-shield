@@ -842,6 +842,157 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
   });
 
+  // --- Option 4: Local MCP / Other ---
+
+  it("runInit option 4 writes config with apiKey and baseUrl only (no agents, no defaultAgent)", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.apiKey).toBe("mcs_valid_key");
+    expect(config.baseUrl).toBe("https://api.multicorn.ai");
+    expect(config.agents).toBeUndefined();
+    expect(config.defaultAgent).toBeUndefined();
+
+    const writeCalls = writeFileMock.mock.calls.filter(
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("mcs_valid_key"),
+    );
+    expect(writeCalls.length).toBeGreaterThanOrEqual(1);
+    const written = JSON.parse(String(writeCalls[0]?.[1])) as Record<string, unknown>;
+    expect(written["apiKey"]).toBe("mcs_valid_key");
+    expect(written["baseUrl"]).toBe("https://api.multicorn.ai");
+    expect(written["agents"]).toBeUndefined();
+    expect(written["defaultAgent"]).toBeUndefined();
+    expect(written["agentName"]).toBeUndefined();
+    expect(written["platform"]).toBeUndefined();
+  });
+
+  it("runInit option 4 does not prompt for target URL", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const promptTexts = rlQuestionMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    const hasUrlPrompt = promptTexts.some(
+      (p: string) => p.includes("URL") && !p.includes("Select"),
+    );
+    expect(hasUrlPrompt).toBe(false);
+  });
+
+  it("runInit option 4 does not prompt for agent name", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const promptTexts = rlQuestionMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    const hasAgentNamePrompt = promptTexts.some((p: string) => p.includes("call this agent"));
+    expect(hasAgentNamePrompt).toBe(false);
+  });
+
+  it("runInit option 4 does not call createProxyConfig (no /api/v1/proxy/config POST)", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    global.fetch = fetchMock;
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const proxyConfigCalls = fetchMock.mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === "string" && c[0].includes("/api/v1/proxy/config"),
+    );
+    expect(proxyConfigCalls).toHaveLength(0);
+  });
+
+  it("runInit option 4 prints the --wrap example command in success message", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    expect(stderrBuffer).toContain("npx multicorn-proxy --wrap");
+    expect(stderrBuffer).toContain("@modelcontextprotocol/server-filesystem");
+  });
+
+  it("runInit option 4 config is loadable by loadConfig", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    // Extract what was written and feed it back to loadConfig via readFileMock.
+    const writeCalls = writeFileMock.mock.calls.filter(
+      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("mcs_valid_key"),
+    );
+    expect(writeCalls.length).toBeGreaterThanOrEqual(1);
+    const writtenJson = String(writeCalls[0]?.[1]);
+
+    readFileMock.mockResolvedValue(writtenJson);
+    const loaded = await loadConfig();
+
+    expect(loaded).not.toBeNull();
+    if (!loaded) throw new Error("expected loaded config");
+    expect(loaded.apiKey).toBe("mcs_valid_key");
+    expect(loaded.baseUrl).toBe("https://api.multicorn.ai");
+  });
+
   it("runInit appends a second agent when user connects another platform", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);

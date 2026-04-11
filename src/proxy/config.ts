@@ -665,11 +665,12 @@ export async function updateClaudeDesktopConfig(
 // Init flow - extracted helpers
 // ---------------------------------------------------------------------------
 
-const PLATFORM_LABELS = ["OpenClaw", "Claude Code", "Cursor"];
+const PLATFORM_LABELS = ["OpenClaw", "Claude Code", "Cursor", "Local MCP / Other"];
 const PLATFORM_BY_SELECTION: Record<number, string> = {
   1: "openclaw",
   2: "claude-code",
   3: "cursor",
+  4: "other-mcp",
 };
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
   openclaw: "my-openclaw-agent",
@@ -689,17 +690,25 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
   ];
 
   for (let i = 0; i < PLATFORM_LABELS.length; i++) {
-    const marker = connectedFlags[i] ? " " + style.green("\u2713") + style.dim(" connected") : "";
+    // Option 4 (Local MCP / Other) has no detection logic, so skip the connected marker.
+    const marker =
+      i < connectedFlags.length && connectedFlags[i]
+        ? " " + style.green("\u2713") + style.dim(" connected")
+        : "";
     process.stderr.write(
       `  ${style.violet(String(i + 1))}. ${PLATFORM_LABELS[i] ?? ""}${marker}\n`,
     );
   }
+  process.stderr.write(
+    style.dim("     Pick 4 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
+      "\n",
+  );
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask("Select (1-3): ");
+    const input = await ask("Select (1-4): ");
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= 3) {
+    if (num >= 1 && num <= 4) {
       selection = num;
     }
   }
@@ -1010,6 +1019,48 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const selection = await promptPlatformSelection(ask);
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
+
+    // Option 4: Local MCP / Other - minimal config, no agent name, no target URL.
+    if (selection === 4) {
+      const raw =
+        existing !== null
+          ? { ...(existing as unknown as Record<string, unknown>) }
+          : ({} as Record<string, unknown>);
+      raw["apiKey"] = apiKey;
+      raw["baseUrl"] = resolvedBaseUrl;
+      delete raw["agentName"];
+      delete raw["platform"];
+      lastConfig = raw as unknown as ProxyConfig;
+      try {
+        await saveConfig(lastConfig);
+        process.stderr.write(
+          style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`,
+        );
+        process.stderr.write(
+          "\n" +
+            style.bold("Try it:") +
+            " " +
+            style.cyan(
+              "npx multicorn-proxy --wrap npx @modelcontextprotocol/server-filesystem /tmp",
+            ) +
+            "\n",
+        );
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
+      }
+      configuredAgents.push({
+        selection,
+        platform: selectedPlatform,
+        platformLabel: selectedLabel,
+        agentName: "",
+      });
+      const another = await ask("\nConnect another agent? (Y/n) ");
+      if (another.trim().toLowerCase() === "n") {
+        configuring = false;
+      }
+      continue;
+    }
 
     const existingForPlatform = currentAgents.find((a) => a.platform === selectedPlatform);
     if (existingForPlatform !== undefined) {
