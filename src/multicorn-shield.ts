@@ -97,7 +97,7 @@ const MIN_API_KEY_LENGTH = 16;
  * @example
  * ```ts
  * const shield = new MulticornShield({
- *   apiKey: 'mcs_your_key_here',
+ *   apiKey: 'mcs_live_abc123...',
  *   baseUrl: 'https://api.multicorn.ai',
  *   timeout: 5000,
  * });
@@ -137,7 +137,7 @@ export interface MulticornShieldConfig {
    * @example
    * ```ts
    * const shield = new MulticornShield({
-   *   apiKey: 'mcs_your_key_here',
+   *   apiKey: 'mcs_live_abc123...',
    *   onError: (err) => myLogger.warn(err.message),
    * });
    * ```
@@ -275,11 +275,11 @@ export class MulticornShield {
    *
    * @example
    * ```ts
-   * const shield = new MulticornShield({ apiKey: 'mcs_your_key_here' });
+   * const shield = new MulticornShield({ apiKey: 'mcs_live_abc123...' });
    * ```
    */
   constructor(config: MulticornShieldConfig) {
-    validateApiKey(config.apiKey);
+    validateApiKey(config.apiKey as unknown);
 
     const baseUrl = config.baseUrl ?? "https://api.multicorn.ai";
     validateBaseUrl(baseUrl);
@@ -707,18 +707,22 @@ function validateBaseUrl(baseUrl: string): void {
 
 // API key validation
 
-function validateApiKey(apiKey: string): void {
+const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set(["mcs_your_key_here"]);
+
+const INVALID_KEY_MESSAGE =
+  "Invalid Multicorn Shield API key. Get your key at https://app.multicorn.ai/settings";
+
+function validateApiKey(apiKey: unknown): void {
+  if (typeof apiKey !== "string" || apiKey.length === 0) {
+    throw new Error(INVALID_KEY_MESSAGE);
+  }
   if (!apiKey.startsWith(API_KEY_PREFIX)) {
-    throw new Error(
-      `[MulticornShield] Invalid API key format. Keys must start with "${API_KEY_PREFIX}". ` +
-        "Find your API key in the Multicorn dashboard under Settings → API Keys.",
-    );
+    throw new Error(INVALID_KEY_MESSAGE);
   }
   if (apiKey.length < MIN_API_KEY_LENGTH) {
-    throw new Error(
-      `[MulticornShield] API key is too short (${String(apiKey.length)} characters). ` +
-        `Minimum length is ${String(MIN_API_KEY_LENGTH)} characters. ` +
-        "Find your API key in the Multicorn dashboard under Settings → API Keys.",
-    );
+    throw new Error(INVALID_KEY_MESSAGE);
+  }
+  if (PLACEHOLDER_KEYS.has(apiKey)) {
+    throw new Error(INVALID_KEY_MESSAGE);
   }
 }

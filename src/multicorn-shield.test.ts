@@ -13,6 +13,8 @@ import type {
 // Test helpers
 
 const VALID_KEY = "mcs_testkey123456";
+const EXPECTED_KEY_ERROR =
+  "Invalid Multicorn Shield API key. Get your key at https://app.multicorn.ai/settings";
 
 const mockFetch = vi.fn().mockResolvedValue({
   ok: true,
@@ -86,21 +88,35 @@ describe("MulticornShield constructor", () => {
   });
 
   it("throws when the API key does not start with mcs_", () => {
-    expect(() => new MulticornShield({ apiKey: "sk_livekey123456" })).toThrow(
-      'must start with "mcs_"',
-    );
+    expect(() => new MulticornShield({ apiKey: "sk_livekey123456" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("throws when the API key is exactly the prefix with no key material", () => {
-    expect(() => new MulticornShield({ apiKey: "mcs_" })).toThrow("too short");
+    expect(() => new MulticornShield({ apiKey: "mcs_" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("throws when the API key is shorter than the minimum length", () => {
-    expect(() => new MulticornShield({ apiKey: "mcs_abc" })).toThrow("too short");
+    expect(() => new MulticornShield({ apiKey: "mcs_abc" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("throws when the API key is empty", () => {
-    expect(() => new MulticornShield({ apiKey: "" })).toThrow();
+    expect(() => new MulticornShield({ apiKey: "" })).toThrow(EXPECTED_KEY_ERROR);
+  });
+
+  it("throws when apiKey is undefined", () => {
+    expect(
+      () => new MulticornShield({ apiKey: undefined } as unknown as MulticornShieldConfig),
+    ).toThrow(EXPECTED_KEY_ERROR);
+  });
+
+  it("throws when apiKey is a non-string value", () => {
+    expect(
+      () => new MulticornShield({ apiKey: 12345 } as unknown as MulticornShieldConfig),
+    ).toThrow(EXPECTED_KEY_ERROR);
+  });
+
+  it("throws when apiKey is the literal placeholder mcs_your_key_here", () => {
+    expect(() => new MulticornShield({ apiKey: "mcs_your_key_here" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("accepts an optional baseUrl pointing to localhost", () => {
@@ -147,30 +163,24 @@ describe("MulticornShield constructor", () => {
     expect(() => new MulticornShield({ apiKey: "mcs_            " })).not.toThrow();
   });
 
-  it("rejects API key that is just the prefix repeated", () => {
+  it("accepts API key that is the prefix repeated to meet length", () => {
     expect(() => new MulticornShield({ apiKey: "mcs_mcs_mcs_mcs_" })).not.toThrow();
   });
 
   it("rejects API key with wrong prefix casing", () => {
-    expect(() => new MulticornShield({ apiKey: "MCS_testkey123456" })).toThrow(
-      'must start with "mcs_"',
-    );
+    expect(() => new MulticornShield({ apiKey: "MCS_testkey123456" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("rejects API key with extra prefix characters", () => {
-    expect(() => new MulticornShield({ apiKey: "xmcs_testkey123456" })).toThrow(
-      'must start with "mcs_"',
-    );
+    expect(() => new MulticornShield({ apiKey: "xmcs_testkey123456" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("rejects API key with spaces before the prefix", () => {
-    expect(() => new MulticornShield({ apiKey: " mcs_testkey123456" })).toThrow(
-      'must start with "mcs_"',
-    );
+    expect(() => new MulticornShield({ apiKey: " mcs_testkey123456" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("rejects API key that is exactly 15 characters long", () => {
-    expect(() => new MulticornShield({ apiKey: "mcs_12345678901" })).toThrow("too short");
+    expect(() => new MulticornShield({ apiKey: "mcs_12345678901" })).toThrow(EXPECTED_KEY_ERROR);
   });
 
   it("accepts API key that is exactly 16 characters long", () => {
@@ -179,12 +189,12 @@ describe("MulticornShield constructor", () => {
 
   it("rejects API key with no prefix at all", () => {
     expect(() => new MulticornShield({ apiKey: "thisisavalidlengthkey" })).toThrow(
-      'must start with "mcs_"',
+      EXPECTED_KEY_ERROR,
     );
   });
 
   it("rejects API key that contains only the prefix mcs_ with no material", () => {
-    expect(() => new MulticornShield({ apiKey: "mcs_" })).toThrow("too short");
+    expect(() => new MulticornShield({ apiKey: "mcs_" })).toThrow(EXPECTED_KEY_ERROR);
   });
 });
 
