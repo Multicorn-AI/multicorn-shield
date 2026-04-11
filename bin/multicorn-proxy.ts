@@ -76,55 +76,61 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       i++;
     } else if (arg === "--wrap") {
       subcommand = "wrap";
-      const next = args[i + 1];
-      if (next === undefined || next.startsWith("-")) {
-        process.stderr.write("Error: --wrap requires a command to run.\n");
-        process.stderr.write("Example: npx multicorn-proxy --wrap my-mcp-server\n");
-        process.exit(1);
-      }
-      wrapCommand = next;
-      wrapArgs = args.slice(i + 2);
+      const tail = args.slice(i + 1);
 
-      // Strip proxy-owned flags that ended up after --wrap so they
-      // aren't forwarded to the child process.
-      const cleaned: string[] = [];
-      for (let j = 0; j < wrapArgs.length; j++) {
-        const token = wrapArgs[j];
+      // Strip proxy-owned flags from the tail. Once we encounter a
+      // non-flag token, everything from that point on belongs to the
+      // child command (even if later tokens look like flags).
+      const remaining: string[] = [];
+      for (let j = 0; j < tail.length; j++) {
+        const token = tail[j];
+        if (token === undefined) continue;
+        if (remaining.length > 0) {
+          remaining.push(token);
+          continue;
+        }
         if (token === "--agent-name") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined) {
             agentName = value;
             j++;
           }
         } else if (token === "--log-level") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined && isValidLogLevel(value)) {
             logLevel = value;
             j++;
           }
         } else if (token === "--base-url") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined) {
             baseUrl = value;
             j++;
           }
         } else if (token === "--dashboard-url") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined) {
             dashboardUrl = value;
             j++;
           }
         } else if (token === "--api-key") {
-          const value = wrapArgs[j + 1];
+          const value = tail[j + 1];
           if (value !== undefined) {
             apiKey = value;
             j++;
           }
-        } else if (token !== undefined) {
-          cleaned.push(token);
+        } else {
+          remaining.push(token);
         }
       }
-      wrapArgs = cleaned;
+
+      if (remaining.length === 0) {
+        process.stderr.write("Error: --wrap requires a command to run.\n");
+        process.stderr.write("Example: npx multicorn-proxy --wrap my-mcp-server\n");
+        process.exit(1);
+      }
+      wrapCommand = remaining[0] ?? "";
+      wrapArgs = remaining.slice(1);
       break;
     } else if (arg === "--log-level") {
       const next = args[i + 1];

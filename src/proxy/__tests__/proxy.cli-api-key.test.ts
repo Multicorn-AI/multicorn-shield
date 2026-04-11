@@ -56,16 +56,16 @@ describe("parseArgs --api-key", () => {
     expect(result.wrapCommand).toBe("my-server");
   });
 
-  it("extracts --api-key after --wrap (stripped from wrapArgs)", () => {
+  it("extracts --api-key placed between --wrap and the command", () => {
     const result = parseArgs([
       "node",
       "multicorn-proxy",
       "--wrap",
+      "--api-key",
+      "mcs_fromwrap",
       "npx",
       "@mcp/server-filesystem",
       "/tmp",
-      "--api-key",
-      "mcs_fromwrap",
     ]);
     expect(result.apiKey).toBe("mcs_fromwrap");
     expect(result.wrapCommand).toBe("npx");
@@ -77,7 +77,7 @@ describe("parseArgs --api-key", () => {
     expect(result.apiKey).toBeUndefined();
   });
 
-  it("does not leak --api-key into wrapArgs", () => {
+  it("does not strip flags that appear after the wrap command token", () => {
     const result = parseArgs([
       "node",
       "multicorn-proxy",
@@ -88,8 +88,142 @@ describe("parseArgs --api-key", () => {
       "--",
       "extra",
     ]);
-    expect(result.wrapArgs).not.toContain("--api-key");
-    expect(result.wrapArgs).not.toContain("mcs_key123");
+    expect(result.apiKey).toBeUndefined();
+    expect(result.wrapCommand).toBe("server");
+    expect(result.wrapArgs).toEqual(["--api-key", "mcs_key123", "--", "extra"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// parseArgs: --wrap flag/command ordering
+// ---------------------------------------------------------------------------
+
+describe("parseArgs --wrap flag ordering", () => {
+  it("flags before --wrap (regression guard)", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-proxy",
+      "--api-key",
+      "mcs_x",
+      "--base-url",
+      "http://localhost:8080",
+      "--wrap",
+      "npx",
+      "@modelcontextprotocol/server-filesystem",
+      "/tmp",
+    ]);
+    expect(result.subcommand).toBe("wrap");
+    expect(result.wrapCommand).toBe("npx");
+    expect(result.wrapArgs).toEqual(["@modelcontextprotocol/server-filesystem", "/tmp"]);
+    expect(result.apiKey).toBe("mcs_x");
+    expect(result.baseUrl).toBe("http://localhost:8080");
+  });
+
+  it("flags after --wrap, before command (the bug fix)", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-proxy",
+      "--wrap",
+      "--api-key",
+      "mcs_x",
+      "--base-url",
+      "http://localhost:8080",
+      "npx",
+      "@modelcontextprotocol/server-filesystem",
+      "/tmp",
+    ]);
+    expect(result.subcommand).toBe("wrap");
+    expect(result.wrapCommand).toBe("npx");
+    expect(result.wrapArgs).toEqual(["@modelcontextprotocol/server-filesystem", "/tmp"]);
+    expect(result.apiKey).toBe("mcs_x");
+    expect(result.baseUrl).toBe("http://localhost:8080");
+  });
+
+  it("single flag after --wrap (--api-key only)", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-proxy",
+      "--wrap",
+      "--api-key",
+      "mcs_x",
+      "npx",
+      "@modelcontextprotocol/server-filesystem",
+      "/tmp",
+    ]);
+    expect(result.subcommand).toBe("wrap");
+    expect(result.wrapCommand).toBe("npx");
+    expect(result.wrapArgs).toEqual(["@modelcontextprotocol/server-filesystem", "/tmp"]);
+    expect(result.apiKey).toBe("mcs_x");
+  });
+
+  it("single flag after --wrap (--base-url only)", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-proxy",
+      "--wrap",
+      "--base-url",
+      "http://localhost:8080",
+      "npx",
+      "@modelcontextprotocol/server-filesystem",
+      "/tmp",
+    ]);
+    expect(result.subcommand).toBe("wrap");
+    expect(result.wrapCommand).toBe("npx");
+    expect(result.wrapArgs).toEqual(["@modelcontextprotocol/server-filesystem", "/tmp"]);
+    expect(result.baseUrl).toBe("http://localhost:8080");
+  });
+
+  it("child command's own flags are forwarded, not consumed", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-proxy",
+      "--wrap",
+      "npx",
+      "some-server",
+      "--port",
+      "3000",
+    ]);
+    expect(result.subcommand).toBe("wrap");
+    expect(result.wrapCommand).toBe("npx");
+    expect(result.wrapArgs).toEqual(["some-server", "--port", "3000"]);
+    expect(result.apiKey).toBeUndefined();
+  });
+
+  it("proxy flag stripped, child flag forwarded in same argv", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-proxy",
+      "--wrap",
+      "--api-key",
+      "mcs_x",
+      "npx",
+      "some-server",
+      "--port",
+      "3000",
+    ]);
+    expect(result.subcommand).toBe("wrap");
+    expect(result.wrapCommand).toBe("npx");
+    expect(result.wrapArgs).toEqual(["some-server", "--port", "3000"]);
+    expect(result.apiKey).toBe("mcs_x");
+  });
+
+  it("flags split across both sides of --wrap", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-proxy",
+      "--api-key",
+      "mcs_x",
+      "--wrap",
+      "--base-url",
+      "http://localhost:8080",
+      "npx",
+      "some-server",
+    ]);
+    expect(result.subcommand).toBe("wrap");
+    expect(result.wrapCommand).toBe("npx");
+    expect(result.wrapArgs).toEqual(["some-server"]);
+    expect(result.apiKey).toBe("mcs_x");
+    expect(result.baseUrl).toBe("http://localhost:8080");
   });
 });
 
