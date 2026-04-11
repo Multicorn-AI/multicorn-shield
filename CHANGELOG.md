@@ -5,7 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.0] - 2026-04-11
+
+### Added
+
+- New `--api-key <key>` CLI flag on `multicorn-proxy --wrap`. Lets users run the proxy without first creating a config file.
+- New `MULTICORN_API_KEY` environment variable support. Resolves with priority `--api-key` flag > `MULTICORN_API_KEY` env var > `~/.multicorn/config.json`.
+- New "Local MCP / Other" option in the `multicorn-proxy init` wizard. Skips the platform-specific setup steps and writes a minimal config suitable for wrapping any local MCP server with `--wrap`.
+- SDK constructor now validates the API key format and rejects invalid keys (empty, wrong prefix, too short, or the literal placeholder `mcs_your_key_here`) with a clear error pointing at the settings page.
+
+### Changed
+
+- `multicorn-proxy init` platform menu now labels detected platforms as "detected locally" instead of "connected", with a dimmed dot icon instead of a green checkmark. The previous label implied account-level connection state, but the underlying detection only checks for local config files.
+- Error message when no API key is configured now mentions all three sources: the `--api-key` flag, the `MULTICORN_API_KEY` environment variable, and the `npx multicorn-proxy init` config file path.
+- All references to the API keys settings page now use the fragment URL `https://app.multicorn.ai/settings#api-keys` instead of the previous `/settings/api-keys` path which did not exist.
+
+### Fixed
+
+- `multicorn-proxy --wrap` now fails immediately at startup with a clear error if the configured API key is rejected by the Multicorn service. Previously the proxy logged "Agent resolved" and "Proxy ready" with empty agent state and only blocked tool calls at runtime, leaving users confused about why their setup was not working.
+- `multicorn-proxy --wrap` now correctly accepts proxy flags (`--api-key`, `--base-url`, `--log-level`, `--dashboard-url`, `--agent-name`) when they appear between `--wrap` and the wrap command. Previously the parser bailed with "requires a command to run" because the early-exit guard rejected any flag-shaped token in that position before the stripping logic ran.
+- `multicorn-proxy init` exit summary no longer renders a trailing dash for the "Local MCP / Other" option (which has no agent name). The summary line now reads `✓ Local MCP / Other` instead of `✓ Local MCP / Other -`.
+- `multicorn-proxy init` no longer prints a misleading "Next steps" block referencing "Other MCP Agent" and `--agent-name` after the "Local MCP / Other" option. The "Try it" example printed inside the option 4 branch is sufficient guidance.
 
 ## [0.6.2] - 2026-04-09
 
