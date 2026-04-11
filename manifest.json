@@ -36,7 +36,7 @@
     "api_key": {
       "type": "string",
       "title": "Shield API key",
-      "description": "Your Multicorn Shield API key. Create one at https://app.multicorn.ai/settings/api-keys",
+      "description": "Your Multicorn Shield API key. Create one at https://app.multicorn.ai/settings#api-keys",
       "sensitive": true,
       "required": true
     },

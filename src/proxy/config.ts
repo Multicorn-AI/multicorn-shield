@@ -870,7 +870,7 @@ function printPlatformSnippet(
   if (platform !== "cursor") {
     process.stderr.write(
       style.dim(
-        "Replace YOUR_SHIELD_API_KEY with your API key. Find it in Settings > API keys at https://app.multicorn.ai/settings/api-keys",
+        "Replace YOUR_SHIELD_API_KEY with your API key. Find it in Settings > API keys at https://app.multicorn.ai/settings#api-keys",
       ) + "\n",
     );
   }
@@ -921,7 +921,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
   process.stderr.write(style.dim("Agent governance for the AI era") + "\n\n");
   process.stderr.write(style.bold(style.violet("Multicorn Shield proxy setup")) + "\n\n");
   process.stderr.write(
-    style.dim("Get your API key at https://app.multicorn.ai/settings/api-keys") + "\n\n",
+    style.dim("Get your API key at https://app.multicorn.ai/settings#api-keys") + "\n\n",
   );
 
   // Load existing config
