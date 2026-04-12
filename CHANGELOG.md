@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-04-12
+
+### Added
+
+- Windsurf IDE as a supported platform in `npx multicorn-proxy init`. Generates a proxy config and prints an `~/.codeium/windsurf/mcp_config.json` snippet using the Windsurf `mcpServers` / `serverUrl` schema.
+- Auto-detection of existing Windsurf proxy entries (shows "● detected locally" in the platform selection list).
+
+### Changed
+
+- Next Steps block for Cursor and Windsurf rewritten as clear three-step numbered actions: download the IDE if needed, paste the config snippet, restart. Previous copy ("Config file: ...", "Restart Cursor to pick up MCP config changes") gave no guidance to first-time users.
+
 ## [0.7.0] - 2026-04-11
 
 ### Added
