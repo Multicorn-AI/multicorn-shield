@@ -1378,7 +1378,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("To complete your Cursor setup:") +
           "\n" +
-          "  \u2192 Restart Cursor to pick up MCP config changes\n",
+          "  1. If you don't have Cursor yet, download it from " +
+          style.cyan("https://cursor.com/downloads") +
+          "\n" +
+          "  2. Open " +
+          style.cyan("~/.cursor/mcp.json") +
+          " and paste the config snippet shown above\n" +
+          "  3. Restart Cursor (or launch it for the first time) to load the new MCP server\n",
       );
     }
     if (configuredPlatforms.has("windsurf")) {
@@ -1386,10 +1392,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("To complete your Windsurf setup:") +
           "\n" +
-          "  Config file: " +
-          style.cyan("~/.codeium/windsurf/mcp_config.json") +
+          "  1. If you don't have Windsurf yet, download it from " +
+          style.cyan("https://windsurf.com/download") +
           "\n" +
-          "  Restart Windsurf to load the new MCP server.\n",
+          "  2. Open " +
+          style.cyan("~/.codeium/windsurf/mcp_config.json") +
+          " and paste the config snippet shown above\n" +
+          "  3. Restart Windsurf (or launch it for the first time) to load the new MCP server\n",
       );
     }
 

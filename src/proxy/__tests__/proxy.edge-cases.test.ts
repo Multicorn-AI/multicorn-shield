@@ -845,6 +845,8 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Restart Cursor");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
+    expect(stderrBuffer).toContain("cursor.com/downloads");
+    expect(stderrBuffer).toContain("paste the config snippet shown above");
   });
 
   it("runInit completes Windsurf platform with proxy URL and Windsurf next steps", async () => {
@@ -897,6 +899,51 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("To complete your Windsurf setup");
     expect(stderrBuffer).toContain("~/.codeium/windsurf/mcp_config.json");
     expect(stderrBuffer).toContain("Restart Windsurf");
+    expect(stderrBuffer).toContain("windsurf.com/download");
+    expect(stderrBuffer).toContain("paste the config snippet shown above");
+  });
+
+  it("runInit Windsurf Next steps includes download hint and first-time launch copy", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockImplementation((input: unknown) => {
+      const url = typeof input === "string" ? input : String(input);
+      if (url.includes("/api/v1/proxy/config")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              data: { proxy_url: "https://hosted.proxy.example/mcp" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "call this agent": "windsurf-agent",
+      "URL:": "https://upstream.example/mcp",
+      "Short name": "myproxy",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    expect(stripAnsi(stderrBuffer)).toContain("windsurf.com/download");
+    expect(stripAnsi(stderrBuffer)).toContain("or launch it for the first time");
   });
 
   // --- Platform detection labels ---
