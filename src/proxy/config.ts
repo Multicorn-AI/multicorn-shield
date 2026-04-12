@@ -91,9 +91,9 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
-  /** Menu index: 1 OpenClaw, 2 Claude Code, 3 Cursor (matches `promptPlatformSelection`). */
+  /** Menu index: 1 OpenClaw, 2 Claude Code, 3 Cursor, 4 Windsurf, 5 Local MCP / Other (matches `promptPlatformSelection`). */
   readonly selection: number;
-  /** `openclaw`, `claude-code`, or `cursor`. */
+  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, or `other-mcp`. */
   readonly platform: string;
   readonly platformLabel: string;
   readonly agentName: string;
@@ -571,6 +571,36 @@ export async function isCursorConnected(): Promise<boolean> {
 }
 
 /**
+ * Returns the path to the Windsurf MCP config file.
+ * @returns Absolute path to ~/.codeium/windsurf/mcp_config.json.
+ */
+export function getWindsurfConfigPath(): string {
+  return join(homedir(), ".codeium", "windsurf", "mcp_config.json");
+}
+
+/**
+ * Checks whether a Multicorn proxy entry exists in the Windsurf MCP config.
+ * @returns True if an existing Multicorn entry was found.
+ */
+export async function isWindsurfConnected(): Promise<boolean> {
+  try {
+    const raw = await readFile(getWindsurfConfigPath(), "utf8");
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
+    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
+    for (const entry of Object.values(mcpServers)) {
+      if (typeof entry !== "object" || entry === null) continue;
+      const rec = entry as Record<string, unknown>;
+      const url = rec["serverUrl"];
+      if (typeof url === "string" && url.includes("multicorn")) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Returns the platform-specific path to the Claude Desktop config file.
  * @returns Absolute path to claude_desktop_config.json.
  */
@@ -665,17 +695,19 @@ export async function updateClaudeDesktopConfig(
 // Init flow - extracted helpers
 // ---------------------------------------------------------------------------
 
-const PLATFORM_LABELS = ["OpenClaw", "Claude Code", "Cursor", "Local MCP / Other"];
+const PLATFORM_LABELS = ["OpenClaw", "Claude Code", "Cursor", "Windsurf", "Local MCP / Other"];
 const PLATFORM_BY_SELECTION: Record<number, string> = {
   1: "openclaw",
   2: "claude-code",
   3: "cursor",
-  4: "other-mcp",
+  4: "windsurf",
+  5: "other-mcp",
 };
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
   openclaw: "my-openclaw-agent",
   "claude-code": "my-claude-code-agent",
   cursor: "my-cursor-agent",
+  windsurf: "my-windsurf-agent",
 };
 
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
@@ -687,10 +719,11 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     await isOpenClawConnected(),
     isClaudeCodeConnected(),
     await isCursorConnected(),
+    await isWindsurfConnected(),
   ];
 
   for (let i = 0; i < PLATFORM_LABELS.length; i++) {
-    // Option 4 (Local MCP / Other) has no detection logic, so skip the marker.
+    // Last option (Local MCP / Other) has no detection logic, so skip the marker.
     const marker =
       i < connectedFlags.length && connectedFlags[i]
         ? " " + style.dim("\u25CF detected locally")
@@ -700,15 +733,15 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     );
   }
   process.stderr.write(
-    style.dim("     Pick 4 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
+    style.dim("     Pick 5 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
       "\n",
   );
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask("Select (1-4): ");
+    const input = await ask("Select (1-5): ");
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= 4) {
+    if (num >= 1 && num <= 5) {
       selection = num;
     }
   }
@@ -842,12 +875,15 @@ function printPlatformSnippet(
   shortName: string,
   apiKey: string,
 ): void {
-  const authHeader = platform === "cursor" ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
+  const usesInlineKey = platform === "cursor" || platform === "windsurf";
+  const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
+
+  const urlKey = platform === "windsurf" ? "serverUrl" : "url";
   const mcpSnippet = JSON.stringify(
     {
       mcpServers: {
         [shortName]: {
-          url: routingToken,
+          [urlKey]: routingToken,
           headers: {
             Authorization: authHeader,
           },
@@ -862,12 +898,16 @@ function printPlatformSnippet(
     process.stderr.write("\n" + style.dim("Add this to your OpenClaw agent config:") + "\n\n");
   } else if (platform === "claude-code") {
     process.stderr.write("\n" + style.dim("Add this to your Claude Code MCP config:") + "\n\n");
+  } else if (platform === "windsurf") {
+    process.stderr.write(
+      "\n" + style.dim("Add this to ~/.codeium/windsurf/mcp_config.json:") + "\n\n",
+    );
   } else {
     process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
   }
 
   process.stderr.write(style.cyan(mcpSnippet) + "\n\n");
-  if (platform !== "cursor") {
+  if (!usesInlineKey) {
     process.stderr.write(
       style.dim(
         "Replace YOUR_SHIELD_API_KEY with your API key. Find it in Settings > API keys at https://app.multicorn.ai/settings#api-keys",
@@ -884,6 +924,15 @@ function printPlatformSnippet(
     process.stderr.write(
       style.dim(
         `Ask Cursor to use your MCP server by its short name. For example: "use the ${shortName} tool to list files in /tmp"`,
+      ) + "\n",
+    );
+  }
+
+  if (platform === "windsurf") {
+    process.stderr.write(style.dim("Then restart Windsurf (Cmd/Ctrl+Q, then reopen).") + "\n");
+    process.stderr.write(
+      style.dim(
+        "Open the Cascade panel and verify the server appears with a green status indicator.",
       ) + "\n",
     );
   }
@@ -1020,8 +1069,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
 
-    // Option 4: Local MCP / Other - minimal config, no agent name, no target URL.
-    if (selection === 4) {
+    // Option 5: Local MCP / Other - minimal config, no agent name, no target URL.
+    if (selection === 5) {
       const raw =
         existing !== null
           ? { ...(existing as unknown as Record<string, unknown>) }
@@ -1330,6 +1379,17 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("To complete your Cursor setup:") +
           "\n" +
           "  \u2192 Restart Cursor to pick up MCP config changes\n",
+      );
+    }
+    if (configuredPlatforms.has("windsurf")) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Windsurf setup:") +
+          "\n" +
+          "  Config file: " +
+          style.cyan("~/.codeium/windsurf/mcp_config.json") +
+          "\n" +
+          "  Restart Windsurf to load the new MCP server.\n",
       );
     }
 

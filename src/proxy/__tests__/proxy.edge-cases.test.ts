@@ -847,6 +847,58 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
   });
 
+  it("runInit completes Windsurf platform with proxy URL and Windsurf next steps", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockImplementation((input: unknown) => {
+      const url = typeof input === "string" ? input : String(input);
+      if (url.includes("/api/v1/proxy/config")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              data: { proxy_url: "https://hosted.proxy.example/mcp" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "call this agent": "windsurf-agent",
+      "URL:": "https://upstream.example/mcp",
+      "Short name": "myproxy",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.[0]?.platform).toBe("windsurf");
+    expect(config.defaultAgent).toBe("windsurf-agent");
+    expect(stderrBuffer).toContain("serverUrl");
+    expect(stderrBuffer).toContain("mcpServers");
+    expect(stderrBuffer).toContain("hosted.proxy.example");
+    expect(stderrBuffer).toContain("Bearer mcs_valid_key");
+    expect(stderrBuffer).toContain("To complete your Windsurf setup");
+    expect(stderrBuffer).toContain("~/.codeium/windsurf/mcp_config.json");
+    expect(stderrBuffer).toContain("Restart Windsurf");
+  });
+
   // --- Platform detection labels ---
 
   it("runInit shows 'detected locally' with dot icon when a platform is detected", async () => {
@@ -938,7 +990,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -952,9 +1004,9 @@ describe("config file parsing", () => {
     expect(openclawLine).not.toContain("detected locally");
   });
 
-  // --- Option 4: Local MCP / Other ---
+  // --- Option 5: Local MCP / Other ---
 
-  it("runInit option 4 writes config with apiKey and baseUrl only (no agents, no defaultAgent)", async () => {
+  it("runInit option 5 writes config with apiKey and baseUrl only (no agents, no defaultAgent)", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -963,7 +1015,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -989,7 +1041,7 @@ describe("config file parsing", () => {
     expect(written["platform"]).toBeUndefined();
   });
 
-  it("runInit option 4 does not prompt for target URL", async () => {
+  it("runInit option 5 does not prompt for target URL", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -998,7 +1050,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -1011,7 +1063,7 @@ describe("config file parsing", () => {
     expect(hasUrlPrompt).toBe(false);
   });
 
-  it("runInit option 4 does not prompt for agent name", async () => {
+  it("runInit option 5 does not prompt for agent name", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1020,7 +1072,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -1031,7 +1083,7 @@ describe("config file parsing", () => {
     expect(hasAgentNamePrompt).toBe(false);
   });
 
-  it("runInit option 4 does not call createProxyConfig (no /api/v1/proxy/config POST)", async () => {
+  it("runInit option 5 does not call createProxyConfig (no /api/v1/proxy/config POST)", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1041,7 +1093,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -1053,7 +1105,7 @@ describe("config file parsing", () => {
     expect(proxyConfigCalls).toHaveLength(0);
   });
 
-  it("runInit option 4 prints the --wrap example command in success message", async () => {
+  it("runInit option 5 prints the --wrap example command in success message", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1062,7 +1114,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -1072,7 +1124,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("@modelcontextprotocol/server-filesystem");
   });
 
-  it("runInit option 4 config is loadable by loadConfig", async () => {
+  it("runInit option 5 config is loadable by loadConfig", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1081,7 +1133,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -1103,7 +1155,7 @@ describe("config file parsing", () => {
     expect(loaded.baseUrl).toBe("https://api.multicorn.ai");
   });
 
-  it("runInit option 4 summary does not render a trailing dash", async () => {
+  it("runInit option 5 summary does not render a trailing dash", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1112,7 +1164,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
@@ -1148,7 +1200,7 @@ describe("config file parsing", () => {
     expect(plain).toContain("OpenClaw - my-oc-agent");
   });
 
-  it("runInit option 4 does not print a Next steps block", async () => {
+  it("runInit option 5 does not print a Next steps block", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1157,7 +1209,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "4",
+      Select: "5",
       "Connect another": "n",
     });
 
