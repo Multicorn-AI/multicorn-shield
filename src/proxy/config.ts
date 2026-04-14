@@ -876,7 +876,7 @@ async function promptWindsurfIntegrationMode(ask: AskFn): Promise<"native" | "ho
   );
   let choice = 0;
   while (choice === 0) {
-    const input = await ask("Select (1-2): ");
+    const input = await ask("Choose integration (1-2): ");
     const num = parseInt(input.trim(), 10);
     if (num === 1) choice = 1;
     if (num === 2) choice = 2;

@@ -880,6 +880,7 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: "4",
+      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Short name": "myproxy",
@@ -896,7 +897,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("mcpServers");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
-    expect(stderrBuffer).toContain("To complete your Windsurf setup");
+    expect(stderrBuffer).toContain("To complete your Windsurf hosted-proxy setup");
     expect(stderrBuffer).toContain("~/.codeium/windsurf/mcp_config.json");
     expect(stderrBuffer).toContain("Restart Windsurf");
     expect(stderrBuffer).toContain("windsurf.com/download");
@@ -934,6 +935,7 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: "4",
+      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Short name": "myproxy",
@@ -977,6 +979,7 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: "4",
+      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Short name": "myproxy",
@@ -993,7 +996,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("mcpServers");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
-    expect(stderrBuffer).toContain("To complete your Windsurf setup");
+    expect(stderrBuffer).toContain("To complete your Windsurf hosted-proxy setup");
     expect(stderrBuffer).toContain("~/.codeium/windsurf/mcp_config.json");
     expect(stderrBuffer).toContain("Restart Windsurf");
   });
