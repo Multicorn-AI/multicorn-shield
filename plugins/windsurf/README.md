@@ -23,7 +23,7 @@ The wizard copies `pre-action.cjs` and `post-action.cjs` to `~/.multicorn/windsu
 ## How it works
 
 - **Config** is read from `~/.multicorn/config.json` (same file as other Shield integrations). The agent row must use `platform: "windsurf"`.
-- **Permission check**: `POST /api/v1/actions` with `status: "pending"` and `X-Multicorn-Key`. Exit code `0` allows the action; `2` blocks and prints guidance on stderr (see Windsurf hook docs).
+- **Permission check**: `POST /api/v1/actions` with `status: "pending"` and `X-Multicorn-Key`. Exit code `0` allows the action; `2` blocks and prints guidance on stderr (see Windsurf hook docs). (Exit code `2` tells Windsurf to cancel the action and show the message to the user.)
 - **Audit log**: post-hooks send `POST /api/v1/actions` with `status: "approved"` after the action completes.
 
 ### Event to Shield mapping
@@ -47,7 +47,7 @@ If you only need MCP traffic governed, use **Hosted proxy** in `npx multicorn-pr
 
 ## Windows
 
-Hooks include a `powershell` field for Windsurf on Windows. Full Windows validation may lag macOS and Linux; if something breaks, open an issue with your Windsurf and Node versions.
+Hooks include a `powershell` field for Windsurf on Windows. Full Windows support may be incomplete compared to macOS and Linux; if something breaks, open an issue with your Windsurf and Node versions.
 
 ## References
 

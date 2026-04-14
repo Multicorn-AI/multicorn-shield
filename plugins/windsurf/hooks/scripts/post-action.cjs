@@ -13,6 +13,8 @@ const path = require("node:path");
 
 const AUTH_HEADER = "X-Multicorn-Key";
 const LOG_PREFIX = "[multicorn-shield] Windsurf post-hook:";
+const HTTP_REQUEST_TIMEOUT_MS =
+  process.env.MULTICORN_SHIELD_WINDSURF_PRE_HOOK_TEST_FAST_POLL === "1" ? 100 : 10000;
 
 /** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
 const POST_EVENT_MAP = {
@@ -152,6 +154,9 @@ function postJson(baseUrl, apiKey, bodyObj) {
         }
       });
     });
+    req.setTimeout(HTTP_REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error("request timeout"));
+    });
     req.on("error", reject);
     req.write(payload);
     req.end();
@@ -224,7 +229,7 @@ async function main() {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     process.stderr.write(
-      `${LOG_PREFIX} Warning: failed to log action to Shield audit trail.\n  Detail: ${msg}\n`,
+      `${LOG_PREFIX} Warning: failed to log action to Shield audit trail. Check your network connection and that your API key in ~/.multicorn/config.json is valid.\n  Detail: ${msg}\n`,
     );
   }
 
@@ -234,7 +239,7 @@ async function main() {
 main().catch((e) => {
   const msg = e instanceof Error ? e.message : String(e);
   process.stderr.write(
-    `${LOG_PREFIX} Warning: failed to log action to Shield audit trail.\n  Detail: ${msg}\n`,
+    `${LOG_PREFIX} Warning: failed to log action to Shield audit trail. Check your network connection and that your API key in ~/.multicorn/config.json is valid.\n  Detail: ${msg}\n`,
   );
   process.exit(0);
 });

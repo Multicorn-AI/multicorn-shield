@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Windsurf native integration via Cascade Hooks (`pre_*` / `post_*` for reads, writes, terminal, and MCP). Hook scripts install to `~/.multicorn/windsurf-hooks/` and merge into `~/.codeium/windsurf/hooks.json`.
+- Windsurf native integration via Cascade Hooks (`pre_*` / `post_*` for reads, writes, terminal, and MCP). Hook scripts install to `~/.multicorn/windsurf-hooks/` and add entries to `~/.codeium/windsurf/hooks.json`.
 - `npx multicorn-proxy init`: when you pick Windsurf, choose Native plugin (recommended) or Hosted proxy. Native path registers Shield hooks and reminds you to restart Windsurf.
 
 ## [0.8.0] - 2026-04-12

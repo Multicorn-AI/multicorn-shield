@@ -18,6 +18,7 @@ const LOG_PREFIX = "[multicorn-shield] Windsurf pre-hook:";
 const HOOK_TEST_FAST_POLL = process.env.MULTICORN_SHIELD_WINDSURF_PRE_HOOK_TEST_FAST_POLL === "1";
 const POLL_INTERVAL_MS = HOOK_TEST_FAST_POLL ? 1 : 3000;
 const MAX_APPROVAL_POLLS = HOOK_TEST_FAST_POLL ? 3 : 100;
+const HTTP_REQUEST_TIMEOUT_MS = HOOK_TEST_FAST_POLL ? 100 : 10000;
 
 /** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
 const PRE_EVENT_MAP = {
@@ -199,6 +200,9 @@ function getJson(baseUrl, apiKey, reqPath) {
         });
       });
     });
+    req.setTimeout(HTTP_REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error("request timeout"));
+    });
     req.on("error", reject);
     req.end();
   });
@@ -245,6 +249,9 @@ function postJson(baseUrl, apiKey, bodyObj) {
           bodyText: Buffer.concat(chunks).toString("utf8"),
         });
       });
+    });
+    req.setTimeout(HTTP_REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error("request timeout"));
     });
     req.on("error", reject);
     req.write(payload);
@@ -519,6 +526,10 @@ async function main() {
       `${LOG_PREFIX} could not serialize tool_info (${msg}). Allowing action.\n`,
     );
     process.exit(0);
+  }
+
+  if (typeof toolInfoSerialized === "string" && toolInfoSerialized.length > 4096) {
+    toolInfoSerialized = toolInfoSerialized.slice(0, 4096);
   }
 
   const approvalsUrl = dashboardHintUrl(config.baseUrl);
