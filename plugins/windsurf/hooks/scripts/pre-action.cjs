@@ -515,7 +515,9 @@ async function main() {
         : JSON.stringify(toolInfo === undefined ? null : toolInfo);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`${LOG_PREFIX} could not serialize tool_info (${msg}). Allowing action.\n`);
+    process.stderr.write(
+      `${LOG_PREFIX} could not serialize tool_info (${msg}). Allowing action.\n`,
+    );
     process.exit(0);
   }
 
