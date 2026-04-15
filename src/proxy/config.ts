@@ -8,9 +8,10 @@
  */
 
 import { existsSync } from "node:fs";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 
 // ---------------------------------------------------------------------------
@@ -97,6 +98,8 @@ interface ConfiguredAgent {
   readonly platform: string;
   readonly platformLabel: string;
   readonly agentName: string;
+  /** Set when `platform` is `windsurf` to drive Next steps copy. */
+  readonly windsurfIntegration?: "native" | "hosted";
   readonly shortName?: string;
   readonly proxyUrl?: string;
 }
@@ -600,6 +603,117 @@ export async function isWindsurfConnected(): Promise<boolean> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Windsurf Cascade Hooks (native plugin)
+// ---------------------------------------------------------------------------
+
+function multicornShieldPackageRoot(): string {
+  return join(dirname(fileURLToPath(import.meta.url)), "..");
+}
+
+/** Installed copy of hook scripts (written by `init`, referenced from hooks.json). */
+export function getWindsurfHooksInstallDir(): string {
+  return join(homedir(), ".multicorn", "windsurf-hooks");
+}
+
+/** User-level Windsurf hooks file (merged by `init`). */
+export function getWindsurfCascadeHooksJsonPath(): string {
+  return join(homedir(), ".codeium", "windsurf", "hooks.json");
+}
+
+interface WindsurfHookEntry {
+  command: string;
+  powershell?: string;
+  show_output?: boolean;
+}
+
+function isShieldWindsurfHookCommand(cmd: string): boolean {
+  return (
+    cmd.includes("windsurf-hooks/pre-action.cjs") ||
+    cmd.includes("windsurf-hooks\\pre-action.cjs") ||
+    cmd.includes("windsurf-hooks/post-action.cjs") ||
+    cmd.includes("windsurf-hooks\\post-action.cjs")
+  );
+}
+
+function filterOutShieldWindsurfHooks(entries: unknown): WindsurfHookEntry[] {
+  if (!Array.isArray(entries)) return [];
+  const out: WindsurfHookEntry[] = [];
+  for (const e of entries) {
+    if (typeof e !== "object" || e === null) continue;
+    const rec = e as Record<string, unknown>;
+    const cmd = rec["command"];
+    if (typeof cmd !== "string" || isShieldWindsurfHookCommand(cmd)) continue;
+    const powershell = rec["powershell"];
+    const show_output = rec["show_output"];
+    out.push({
+      command: cmd,
+      ...(typeof powershell === "string" ? { powershell } : {}),
+      ...(show_output === true ? { show_output: true } : {}),
+    });
+  }
+  return out;
+}
+
+export async function installWindsurfNativeHooks(): Promise<void> {
+  const root = multicornShieldPackageRoot();
+  const srcPre = join(root, "plugins", "windsurf", "hooks", "scripts", "pre-action.cjs");
+  const srcPost = join(root, "plugins", "windsurf", "hooks", "scripts", "post-action.cjs");
+  if (!existsSync(srcPre) || !existsSync(srcPost)) {
+    throw new Error(
+      `Could not find Shield Windsurf hook scripts at ${srcPre}. If you use npm, install the latest multicorn-shield package.`,
+    );
+  }
+  const installDir = getWindsurfHooksInstallDir();
+  await mkdir(installDir, { recursive: true });
+  const destPre = join(installDir, "pre-action.cjs");
+  const destPost = join(installDir, "post-action.cjs");
+  await copyFile(srcPre, destPre);
+  await copyFile(srcPost, destPost);
+
+  const preCmd = `node ${JSON.stringify(destPre)}`;
+  const postCmd = `node ${JSON.stringify(destPost)}`;
+  const preEntry: WindsurfHookEntry = { command: preCmd, powershell: preCmd, show_output: true };
+  const postEntry: WindsurfHookEntry = { command: postCmd, powershell: postCmd };
+
+  const hooksPath = getWindsurfCascadeHooksJsonPath();
+  let base: Record<string, unknown> = { hooks: {} };
+  try {
+    const raw = await readFile(hooksPath, "utf8");
+    base = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    if (!isErrnoException(err) || err.code !== "ENOENT") {
+      throw err;
+    }
+  }
+  const hooks = (base["hooks"] as Record<string, unknown> | undefined) ?? {};
+  const preKeys = [
+    "pre_read_code",
+    "pre_write_code",
+    "pre_run_command",
+    "pre_mcp_tool_use",
+  ] as const;
+  const postKeys = [
+    "post_read_code",
+    "post_write_code",
+    "post_run_command",
+    "post_mcp_tool_use",
+  ] as const;
+  const nextHooks: Record<string, unknown> = { ...hooks };
+  for (const k of preKeys) {
+    const merged = filterOutShieldWindsurfHooks(nextHooks[k]);
+    nextHooks[k] = [...merged, preEntry];
+  }
+  for (const k of postKeys) {
+    const merged = filterOutShieldWindsurfHooks(nextHooks[k]);
+    nextHooks[k] = [...merged, postEntry];
+  }
+  base["hooks"] = nextHooks;
+  const hooksDir = dirname(hooksPath);
+  await mkdir(hooksDir, { recursive: true });
+  await writeFile(hooksPath, JSON.stringify(base, null, 2) + "\n", { encoding: "utf8" });
+}
+
 /**
  * Returns the platform-specific path to the Claude Desktop config file.
  * @returns Absolute path to claude_desktop_config.json.
@@ -746,6 +860,28 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     }
   }
   return selection;
+}
+
+async function promptWindsurfIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
+  process.stderr.write("\n" + style.bold("Windsurf integration") + "\n");
+  process.stderr.write(
+    "  " +
+      style.violet("1") +
+      ". Native plugin (recommended) — Cascade Hooks see every file, terminal, and MCP action\n",
+  );
+  process.stderr.write(
+    "  " +
+      style.violet("2") +
+      ". Hosted proxy — govern MCP traffic only (paste proxy URL into mcp_config)\n",
+  );
+  let choice = 0;
+  while (choice === 0) {
+    const input = await ask("Choose integration (1-2): ");
+    const num = parseInt(input.trim(), 10);
+    if (num === 1) choice = 1;
+    if (num === 2) choice = 2;
+  }
+  return choice === 1 ? "native" : "hosted";
 }
 
 async function promptAgentName(ask: AskFn, platform: string): Promise<string> {
@@ -1242,6 +1378,86 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         agentName,
       });
       setupSucceeded = true;
+    } else if (selection === 4) {
+      const windsurfMode = await promptWindsurfIntegrationMode(ask);
+      if (windsurfMode === "native") {
+        try {
+          await installWindsurfNativeHooks();
+          process.stderr.write("\n" + style.bold("Shield Windsurf hooks installed") + "\n");
+          process.stderr.write(
+            style.dim("Scripts: ") + style.cyan(getWindsurfHooksInstallDir()) + "\n",
+          );
+          process.stderr.write(
+            style.dim("Hooks config: ") + style.cyan(getWindsurfCascadeHooksJsonPath()) + "\n",
+          );
+          process.stderr.write(
+            "\n" +
+              style.dim(
+                "The Shield hook runs with your user permissions. It intercepts Cascade actions to check permissions and log activity. Review the scripts under ",
+              ) +
+              style.cyan("~/.multicorn/windsurf-hooks") +
+              style.dim(" if that is a concern.") +
+              "\n\n",
+          );
+          process.stderr.write(
+            style.dim("Restart Windsurf (quit fully, then reopen) so hooks load.") + "\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            windsurfIntegration: "native",
+          });
+          setupSucceeded = true;
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+        }
+      } else {
+        const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+
+        let proxyUrl = "";
+        let created = false;
+        while (!created) {
+          const spinner = withSpinner("Creating proxy config...");
+          try {
+            proxyUrl = await createProxyConfig(
+              resolvedBaseUrl,
+              apiKey,
+              agentName,
+              targetUrl,
+              shortName,
+              selectedPlatform,
+            );
+            spinner.stop(true, "Proxy config created!");
+            created = true;
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            spinner.stop(false, detail);
+            const retry = await ask("Try again? (Y/n) ");
+            if (retry.trim().toLowerCase() === "n") {
+              break;
+            }
+          }
+        }
+
+        if (created && proxyUrl.length > 0) {
+          process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
+          process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            shortName,
+            proxyUrl,
+            windsurfIntegration: "hosted",
+          });
+          setupSucceeded = true;
+        }
+      }
     } else {
       const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
 
@@ -1387,10 +1603,31 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "  3. Restart Cursor (or launch it for the first time) to load the new MCP server\n",
       );
     }
-    if (configuredPlatforms.has("windsurf")) {
+    const windsurfNativeConfigured = configuredAgents.some(
+      (a) => a.platform === "windsurf" && a.windsurfIntegration === "native",
+    );
+    const windsurfHostedConfigured = configuredAgents.some(
+      (a) => a.platform === "windsurf" && a.windsurfIntegration === "hosted",
+    );
+
+    if (windsurfNativeConfigured) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Windsurf setup:") +
+          style.bold("To complete native Windsurf (Shield) setup:") +
+          "\n" +
+          "  1. Hook scripts: " +
+          style.cyan(getWindsurfHooksInstallDir()) +
+          "\n" +
+          "  2. Hooks config: " +
+          style.cyan(getWindsurfCascadeHooksJsonPath()) +
+          "\n" +
+          "  3. Restart Windsurf (quit fully, then reopen)\n",
+      );
+    }
+    if (windsurfHostedConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Windsurf hosted-proxy setup:") +
           "\n" +
           "  1. If you don't have Windsurf yet, download it from " +
           style.cyan("https://windsurf.com/download") +
@@ -1399,17 +1636,6 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.cyan("~/.codeium/windsurf/mcp_config.json") +
           " and paste the config snippet shown above\n" +
           "  3. Restart Windsurf (or launch it for the first time) to load the new MCP server\n",
-      );
-    }
-    if (configuredPlatforms.has("windsurf")) {
-      blocks.push(
-        "\n" +
-          style.bold("To complete your Windsurf setup:") +
-          "\n" +
-          "  Config file: " +
-          style.cyan("~/.codeium/windsurf/mcp_config.json") +
-          "\n" +
-          "  Restart Windsurf to load the new MCP server.\n",
       );
     }
 

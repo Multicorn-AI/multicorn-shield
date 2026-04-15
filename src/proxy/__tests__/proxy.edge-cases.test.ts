@@ -34,12 +34,15 @@ import {
 const readFileMock = vi.hoisted(() => vi.fn());
 const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mkdirMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const copyFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const existsSyncMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 
 vi.mock("node:fs/promises", () => {
   const exports = {
     readFile: readFileMock,
     writeFile: writeFileMock,
     mkdir: mkdirMock,
+    copyFile: copyFileMock,
   };
   return { default: exports, ...exports };
 });
@@ -61,6 +64,11 @@ const rlCloseMock = vi.hoisted(() => vi.fn());
 const spawnMock = vi.hoisted(() => vi.fn());
 
 /* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion */
+vi.mock("node:fs", async (importOriginal) => {
+  const real = (await importOriginal()) as Record<string, unknown>;
+  return { ...real, existsSync: existsSyncMock };
+});
+
 vi.mock("node:readline", async (importOriginal) => {
   const real = (await importOriginal()) as Record<string, unknown>;
   return {
@@ -880,6 +888,7 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: "4",
+      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Short name": "myproxy",
@@ -896,7 +905,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("mcpServers");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
-    expect(stderrBuffer).toContain("To complete your Windsurf setup");
+    expect(stderrBuffer).toContain("To complete your Windsurf hosted-proxy setup");
     expect(stderrBuffer).toContain("~/.codeium/windsurf/mcp_config.json");
     expect(stderrBuffer).toContain("Restart Windsurf");
     expect(stderrBuffer).toContain("windsurf.com/download");
@@ -934,6 +943,7 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: "4",
+      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Short name": "myproxy",
@@ -977,6 +987,7 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: "4",
+      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Short name": "myproxy",
@@ -993,9 +1004,183 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("mcpServers");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
-    expect(stderrBuffer).toContain("To complete your Windsurf setup");
+    expect(stderrBuffer).toContain("To complete your Windsurf hosted-proxy setup");
     expect(stderrBuffer).toContain("~/.codeium/windsurf/mcp_config.json");
     expect(stderrBuffer).toContain("Restart Windsurf");
+  });
+
+  // --- Windsurf native plugin ---
+
+  it("runInit completes Windsurf native plugin with hook installation", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    copyFileMock.mockResolvedValue(undefined);
+    existsSyncMock.mockReturnValue(true);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("hooks.json")) {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        return Promise.reject(err);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Choose integration": "1",
+      "call this agent": "windsurf-native-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.[0]?.platform).toBe("windsurf");
+    expect(config.defaultAgent).toBe("windsurf-native-agent");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("Shield Windsurf hooks installed");
+    expect(plain).toContain("windsurf-hooks");
+    expect(plain).toContain("hooks.json");
+    expect(plain).toContain("Restart Windsurf");
+    expect(plain).toContain("To complete native Windsurf (Shield) setup");
+
+    expect(copyFileMock).toHaveBeenCalledTimes(2);
+
+    const hooksWrite = writeFileMock.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === "string" && c[0].includes("hooks.json"),
+    );
+    expect(hooksWrite).toBeDefined();
+    const written = JSON.parse(String(hooksWrite?.[1])) as Record<string, unknown>;
+    const hooks = written["hooks"] as Record<string, unknown>;
+    expect(hooks["pre_read_code"]).toBeDefined();
+    expect(hooks["post_write_code"]).toBeDefined();
+    const preEntries = hooks["pre_read_code"] as Record<string, unknown>[];
+    expect(preEntries.length).toBe(1);
+    expect(String(preEntries[0]?.["command"])).toContain("pre-action.cjs");
+  });
+
+  it("runInit Windsurf native shows error when hook scripts not found", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    existsSyncMock.mockReturnValue(false);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Choose integration": "1",
+      "call this agent": "windsurf-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("Could not find Shield Windsurf hook scripts");
+    expect(copyFileMock).not.toHaveBeenCalled();
+  });
+
+  it("runInit Windsurf native merges with existing hooks.json and preserves user hooks", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    copyFileMock.mockResolvedValue(undefined);
+    existsSyncMock.mockReturnValue(true);
+
+    const existingHooksJson = JSON.stringify({
+      hooks: {
+        pre_read_code: [{ command: "echo user-hook", show_output: true }],
+        post_write_code: [{ command: "echo user-post" }],
+      },
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("hooks.json")) return Promise.resolve(existingHooksJson);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Choose integration": "1",
+      "call this agent": "windsurf-merge-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const hooksWrite = writeFileMock.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === "string" && c[0].includes("hooks.json"),
+    );
+    expect(hooksWrite).toBeDefined();
+    const written = JSON.parse(String(hooksWrite?.[1])) as Record<string, unknown>;
+    const hooks = written["hooks"] as Record<string, unknown>;
+    const preEntries = hooks["pre_read_code"] as Record<string, unknown>[];
+    expect(preEntries.length).toBe(2);
+    expect(String(preEntries[0]?.["command"])).toBe("echo user-hook");
+    expect(String(preEntries[1]?.["command"])).toContain("pre-action.cjs");
+    const postEntries = hooks["post_write_code"] as Record<string, unknown>[];
+    expect(postEntries.length).toBe(2);
+    expect(String(postEntries[0]?.["command"])).toBe("echo user-post");
+    expect(String(postEntries[1]?.["command"])).toContain("post-action.cjs");
+  });
+
+  it("runInit Windsurf native replaces stale Shield hooks in existing hooks.json", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    copyFileMock.mockResolvedValue(undefined);
+    existsSyncMock.mockReturnValue(true);
+
+    const staleHooksJson = JSON.stringify({
+      hooks: {
+        pre_read_code: [
+          { command: 'node "/old/windsurf-hooks/pre-action.cjs"', show_output: true },
+          { command: "echo keep-me" },
+        ],
+      },
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("hooks.json")) return Promise.resolve(staleHooksJson);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Choose integration": "1",
+      "call this agent": "windsurf-replace-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const hooksWrite = writeFileMock.mock.calls.find(
+      (c: unknown[]) => typeof c[0] === "string" && c[0].includes("hooks.json"),
+    );
+    expect(hooksWrite).toBeDefined();
+    const written = JSON.parse(String(hooksWrite?.[1])) as Record<string, unknown>;
+    const hooks = written["hooks"] as Record<string, unknown>;
+    const preEntries = hooks["pre_read_code"] as Record<string, unknown>[];
+    expect(preEntries.length).toBe(2);
+    expect(String(preEntries[0]?.["command"])).toBe("echo keep-me");
+    expect(String(preEntries[1]?.["command"])).toContain("pre-action.cjs");
   });
 
   // --- Platform detection labels ---
