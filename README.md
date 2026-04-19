@@ -584,10 +584,38 @@ multicorn-shield/
 └── eslint.config.ts          # Linting rules
 ```
 
+## Publishing & ownership
+
+Releases are published from a single GitHub Actions workflow (.github/workflows/publish.yml). It is manually dispatched (workflow_dispatch) with a patch/minor/major input. Each run installs dependencies, runs lint, typecheck, tests, and build, then bumps the package version with npm version (which creates a version commit and tag locally), publishes to npm with pnpm publish --no-git-checks --access public --provenance, and pushes the commit and tag with git push --follow-tags. After that, the same run may POST to a Vercel deploy hook (repository secret) to refresh the learn site. That hook does not publish to npm. No other workflow publishes this package.
+
+The npm publish step uses a scoped automation token stored as one repository secret (`NPM_TOKEN`), only for this workflow, with npm provenance enabled on the publish command.
+
+The npm package has a single publisher account (`multicorn-ai`). If you see a Socket.dev "unstable ownership" warning after an earlier publish-identity change, it often clears as the registry history stabilizes across the next few releases.
+
+For compromised-package or supply-chain concerns, see [SECURITY.md](SECURITY.md).
+
+## Network behaviour
+
+The SDK and CLI make outbound requests to the following hosts:
+
+**api.multicorn.ai** (control plane; default)
+
+- Consent creation and approval polling
+- Action audit submission
+- Spending checks
+- Invoked only when the host application calls SDK or CLI methods, or when the proxy or extension runs its control-plane logic. There is no import-time network activity.
+
+**127.0.0.1 / localhost** (local proxy, when running in proxy mode)
+
+- IPC between the CLI wrapper and the local proxy process
+- Never leaves the user's machine
+
+No telemetry, analytics, or phone-home calls. Outbound API URLs use fixed paths under a single configurable base URL: the SDK `baseUrl` option (default `https://api.multicorn.ai`), the `MULTICORN_BASE_URL` environment variable, or `baseUrl` in `~/.multicorn/config.json` for the proxy and related tooling. Hosts and paths are not built from agent tool parameters or request bodies.
+
 ## Contributing
 
 Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-[MIT](LICENSE) © Multicorn AI
+[MIT](LICENSE) © Multicorn AI Pty Ltd

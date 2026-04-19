@@ -3,6 +3,7 @@
   "version": "0.9.0",
   "description": "The control layer for AI agents: permissions, consent, spending limits, and audit logging.",
   "license": "MIT",
+  "author": "Multicorn AI Pty Ltd",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -37,8 +38,13 @@
     "dist",
     "plugins/windsurf",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "sideEffects": false,
   "engines": {
     "node": ">=20"
