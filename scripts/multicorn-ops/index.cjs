@@ -10035,8 +10035,11 @@ var sdk_default = Anthropic;
 
 // src/comment-formatter.ts
 var HEADER = "## multicorn-ops review";
-function formatComment(personas, oss) {
+function formatComment(personas, oss, subsetFailureNote) {
   const lines = [HEADER, ""];
+  if (subsetFailureNote) {
+    lines.push(subsetFailureNote, "");
+  }
   lines.push("| Persona | Role | Primary | Status | Summary |");
   lines.push("|---------|------|---------|--------|---------|");
   for (const p2 of personas) {
@@ -10301,6 +10304,15 @@ function includeUxAccessibilitySection(files) {
   return files.some((f2) => UI_EXTENSIONS.has(extOf(f2)));
 }
 
+// src/usage-log.ts
+function logMulticornOpsUsage(params) {
+  const repo = process.env.REPO_NAME ?? "";
+  const pr2 = process.env.PR_NUMBER ?? "";
+  console.log(
+    `[multicorn-ops] usage call=${params.call} repo=${repo} pr=${pr2} model=${params.model} input_tokens=${String(params.inputTokens)} output_tokens=${String(params.outputTokens)}`
+  );
+}
+
 // src/oss-checklist.ts
 var BASE_SECTIONS = [
   {
@@ -10441,22 +10453,62 @@ async function runOssChecklist(client, model, diff, changedFiles) {
       ]
     });
   }
+  const usage = message.usage;
+  if (usage) {
+    logMulticornOpsUsage({
+      call: "oss-checklist",
+      model,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens
+    });
+  }
   const block = message.content.find((b2) => b2.type === "text");
   if (!block || block.type !== "text") return [];
   return parseOssJson(block.text);
 }
 
 // src/review.ts
-function buildPersonaPrompt(diff, primary) {
-  const personaBlocks = PERSONAS.map(
+var PERSONA_MODEL_MAP = {
+  jordan: "claude-sonnet-4-6",
+  the_team: "claude-sonnet-4-6",
+  priya: "claude-haiku-4-5-20251001",
+  marcus: "claude-haiku-4-5-20251001",
+  sarah: "claude-haiku-4-5-20251001",
+  alex: "claude-haiku-4-5-20251001",
+  yuki: "claude-haiku-4-5-20251001"
+};
+var USAGE_CALL_BY_MODEL = {
+  "claude-sonnet-4-6": "personas-sonnet",
+  "claude-haiku-4-5-20251001": "personas-haiku"
+};
+function usageCallForModel(model) {
+  const tag = USAGE_CALL_BY_MODEL[model];
+  if (!tag) {
+    throw new Error(`Unknown persona model "${model}"; add to USAGE_CALL_BY_MODEL.`);
+  }
+  return tag;
+}
+function personasByModel() {
+  const byModel = /* @__PURE__ */ new Map();
+  for (const id of PERSONA_IDS) {
+    const m2 = PERSONA_MODEL_MAP[id];
+    const list = byModel.get(m2) ?? [];
+    list.push(id);
+    byModel.set(m2, list);
+  }
+  return byModel;
+}
+function buildPersonaPromptForSubset(subsetDefs, diff, primary) {
+  const personaBlocks = subsetDefs.map(
     (p2) => `### ${p2.id}
 Name: ${p2.name}. Role: ${p2.role}.
 ${p2.prompt}
 Primary for this PR: ${primary.has(p2.id) ? "yes" : "no"}`
   ).join("\n\n");
+  const idList = subsetDefs.map((p2) => p2.id).join(", ");
   return `You are running a multi-persona code review on a GitHub pull request diff.
 
-For EACH of the seven personas (jordan, priya, marcus, sarah, the_team, alex, yuki), respond with:
+For EACH of the following personas (${idList}), respond with:
 - verdict: "pass" or "concern"
 - summary: one short sentence
 - concerns: array of { "file": "path", "line": number optional, "message": "specific issue" }. Empty if pass.
@@ -10479,15 +10531,18 @@ ${personaBlocks}
 PR diff (may be truncated):
 ${diff}`;
 }
-function parsePersonaJson(text, primary) {
+function parsePersonaJsonForSubset(text, primary, allowedIds) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return fallbackResults(primary);
+  if (start < 0 || end <= start) return null;
   try {
     const parsed = JSON.parse(text.slice(start, end + 1));
-    if (!Array.isArray(parsed.personas)) return fallbackResults(primary);
-    const byId = new Map(parsed.personas.map((p2) => [p2.id, p2]));
-    return PERSONAS.map((def) => {
+    if (!Array.isArray(parsed.personas)) return null;
+    const byId = new Map(parsed.personas.map((row) => [row.id, row]));
+    const out = /* @__PURE__ */ new Map();
+    for (const id of allowedIds) {
+      const def = PERSONAS.find((q2) => q2.id === id);
+      if (!def) continue;
       const row = byId.get(def.id);
       const verdict = row?.verdict === "concern" ? "concern" : "pass";
       const concerns = (row?.concerns ?? []).filter((c2) => c2.file && c2.message).map((c2) => ({
@@ -10495,7 +10550,7 @@ function parsePersonaJson(text, primary) {
         line: typeof c2.line === "number" ? c2.line : void 0,
         message: String(c2.message)
       }));
-      return {
+      out.set(def.id, {
         id: def.id,
         name: def.name,
         role: def.role,
@@ -10503,22 +10558,28 @@ function parsePersonaJson(text, primary) {
         verdict,
         summary: row?.summary ? String(row.summary) : verdict === "pass" ? "No concerns flagged." : "See concerns.",
         concerns
-      };
-    });
+      });
+    }
+    return out;
   } catch {
-    return fallbackResults(primary);
+    return null;
   }
 }
-function fallbackResults(primary) {
-  return PERSONAS.map((def) => ({
-    id: def.id,
-    name: def.name,
-    role: def.role,
-    primary: primary.has(def.id),
-    verdict: "pass",
-    summary: "Review parse failed; re-run or check API response.",
-    concerns: []
-  }));
+function failureResultsForSubset(ids, primary, summary) {
+  const m2 = /* @__PURE__ */ new Map();
+  for (const id of ids) {
+    const def = PERSONAS.find((p2) => p2.id === id);
+    m2.set(id, {
+      id: def.id,
+      name: def.name,
+      role: def.role,
+      primary: primary.has(def.id),
+      verdict: "pass",
+      summary,
+      concerns: []
+    });
+  }
+  return m2;
 }
 var MAX_DIFF2 = 18e4;
 var RATE_LIMIT_BACKOFF_MS2 = 3e4;
@@ -10527,38 +10588,110 @@ function isRateLimitError2(error) {
   const maybe = error;
   return maybe.status === 429;
 }
-async function runPersonaReview(client, model, diff, changedFiles) {
-  const primary = primaryPersonaIds(changedFiles);
-  const truncated = diff.length > MAX_DIFF2 ? diff.slice(0, MAX_DIFF2) + "\n\n[diff truncated for context limit]" : diff;
-  let message;
+async function createMessageWithRetry(client, model, userContent) {
+  const params = {
+    model,
+    max_tokens: 8192,
+    messages: [{ role: "user", content: userContent }]
+  };
   try {
-    message = await client.messages.create({
-      model,
-      max_tokens: 8192,
-      messages: [
-        {
-          role: "user",
-          content: buildPersonaPrompt(truncated, primary)
-        }
-      ]
-    });
+    return await client.messages.create(params);
   } catch (error) {
     if (!isRateLimitError2(error)) throw error;
     await new Promise((resolve) => setTimeout(resolve, RATE_LIMIT_BACKOFF_MS2));
-    message = await client.messages.create({
-      model,
-      max_tokens: 8192,
-      messages: [
-        {
-          role: "user",
-          content: buildPersonaPrompt(truncated, primary)
-        }
-      ]
-    });
+    return await client.messages.create(params);
   }
-  const block = message.content.find((b2) => b2.type === "text");
-  if (!block || block.type !== "text") return fallbackResults(primary);
-  return parsePersonaJson(block.text, primary);
+}
+async function runPersonaReview(client, diff, changedFiles) {
+  const primary = primaryPersonaIds(changedFiles);
+  const truncated = diff.length > MAX_DIFF2 ? diff.slice(0, MAX_DIFF2) + "\n\n[diff truncated for context limit]" : diff;
+  const groups = personasByModel();
+  const subsetResults = await Promise.all(
+    [...groups.entries()].map(async ([model, ids]) => {
+      const call = usageCallForModel(model);
+      const subsetDefs = ids.map((id) => PERSONAS.find((p2) => p2.id === id));
+      const prompt = buildPersonaPromptForSubset(subsetDefs, truncated, primary);
+      const allowed = new Set(ids);
+      let apiFailed = false;
+      try {
+        const message = await createMessageWithRetry(client, model, prompt);
+        const u2 = message.usage;
+        if (u2) {
+          logMulticornOpsUsage({
+            call,
+            model,
+            inputTokens: u2.input_tokens,
+            outputTokens: u2.output_tokens
+          });
+        }
+        const block = message.content.find((b2) => b2.type === "text");
+        if (!block || block.type !== "text") {
+          return {
+            map: failureResultsForSubset(
+              ids,
+              primary,
+              "Review parse failed; re-run or check API response."
+            ),
+            apiFailed: false,
+            call
+          };
+        }
+        const parsed = parsePersonaJsonForSubset(block.text, primary, allowed);
+        if (!parsed) {
+          return {
+            map: failureResultsForSubset(
+              ids,
+              primary,
+              "Review parse failed; re-run or check API response."
+            ),
+            apiFailed: false,
+            call
+          };
+        }
+        return { map: parsed, apiFailed: false, call };
+      } catch (error) {
+        apiFailed = true;
+        const msg = error instanceof Error ? error.message : String(error);
+        console.error(`[multicorn-ops] persona subset failed model=${model} call=${call}: ${msg}`);
+        return {
+          map: failureResultsForSubset(
+            ids,
+            primary,
+            "Review unavailable: API call failed. Check workflow logs."
+          ),
+          apiFailed,
+          call
+        };
+      }
+    })
+  );
+  const merged = /* @__PURE__ */ new Map();
+  for (const r2 of subsetResults) {
+    for (const [id, row] of r2.map) merged.set(id, row);
+  }
+  const personas = PERSONAS.map((def) => {
+    const row = merged.get(def.id);
+    if (row) return row;
+    return {
+      id: def.id,
+      name: def.name,
+      role: def.role,
+      primary: primary.has(def.id),
+      verdict: "pass",
+      summary: "Internal error: missing merged persona row.",
+      concerns: []
+    };
+  });
+  const failedLabels = [];
+  for (const r2 of subsetResults) {
+    if (r2.apiFailed) {
+      failedLabels.push(
+        r2.call === "personas-sonnet" ? "Sonnet (Jordan, The Team)" : "Haiku (Priya, Marcus, Sarah, Alex, Yuki)"
+      );
+    }
+  }
+  const failureNote = failedLabels.length > 0 ? `**Note:** ${failedLabels.join("; ")} call(s) failed. Results below may be partial. Check Actions logs.` : void 0;
+  return { personas, failureNote };
 }
 
 // src/shield-logger.ts
@@ -10671,12 +10804,12 @@ async function main() {
 [Diff truncated \u2014 original was ${String(diff.length)} characters. Review covers only the first portion of the changeset.]` : diff;
   const files = changedFilesFromDiff(diff);
   const client = new sdk_default({ apiKey: anthropicKey });
-  const personas = await runPersonaReview(client, model, reviewDiff, files);
+  const { personas, failureNote } = await runPersonaReview(client, reviewDiff, files);
   let oss;
   if (isPublic) {
     oss = await runOssChecklist(client, model, reviewDiff, files);
   }
-  const body = formatComment(personas, oss);
+  const body = formatComment(personas, oss, failureNote);
   const existingId = await findMulticornOpsCommentId(token, owner, repo, prNumber);
   if (existingId != null) {
     await patchIssueComment(token, owner, repo, existingId, body);
