@@ -793,6 +793,89 @@ describe("createMcpAdapter", () => {
       vi.unstubAllGlobals();
     });
 
+    it("blocks when waitForReviewDecision is true but baseUrl is missing", async () => {
+      const adapter = createMcpAdapter({
+        agentId: "agent-1",
+        grantedScopes: [PUBLIC_CONTENT_CREATE],
+        checkAutoApprove: () => false,
+        waitForReviewDecision: true,
+        apiKey: "mcs_key",
+      });
+
+      const result = await adapter.intercept(
+        { toolName: "twitter_post", arguments: {} },
+        makeHandler(),
+      );
+
+      expect(isBlockedResult(result)).toBe(true);
+      if (!isBlockedResult(result)) throw new Error("expected blocked");
+      expect(result.reason).toContain("baseUrl and apiKey");
+      expect(fetchStub).not.toHaveBeenCalled();
+    });
+
+    it("fetches auto-approve from the API when checkAutoApprove is omitted", async () => {
+      fetchStub.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ data: { public_content_auto_approve: true } }),
+      });
+
+      const handler = makeHandler();
+      const adapter = createMcpAdapter({
+        agentId: "my-agent",
+        grantedScopes: [PUBLIC_CONTENT_CREATE],
+        baseUrl: "http://localhost:8080",
+        apiKey: "mcs_key",
+      });
+
+      const result = await adapter.intercept({ toolName: "twitter_post", arguments: {} }, handler);
+
+      expect(isBlockedResult(result)).toBe(false);
+      expect(handler).toHaveBeenCalledOnce();
+      expect(fetchStub).toHaveBeenCalledWith(
+        "http://localhost:8080/api/v1/agents/my-agent",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    it("surfaces blocked-by-reviewer when poll returns blocked", async () => {
+      fetchStub
+        .mockResolvedValueOnce({
+          ok: true,
+          status: 202,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { content_review_id: "rev-1" },
+            }),
+        })
+        .mockResolvedValue({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { id: "rev-1", status: "blocked" },
+            }),
+        });
+
+      const adapter = createMcpAdapter({
+        agentId: "agent-1",
+        grantedScopes: [PUBLIC_CONTENT_CREATE],
+        checkAutoApprove: () => false,
+        waitForReviewDecision: true,
+        baseUrl: "http://localhost:8080",
+        apiKey: "mcs_key",
+      });
+
+      const result = await adapter.intercept(
+        { toolName: "twitter_post", arguments: {} },
+        makeHandler(),
+      );
+
+      expect(isBlockedResult(result)).toBe(true);
+      if (!isBlockedResult(result)) throw new Error("expected blocked");
+      expect(result.reason).toContain("blocked by a reviewer");
+    });
+
     it("does not call fetch when false (default): blocks fast on public content", async () => {
       const handler = makeHandler();
       const adapter = createMcpAdapter({

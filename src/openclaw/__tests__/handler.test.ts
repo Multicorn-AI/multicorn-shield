@@ -166,6 +166,22 @@ describe("handler", () => {
     expect(event.messages).toHaveLength(0);
   });
 
+  it("uses MULTICORN_AGENT_NAME for registration when set", async () => {
+    vi.stubEnv("MULTICORN_AGENT_NAME", "pinned-from-env");
+    findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "pinned-from-env" });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+
+    const event = createToolCallEvent("exec");
+    await handler(event);
+
+    expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
+      "pinned-from-env",
+      expect.any(String),
+      expect.any(String),
+    );
+    expect(event.messages).toHaveLength(0);
+  });
+
   it("uses cached scopes on subsequent calls without re-fetching", async () => {
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);

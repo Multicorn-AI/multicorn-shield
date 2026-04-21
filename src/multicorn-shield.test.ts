@@ -125,6 +125,12 @@ describe("MulticornShield constructor", () => {
     ).not.toThrow();
   });
 
+  it("throws when baseUrl is plain HTTP against a non-localhost host", () => {
+    expect(() => new MulticornShield({ apiKey: VALID_KEY, baseUrl: "http://example.com" })).toThrow(
+      /HTTPS/,
+    );
+  });
+
   it("accepts optional timeout and batchMode configuration", () => {
     const config: MulticornShieldConfig = {
       apiKey: VALID_KEY,
@@ -403,6 +409,54 @@ describe("MulticornShield.requestConsent", () => {
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(onError).toHaveBeenCalled();
     shieldWithErrorHandler.destroy();
+  });
+
+  it("surfaces onError when partial consent POST to backend fails", async () => {
+    const onError = vi.fn();
+    const shieldWithErrorHandler = new MulticornShield({
+      apiKey: VALID_KEY,
+      onError,
+    });
+
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      text: () => Promise.resolve("Server error"),
+    });
+
+    const promise = shieldWithErrorHandler.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail", "write:calendar"],
+    });
+
+    partialConsent(
+      [{ service: "gmail", permissionLevel: "read" }],
+      [{ service: "calendar", permissionLevel: "write" }],
+      0,
+    );
+    await promise;
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(onError).toHaveBeenCalled();
+    shieldWithErrorHandler.destroy();
+  });
+
+  it("does not POST consent when consent-granted has zero scopes", async () => {
+    const promise = shield.requestConsent({
+      agent: "OpenClaw",
+      scopes: ["read:gmail"],
+    });
+
+    grantConsent([]);
+    await promise;
+
+    const postCalls = mockFetch.mock.calls.filter((call) => {
+      const url = call[0] as string | undefined;
+      const options = call[1] as RequestInit | undefined;
+      return options?.method === "POST" && url?.includes("/consent");
+    });
+    expect(postCalls).toHaveLength(0);
   });
 
   it("handles POST consent backend timeout errors", async () => {
