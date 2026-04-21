@@ -10,6 +10,7 @@
 export * from "./types/index.js";
 
 // Module re-exports enabled as each module gains public API surface.
+// Scopes barrel includes requiresContentReview and isPublicContentAction (content-review-detector).
 export * from "./scopes/index.js";
 export * from "./consent/index.js";
 export * from "./logger/index.js";
@@ -24,3 +25,10 @@ export {
   type ActionInput,
   type SpendCheckResult,
 } from "./multicorn-shield.js";
+
+export {
+  requestContentReview,
+  type ContentReviewResult,
+  type ContentReviewRequestPayload,
+  type ContentReviewStatusResponse,
+} from "./openclaw/shield-client.js";

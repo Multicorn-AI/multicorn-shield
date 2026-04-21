@@ -60,6 +60,35 @@ export interface ApprovalResponse {
 }
 
 /**
+ * `data` shape from GET /api/v1/content-reviews/:id/status when `success` is true.
+ */
+export interface ContentReviewStatusResponse {
+  readonly id: string;
+  readonly status: "pending" | "approved" | "blocked" | "timeout";
+}
+
+/**
+ * Result of {@link requestContentReview} or {@link pollContentReviewStatus}.
+ */
+export interface ContentReviewResult {
+  readonly status: "approved" | "blocked" | "timeout";
+  readonly reviewId?: string;
+  readonly reason?: string;
+}
+
+/**
+ * Payload for {@link requestContentReview}. `cost` is optional; the POST body always includes `cost`, defaulting to `0` when omitted (matches {@link LogActionRequest} in the service).
+ */
+export interface ContentReviewRequestPayload {
+  readonly agent: string;
+  readonly service: string;
+  readonly actionType: string;
+  /** Defaults to `0` when omitted. Must be >= 0 if set. */
+  readonly cost?: number;
+  readonly metadata?: Readonly<Record<string, string | number | boolean>>;
+}
+
+/**
  * Result of checking action permission via POST /api/v1/actions
  */
 export interface ActionPermissionResult {
@@ -135,6 +164,28 @@ function isApprovalResponse(value: unknown): value is ApprovalResponse {
     ["pending", "approved", "rejected", "expired"].includes(obj["status"]) &&
     (obj["decided_at"] === null || typeof obj["decided_at"] === "string")
   );
+}
+
+function isContentReviewStatusResponse(value: unknown): value is ContentReviewStatusResponse {
+  if (typeof value !== "object" || value === null) return false;
+  const obj = value as Record<string, unknown>;
+  return (
+    typeof obj["id"] === "string" &&
+    typeof obj["status"] === "string" &&
+    ["pending", "approved", "blocked", "timeout"].includes(obj["status"])
+  );
+}
+
+function readApiErrorCode(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const err = (body as Record<string, unknown>)["error"];
+  if (typeof err !== "object" || err === null) return undefined;
+  const code = (err as Record<string, unknown>)["code"];
+  return typeof code === "string" ? code : undefined;
+}
+
+function isPlanTierInsufficientError(status: number, body: unknown): boolean {
+  return status === 403 && readApiErrorCode(body) === "PLAN_TIER_INSUFFICIENT";
 }
 
 /**
@@ -576,6 +627,201 @@ export async function pollApprovalStatus(
 
   // Exceeded max polls
   return "timeout";
+}
+
+/**
+ * Poll content review status via GET /api/v1/content-reviews/:id/status.
+ *
+ * Same timing and retry behaviour as {@link pollApprovalStatus}: 3s interval, 100 polls, exponential backoff on transient errors.
+ *
+ * **404 handling:** Unlike {@link pollApprovalStatus}, a missing review is treated as terminal (`review_not_found`) immediately.
+ * The approvals poll endpoint can return transient errors for a still-valid id; for content reviews, 404 means the review id is gone (wrong org, deleted, never existed), so retrying until timeout would only waste the 5 minute window.
+ *
+ * @internal Exported for unit tests only; package consumers should use {@link requestContentReview}.
+ */
+export async function pollContentReviewStatus(
+  reviewId: string,
+  apiKey: string,
+  baseUrl: string,
+  logger?: PluginLogger,
+): Promise<ContentReviewResult> {
+  const startTime = Date.now();
+  const logDebug = logger?.debug?.bind(logger) as ((msg: string) => void) | undefined;
+
+  for (let pollCount = 0; pollCount < MAX_POLLS; pollCount++) {
+    if (Date.now() - startTime >= POLL_TIMEOUT_MS) {
+      return { status: "timeout", reason: "decision_window_exceeded", reviewId };
+    }
+
+    let row: ContentReviewStatusResponse | null = null;
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        const response = await fetch(`${baseUrl}/api/v1/content-reviews/${reviewId}/status`, {
+          headers: { [AUTH_HEADER]: apiKey },
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        });
+
+        if (!response.ok) {
+          if (response.status === 404) {
+            return { status: "blocked", reason: "review_not_found", reviewId };
+          }
+
+          const errBody: unknown = await response.json().catch(() => null);
+          if (isPlanTierInsufficientError(response.status, errBody)) {
+            return { status: "blocked", reason: "plan_tier_insufficient", reviewId };
+          }
+
+          if (response.status === 401 || response.status === 403) {
+            handleHttpError(response.status, logger);
+            return { status: "blocked", reason: "auth_error", reviewId };
+          }
+
+          if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+            const retryDelay = retry < 2 ? Math.pow(2, retry) : undefined;
+            handleHttpError(response.status, logger, retryDelay);
+          }
+
+          logDebug?.(
+            `Content review poll ${String(pollCount + 1)} failed: HTTP ${String(response.status)}. Retrying...`,
+          );
+          if (retry < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+          }
+          continue;
+        }
+
+        const body: unknown = await response.json();
+        if (!isApiSuccess(body)) {
+          logDebug?.(
+            `Content review poll ${String(pollCount + 1)} failed: invalid response format. Retrying...`,
+          );
+          if (retry < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+          }
+          continue;
+        }
+
+        const statusData = body.data;
+        if (!isContentReviewStatusResponse(statusData)) {
+          logDebug?.(
+            `Content review poll ${String(pollCount + 1)} failed: invalid status data. Retrying...`,
+          );
+          if (retry < 2) {
+            await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+          }
+          continue;
+        }
+
+        row = statusData;
+        break;
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logDebug?.(
+          `Content review poll ${String(pollCount + 1)} failed: ${errorMessage}. Retrying...`,
+        );
+        if (retry < 2) {
+          await new Promise((resolve) => setTimeout(resolve, 1000 * Math.pow(2, retry)));
+        }
+      }
+    }
+
+    if (row !== null) {
+      if (row.status === "approved") {
+        return { status: "approved", reviewId };
+      }
+      if (row.status === "blocked") {
+        return { status: "blocked", reason: "blocked_by_reviewer", reviewId };
+      }
+      if (row.status === "timeout") {
+        return { status: "timeout", reason: "decision_window_exceeded", reviewId };
+      }
+      if (pollCount < MAX_POLLS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+    } else {
+      logDebug?.(
+        `All retries failed for content review poll ${String(pollCount + 1)}. Continuing...`,
+      );
+      if (pollCount < MAX_POLLS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+      }
+    }
+  }
+
+  return { status: "timeout", reason: "decision_window_exceeded", reviewId };
+}
+
+/**
+ * Create a content-review request via POST /api/v1/actions with `status: "requires_approval"`, then poll until decided.
+ *
+ * Wire format: response `data.content_review_id` (snake_case) per service Jackson naming.
+ */
+export async function requestContentReview(
+  payload: ContentReviewRequestPayload,
+  apiKey: string,
+  baseUrl: string,
+  logger?: PluginLogger,
+): Promise<ContentReviewResult> {
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/actions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        [AUTH_HEADER]: apiKey,
+      },
+      body: JSON.stringify({
+        agent: payload.agent,
+        service: payload.service,
+        actionType: payload.actionType,
+        status: "requires_approval",
+        cost: payload.cost ?? 0,
+        metadata: payload.metadata,
+      }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+
+    const body: unknown = await response.json().catch(() => null);
+
+    if (isPlanTierInsufficientError(response.status, body)) {
+      return { status: "blocked", reason: "plan_tier_insufficient" };
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      handleHttpError(response.status, logger);
+      return { status: "blocked", reason: "auth_error" };
+    }
+
+    if (response.status === 429 || (response.status >= 500 && response.status < 600)) {
+      handleHttpError(response.status, logger);
+      return { status: "blocked", reason: "service_unavailable" };
+    }
+
+    if (response.status === 202) {
+      if (!isApiSuccess(body)) {
+        return { status: "blocked", reason: "no_review_id" };
+      }
+      const data = body.data;
+      if (typeof data !== "object" || data === null) {
+        return { status: "blocked", reason: "no_review_id" };
+      }
+      const record = data as Record<string, unknown>;
+      const rid = record["content_review_id"];
+      const reviewId = typeof rid === "string" ? rid : undefined;
+      if (reviewId === undefined) {
+        return { status: "blocked", reason: "no_review_id" };
+      }
+      const polled = await pollContentReviewStatus(reviewId, apiKey, baseUrl, logger);
+      return { ...polled, reviewId };
+    }
+
+    if (response.status === 201) {
+      return { status: "blocked", reason: "no_review_id" };
+    }
+
+    return { status: "blocked", reason: "service_unavailable" };
+  } catch {
+    return { status: "blocked", reason: "network_error" };
+  }
 }
 
 /**

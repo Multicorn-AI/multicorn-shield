@@ -32,3 +32,5 @@ export {
   hasScope,
   type ValidationResult,
 } from "./scope-validator.js";
+
+export { requiresContentReview, isPublicContentAction } from "./content-review-detector.js";
