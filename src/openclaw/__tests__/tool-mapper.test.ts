@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mapToolToScope, isKnownTool } from "../tool-mapper.js";
+import { mapToolToScope, isKnownTool, isDestructiveExecCommand } from "../tool-mapper.js";
 
 describe("mapToolToScope", () => {
   it("maps 'read' to filesystem:read", () => {
@@ -20,6 +20,24 @@ describe("mapToolToScope", () => {
   it("maps 'exec' to terminal:execute", () => {
     const result = mapToolToScope("exec");
     expect(result).toEqual({ service: "terminal", permissionLevel: "execute" });
+  });
+
+  it("maps 'exec' with a destructive command to terminal:write", () => {
+    expect(mapToolToScope("exec", "rm -rf ./dist")).toEqual({
+      service: "terminal",
+      permissionLevel: "write",
+    });
+    expect(mapToolToScope("exec", "sudo apt update")).toEqual({
+      service: "terminal",
+      permissionLevel: "write",
+    });
+  });
+
+  it("maps 'exec' with a non-destructive command to terminal:execute", () => {
+    expect(mapToolToScope("exec", "ls -la")).toEqual({
+      service: "terminal",
+      permissionLevel: "execute",
+    });
   });
 
   it("maps 'browser' to browser:execute", () => {
@@ -117,6 +135,15 @@ describe("mapToolToScope", () => {
   it("maps 'stripe_charge' to payments:execute", () => {
     const result = mapToolToScope("stripe_charge");
     expect(result).toEqual({ service: "payments", permissionLevel: "execute" });
+  });
+});
+
+describe("isDestructiveExecCommand", () => {
+  it("detects destructive tokens case-insensitively", () => {
+    expect(isDestructiveExecCommand("RM -rf /tmp")).toBe(true);
+    expect(isDestructiveExecCommand("mv a b")).toBe(true);
+    expect(isDestructiveExecCommand("chmod +x script")).toBe(true);
+    expect(isDestructiveExecCommand("echo hello")).toBe(false);
   });
 });
 

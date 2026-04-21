@@ -53,6 +53,7 @@ import type { Scope, PermissionLevel, ActionStatus } from "../types/index.js";
 import { validateScopeAccess } from "../scopes/scope-validator.js";
 import type { ActionLogger } from "../logger/action-logger.js";
 import { requiresContentReview, isPublicContentAction } from "../scopes/content-review-detector.js";
+import { requestContentReview } from "../openclaw/shield-client.js";
 
 // MCP tool call types
 
@@ -241,6 +242,12 @@ export interface McpAdapterConfig {
    * Used with baseUrl to fetch auto-approval status if checkAutoApprove is not provided.
    */
   readonly apiKey?: string;
+
+  /**
+   * When `true`, blocks until the content review completes (or times out) and forwards the tool call if approved.
+   * Requires `baseUrl` and `apiKey`. Default `false` preserves the existing fast block with `requires_approval` logging only.
+   */
+  readonly waitForReviewDecision?: boolean;
 }
 
 // Adapter interface
@@ -452,6 +459,29 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
     });
   }
 
+  function mapContentReviewReasonToUserMessage(reason: string | undefined): string {
+    switch (reason) {
+      case "plan_tier_insufficient":
+        return "Content review requires an Enterprise plan. Upgrade at app.multicorn.ai/settings.";
+      case "review_not_found":
+        return "Content review no longer exists. It may have been deleted or timed out.";
+      case "decision_window_exceeded":
+        return "Content review timed out before a decision was made.";
+      case "blocked_by_reviewer":
+        return "Content review was blocked by a reviewer.";
+      case "auth_error":
+        return "Content review failed: please verify your Multicorn API key.";
+      case "service_unavailable":
+        return "Content review failed: service unavailable.";
+      case "network_error":
+        return "Content review failed: network error.";
+      case "no_review_id":
+        return "Content review failed: could not start review.";
+      default:
+        return "Content review failed.";
+    }
+  }
+
   async function checkAutoApproveStatus(): Promise<boolean> {
     if (config.checkAutoApprove !== undefined) {
       const result: Promise<boolean> | boolean = config.checkAutoApprove(config.agentId);
@@ -543,16 +573,52 @@ export function createMcpAdapter(config: McpAdapterConfig): McpAdapter {
         const autoApprove = await checkAutoApproveStatus();
 
         if (!autoApprove) {
-          // Log action with REQUIRES_APPROVAL status
-          // Include full tool call arguments in metadata for content preview
           const metadata: Readonly<Record<string, string | number | boolean>> = {
             toolName: toolCall.toolName,
             arguments: JSON.stringify(toolCall.arguments),
             requiresReview: true,
           };
 
-          // Log action with requires_approval status
-          // The metadata will be stored and used to create the content review
+          // When waiting for a decision we do not call config.logger.logAction here: ActionLogger.logAction
+          // POSTs to the same /api/v1/actions endpoint as requestContentReview. Calling both would duplicate
+          // the action (and can create two content reviews). requestContentReview is the single source of truth.
+          if (config.waitForReviewDecision === true) {
+            if (config.baseUrl === undefined || config.apiKey === undefined) {
+              return {
+                blocked: true,
+                reason:
+                  "waitForReviewDecision requires baseUrl and apiKey to poll the content review.",
+                toolName: toolCall.toolName,
+                service: mappedService,
+                action,
+              };
+            }
+
+            const review = await requestContentReview(
+              {
+                agent: config.agentId,
+                service: mappedService,
+                actionType: action,
+                metadata,
+              },
+              config.apiKey,
+              config.baseUrl,
+            );
+
+            if (review.status === "approved") {
+              await recordAction(mappedService, action, ACTION_STATUSES.Approved);
+              return handler(toolCall);
+            }
+
+            return {
+              blocked: true,
+              reason: mapContentReviewReasonToUserMessage(review.reason),
+              toolName: toolCall.toolName,
+              service: mappedService,
+              action,
+            };
+          }
+
           if (config.logger) {
             await config.logger.logAction({
               agent: config.agentId,

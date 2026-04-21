@@ -7,6 +7,8 @@ import {
   logAction,
   checkActionPermission,
   pollApprovalStatus,
+  pollContentReviewStatus,
+  requestContentReview,
   resetAuthErrorFlag,
 } from "../shield-client.js";
 import type { PluginLogger } from "../plugin-sdk.types.js";
@@ -1139,5 +1141,513 @@ describe("pollApprovalStatus", () => {
     expect(logger.warn).toHaveBeenCalledWith(expect.stringContaining("Shield API error (500)"));
 
     vi.useRealTimers();
+  });
+});
+
+describe("pollContentReviewStatus", () => {
+  let logger: PluginLogger;
+
+  beforeEach(() => {
+    logger = {
+      debug: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    };
+  });
+
+  it("returns approved when status goes from pending to approved", async () => {
+    let n = 0;
+    fetchMock.mockImplementation(() => {
+      n++;
+      if (n === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { id: "rev-1", status: "pending" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-1", status: "approved" },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result).toEqual({ status: "approved", reviewId: "rev-1" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${TEST_BASE_URL}/api/v1/content-reviews/rev-1/status`,
+      expect.objectContaining({ headers: { "X-Multicorn-Key": TEST_API_KEY } }),
+    );
+    vi.useRealTimers();
+  });
+
+  it("returns blocked when status becomes blocked", async () => {
+    let n = 0;
+    fetchMock.mockImplementation(() => {
+      n++;
+      if (n === 1) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { id: "rev-1", status: "pending" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-1", status: "blocked" },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result).toEqual({
+      status: "blocked",
+      reason: "blocked_by_reviewer",
+      reviewId: "rev-1",
+    });
+    vi.useRealTimers();
+  });
+
+  it("returns timeout after max polls while pending", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: { id: "rev-1", status: "pending" },
+        }),
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    vi.advanceTimersByTime(300000);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result).toEqual({
+      status: "timeout",
+      reason: "decision_window_exceeded",
+      reviewId: "rev-1",
+    });
+    vi.useRealTimers();
+  });
+
+  it("returns review_not_found on 404 without further polling", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404 });
+
+    const result = await pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toEqual({
+      status: "blocked",
+      reason: "review_not_found",
+      reviewId: "rev-1",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns plan_tier_insufficient on 403 with PLAN_TIER_INSUFFICIENT", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () =>
+        Promise.resolve({
+          success: false,
+          error: { code: "PLAN_TIER_INSUFFICIENT", message: "Upgrade required" },
+        }),
+    });
+
+    const result = await pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toEqual({
+      status: "blocked",
+      reason: "plan_tier_insufficient",
+      reviewId: "rev-1",
+    });
+  });
+
+  it("retries on HTTP error with exponential backoff then succeeds", async () => {
+    let callCount = 0;
+    fetchMock.mockImplementation(() => {
+      callCount++;
+      if (callCount < 3) {
+        return Promise.resolve({ ok: false, status: 500 });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-1", status: "approved" },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(2000);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result).toEqual({ status: "approved", reviewId: "rev-1" });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    vi.useRealTimers();
+  });
+
+  it("handles network errors and continues polling", async () => {
+    let callCount = 0;
+    fetchMock.mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.reject(new Error("ECONNREFUSED"));
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-1", status: "approved" },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(1000);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result).toEqual({ status: "approved", reviewId: "rev-1" });
+    vi.useRealTimers();
+  });
+
+  it("returns decision_window_exceeded when API reports status timeout", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          success: true,
+          data: { id: "rev-1", status: "timeout" },
+        }),
+    });
+
+    const result = await pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toEqual({
+      status: "timeout",
+      reason: "decision_window_exceeded",
+      reviewId: "rev-1",
+    });
+  });
+
+  it("returns auth_error on 401", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({}),
+    });
+
+    const result = await pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+
+    expect(result).toEqual({ status: "blocked", reason: "auth_error", reviewId: "rev-1" });
+  });
+
+  it("retries when poll body is not API success then succeeds on next poll", async () => {
+    let n = 0;
+    fetchMock.mockImplementation(() => {
+      n++;
+      if (n <= 3) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: false }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-1", status: "approved" },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result).toEqual({ status: "approved", reviewId: "rev-1" });
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("invalid response format"));
+    vi.useRealTimers();
+  });
+
+  it("retries when status data is invalid then succeeds", async () => {
+    let n = 0;
+    fetchMock.mockImplementation(() => {
+      n++;
+      if (n <= 3) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: { id: "rev-1", status: "not-a-real-status" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-1", status: "approved" },
+          }),
+      });
+    });
+
+    vi.useFakeTimers();
+    const resultPromise = pollContentReviewStatus("rev-1", TEST_API_KEY, TEST_BASE_URL, logger);
+    await vi.runAllTimersAsync();
+    vi.advanceTimersByTime(3000);
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
+    expect(result).toEqual({ status: "approved", reviewId: "rev-1" });
+    expect(logger.debug).toHaveBeenCalledWith(expect.stringContaining("invalid status data"));
+    vi.useRealTimers();
+  });
+});
+
+describe("requestContentReview", () => {
+  it("POSTs with cost 0 by default, then polls until approved", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { content_review_id: "rev-abc" },
+          }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-abc", status: "approved" },
+          }),
+      });
+
+    const result = await requestContentReview(
+      { agent: "agent-1", service: "public_content", actionType: "post" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "approved", reviewId: "rev-abc" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const first = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(first[0]).toBe(`${TEST_BASE_URL}/api/v1/actions`);
+    expect(JSON.parse(first[1].body as string)).toMatchObject({
+      agent: "agent-1",
+      service: "public_content",
+      actionType: "post",
+      status: "requires_approval",
+      cost: 0,
+    });
+  });
+
+  it("includes explicit cost in POST body when provided", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { content_review_id: "rev-abc" },
+          }),
+      })
+      .mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: { id: "rev-abc", status: "approved" },
+          }),
+      });
+
+    await requestContentReview(
+      {
+        agent: "agent-1",
+        service: "public_content",
+        actionType: "post",
+        cost: 2.5,
+      },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    const first = fetchMock.mock.calls[0] as [string, RequestInit];
+    const postBody = JSON.parse(first[1].body as string) as { cost?: number };
+    expect(postBody.cost).toBe(2.5);
+  });
+
+  it("returns no_review_id when 202 body omits content_review_id", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: () => Promise.resolve({ success: true, data: {} }),
+    });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "no_review_id" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns plan_tier_insufficient on 403 without polling", async () => {
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: () =>
+        Promise.resolve({
+          success: false,
+          error: { code: "PLAN_TIER_INSUFFICIENT", message: "nope" },
+        }),
+    });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "plan_tier_insufficient" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns network_error when POST throws", async () => {
+    fetchMock.mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "network_error" });
+  });
+
+  it("returns no_review_id on unexpected 201", async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "no_review_id" });
+  });
+
+  it("returns no_review_id when 202 body has success false", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: () => Promise.resolve({ success: false }),
+    });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "no_review_id" });
+  });
+
+  it("returns no_review_id when 202 data is null", async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 202,
+      json: () => Promise.resolve({ success: true, data: null }),
+    });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "no_review_id" });
+  });
+
+  it("returns auth_error on 401", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 401, json: () => Promise.resolve({}) });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "auth_error" });
+  });
+
+  it("returns service_unavailable on 429", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 429, json: () => Promise.resolve({}) });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "service_unavailable" });
+  });
+
+  it("returns service_unavailable on unexpected HTTP status", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 418, json: () => Promise.resolve({}) });
+
+    const result = await requestContentReview(
+      { agent: "a", service: "web", actionType: "deploy" },
+      TEST_API_KEY,
+      TEST_BASE_URL,
+    );
+
+    expect(result).toEqual({ status: "blocked", reason: "service_unavailable" });
   });
 });
