@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+### Added
+
+- `requestContentReview()` and supporting types (`ContentReviewResult`, `ContentReviewRequestPayload`, `ContentReviewStatusResponse`) for submitting public-content actions to the Content Review queue and awaiting the human decision.
+- `waitForReviewDecision` opt-in flag on `McpAdapterConfig`. When true, the MCP adapter blocks until a human approves or blocks the action (5 minute ceiling) and forwards the call if approved. Default false preserves existing block-fast behaviour.
+- Public exports of `requiresContentReview` and `isPublicContentAction` from `src/scopes/content-review-detector.ts`.
+- SDK-side mapping of backend `PLAN_TIER_INSUFFICIENT` responses to a distinct `plan_tier_insufficient` reason code with the "Content review requires an Enterprise plan" user message.
+
+### Changed
+
+- `pollContentReviewStatus` fast-fails on 404 (maps to `review_not_found`) instead of retrying, diverging from `pollApprovalStatus` which treats 404 as transient. Content reviews can be hard-deleted by admin action in a way approvals cannot.
+
+## [0.9.0] - 2026-04-15
 
 ### Added
 
