@@ -700,7 +700,17 @@ const plugin: OpenClawPluginDefinition = {
     if (config.agentName !== null) {
       pinnedAgentName = config.agentName;
     }
-    console.error("[SHIELD-DIAG] cachedMulticornConfig: " + JSON.stringify(cachedMulticornConfig));
+    // Logged fields are allowlisted and treated as non-secret by contract. Do not log raw
+    // `cachedMulticornConfig` or add URL query params, userinfo, or tokens to this line; baseUrl is
+    // expected to be a plain host (e.g. https://api.example.com) only.
+    api.logger.info(
+      "Multicorn Shield config loaded: " +
+        `hasApiKey=${String((cachedMulticornConfig?.apiKey ?? "").length > 0)} ` +
+        `baseUrl=${cachedMulticornConfig?.baseUrl ?? "default"} ` +
+        `agentName=${cachedMulticornConfig?.agentName ?? "unset"} ` +
+        `defaultAgent=${cachedMulticornConfig?.defaultAgent ?? "unset"} ` +
+        `agents=${String(cachedMulticornConfig?.agents?.length ?? 0)}`,
+    );
     api.on("before_tool_call", beforeToolCall, { priority: 10 });
     api.on("after_tool_call", afterToolCall);
     api.logger.info("Multicorn Shield plugin registered.");

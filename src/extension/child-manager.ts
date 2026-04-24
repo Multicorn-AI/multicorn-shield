@@ -7,7 +7,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { execSync, spawn, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { JsonRpcChildSession } from "./json-rpc-child.js";
 import type { McpServerEntry } from "./config-reader.js";
 import type { McpToolDefinition } from "./tool-router.js";
@@ -25,9 +25,10 @@ function debugLog(msg: string): void {
   }
 }
 
+/** Resolve command name to an absolute path via POSIX `which` (no shell). On Windows, `which` is absent; callers get the path returned unchanged, same as before. */
 function resolveCommand(command: string): string {
   try {
-    return execSync(`which ${command}`, { encoding: "utf8" }).trim();
+    return execFileSync("which", [command], { encoding: "utf8" }).trim();
   } catch {
     return command;
   }
@@ -85,9 +86,11 @@ export class ChildManager {
       `[SHIELD] Spawning MCP child "${serverName}": command=${entry.command} resolved=${resolvedCommand} args=${argsJson} t0=${String(spawnStartMs)}`,
     );
 
+    // shell: false (default) — never pass user command through a shell; see resolveCommand.
     const child = spawn(resolvedCommand, [...entry.args], {
-      stdio: ["pipe", "pipe", "pipe"],
       env,
+      shell: false,
+      stdio: ["pipe", "pipe", "pipe"],
     });
 
     const pid = child.pid;
