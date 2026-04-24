@@ -138,6 +138,75 @@ describe("plugin definition", () => {
     );
   });
 
+  it("register() never logs the api key from config file in logger or console", () => {
+    const secret = "mcs_sekret_only_for_key_leak_test_abcdef12";
+    readFileSyncMock.mockReturnValue(
+      JSON.stringify({ apiKey: secret, baseUrl: "https://config.example" }),
+    );
+    const infoMock = vi.fn();
+    const warnMock = vi.fn();
+    const errorMock = vi.fn();
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: infoMock, warn: warnMock, error: errorMock },
+      on: vi.fn(),
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
+
+    const fromLogger = [infoMock, warnMock, errorMock]
+      .flatMap((m) => m.mock.calls)
+      .map((c) => String(c[0] ?? ""));
+
+    expect(fromLogger.join("\n")).not.toContain(secret);
+    expect(
+      fromLogger.some(
+        (m) => m.includes("Multicorn Shield config loaded: ") && m.includes("hasApiKey=true"),
+      ),
+    ).toBe(true);
+
+    expect(consoleErrorSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).not.toContain(
+      secret,
+    );
+    expect(consoleLogSpy.mock.calls.map((c) => String(c[0] ?? "")).join("\n")).not.toContain(
+      secret,
+    );
+
+    consoleErrorSpy.mockRestore();
+    consoleLogSpy.mockRestore();
+  });
+
+  it("register() allowlisted config line includes hasApiKey=false when there is no key from file or env", () => {
+    vi.stubEnv("MULTICORN_API_KEY", "");
+    readFileSyncMock.mockReturnValue(JSON.stringify({ baseUrl: "https://only-base.example" }));
+    const infoMock = vi.fn();
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: infoMock, warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
+
+    expect(
+      infoMock.mock.calls
+        .map((c) => String(c[0] ?? ""))
+        .some(
+          (m) =>
+            m.startsWith("Multicorn Shield config loaded: ") &&
+            m.includes("hasApiKey=false") &&
+            m.includes("baseUrl=https://only-base.example"),
+        ),
+    ).toBe(true);
+  });
+
   it("register() logs error when API key is missing", () => {
     const errorMock = vi.fn();
     vi.stubEnv("MULTICORN_API_KEY", "");
