@@ -33,6 +33,9 @@ export default defineConfig({
         "src/proxy/__fixtures__/**",
         // Extension config read: integration-style.
         "src/extension/config-reader.ts",
+        // CDN bootstrap: relies on document.currentScript which is only set during inline script
+        // execution. Not meaningfully unit-testable; exercised via manual CDN integration tests.
+        "src/badge/badge-entrypoint.ts",
         // runtime.ts is covered by server.integration.test.ts; keeping it in Istanbul would drag
         // global branch % below the 85% threshold because start() mixes debugLog + many branches.
         "src/extension/runtime.ts",

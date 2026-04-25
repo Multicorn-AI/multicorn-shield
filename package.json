@@ -57,8 +57,8 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "lint": "eslint . && prettier --check .",
-    "lint:fix": "eslint --fix . && prettier --write .",
+    "lint": "eslint . --no-warn-ignored && prettier --check .",
+    "lint:fix": "eslint --fix . --no-warn-ignored && prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -78,7 +78,7 @@
   },
   "lint-staged": {
     "*.ts": [
-      "eslint --fix",
+      "eslint --fix --no-warn-ignored",
       "prettier --write"
     ],
     "*.{json,md}": [

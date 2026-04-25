@@ -131,4 +131,28 @@ describe("MulticornBadge", () => {
     const d = path.getAttribute("d") ?? "";
     expect(d.length).toBeGreaterThan(10);
   });
+
+  it("ignores non-numeric action-count", () => {
+    const el = mountBadge({ "agent-id": "ag_1", "action-count": "abc" });
+    const text = queryRequired(getShadowRoot(el), ".text");
+    expect(text.textContent).toBe("Secured by Multicorn");
+    expect(text.textContent).not.toContain("actions secured");
+  });
+
+  it("re-renders when agent-id changes to a new value", () => {
+    const el = mountBadge({ "agent-id": "ag_1" });
+    const root = getShadowRoot(el);
+    expect(queryRequired(root, "a.badge").getAttribute("href")).toContain("ag_1");
+    el.setAttribute("agent-id", "ag_2");
+    expect(queryRequired(root, "a.badge").getAttribute("href")).toContain("ag_2");
+  });
+
+  it("style tag is injected only once across re-renders", () => {
+    const el = mountBadge({ "agent-id": "ag_1" });
+    const root = getShadowRoot(el);
+    el.setAttribute("action-count", "10");
+    el.setAttribute("action-count", "20");
+    const styles = root.querySelectorAll("style");
+    expect(styles.length).toBe(1);
+  });
 });
