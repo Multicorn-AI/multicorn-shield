@@ -45,7 +45,12 @@
     "access": "public",
     "provenance": true
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "dist/index.js",
+    "dist/index.cjs",
+    "dist/badge.js",
+    "src/badge/multicorn-badge.ts"
+  ],
   "engines": {
     "node": ">=20"
   },
@@ -118,6 +123,11 @@
     {
       "path": "dist/index.cjs",
       "limit": "50 kB",
+      "gzip": true
+    },
+    {
+      "path": "dist/badge.js",
+      "limit": "5 kB",
       "gzip": true
     }
   ],
