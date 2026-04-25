@@ -7,6 +7,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type { ProxyLogger } from "../proxy/logger.js";
 import { PACKAGE_VERSION } from "../package-meta.js";
+import { assertSafeProxyUrl } from "./proxy-url-validator.js";
 
 const MCP_PROTOCOL_VERSION = "2024-11-05";
 
@@ -101,8 +102,13 @@ export async function fetchProxyConfigs(
   baseUrl: string,
   apiKey: string,
   timeoutMs: number,
+  options?: { allowPrivateNetworks?: boolean },
 ): Promise<readonly ProxyConfigItem[]> {
   const url = `${normalizeBaseUrl(baseUrl)}/api/v1/proxy/config`;
+  assertSafeProxyUrl(
+    url,
+    options?.allowPrivateNetworks === true ? { allowPrivateNetworks: true } : undefined,
+  );
   let response: Response;
   try {
     /* Must use X-Multicorn-Key for Shield API (not Bearer). */
@@ -280,6 +286,7 @@ function parseJsonObjectFromBody(text: string): unknown {
 
 export interface ProxySessionOptions {
   readonly requestTimeoutMs?: number;
+  readonly allowPrivateNetworks?: boolean;
 }
 
 /**
@@ -294,6 +301,10 @@ export class ProxySession {
   private closed = false;
 
   constructor(proxyUrl: string, apiKey: string, options?: ProxySessionOptions) {
+    assertSafeProxyUrl(
+      proxyUrl,
+      options?.allowPrivateNetworks === true ? { allowPrivateNetworks: true } : undefined,
+    );
     this.proxyUrl = proxyUrl.replace(/\/+$/, "") + "/mcp";
     this.apiKey = apiKey;
     this.requestTimeoutMs = options?.requestTimeoutMs ?? 60_000;
