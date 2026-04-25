@@ -49,6 +49,7 @@ import {
   type ProxyConfigItem,
   type McpToolDefinition,
 } from "./proxy-client.js";
+import { assertSafeProxyUrl } from "./proxy-url-validator.js";
 import { ShieldExtensionRuntime } from "./runtime.js";
 import { PACKAGE_VERSION } from "../package-meta.js";
 
@@ -206,6 +207,9 @@ async function autoCreateProxyConfig(
 
   debugLog(`[SHIELD] Auto-creating proxy config for "${serverName}".`);
 
+  const allowPrivateNetworks = process.env["MULTICORN_ALLOW_PRIVATE_PROXY_HOSTS"] === "1";
+  assertSafeProxyUrl(url, { allowPrivateNetworks });
+
   let response: Response;
   try {
     response = await fetch(url, {
@@ -362,6 +366,8 @@ export async function runShieldExtension(): Promise<void> {
 
       debugLog("[SHIELD] Resolving proxy configs (local config or API).");
 
+      const allowPrivateNetworks = process.env["MULTICORN_ALLOW_PRIVATE_PROXY_HOSTS"] === "1";
+
       let configs: readonly ProxyConfigItem[];
       const localConfigs = await readProxyConfigsFromLocalMulticornConfig();
       if (localConfigs.length > 0) {
@@ -370,7 +376,9 @@ export async function runShieldExtension(): Promise<void> {
       } else {
         debugLog("[SHIELD] No local proxy configs; fetching from API.");
         try {
-          configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS);
+          configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS, {
+            allowPrivateNetworks,
+          });
         } catch (e) {
           clearTimeout(setupTimeout);
           if (e instanceof ProxyConfigFetchError) {
@@ -410,7 +418,9 @@ export async function runShieldExtension(): Promise<void> {
               `[SHIELD] Auto-created ${String(createdCount)} proxy config(s); re-fetching from API.`,
             );
             try {
-              configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS);
+              configs = await fetchProxyConfigs(baseUrl, apiKey, SETUP_TIMEOUT_MS, {
+                allowPrivateNetworks,
+              });
             } catch (e) {
               const message = e instanceof Error ? e.message : String(e);
               debugLog(`[SHIELD] Re-fetch after auto-creation failed: ${message}`);
@@ -454,7 +464,7 @@ export async function runShieldExtension(): Promise<void> {
       const sessionByProxyUrl = new Map<string, ProxySession>();
 
       for (const cfg of configs) {
-        const session = new ProxySession(cfg.proxy_url, apiKey);
+        const session = new ProxySession(cfg.proxy_url, apiKey, { allowPrivateNetworks });
         try {
           debugLog(`[SHIELD] Initializing proxy session for ${cfg.server_name}.`);
           await session.initialize();
