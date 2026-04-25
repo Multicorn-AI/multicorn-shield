@@ -13,6 +13,7 @@ export * from "./types/index.js";
 // Scopes barrel includes requiresContentReview and isPublicContentAction (content-review-detector).
 export * from "./scopes/index.js";
 export * from "./consent/index.js";
+export { MulticornBadge } from "./badge/index.js";
 export * from "./logger/index.js";
 export * from "./spending/index.js";
 export * from "./mcp/index.js";

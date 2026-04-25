@@ -45,15 +45,20 @@
     "access": "public",
     "provenance": true
   },
-  "sideEffects": false,
+  "sideEffects": [
+    "dist/index.js",
+    "dist/index.cjs",
+    "dist/badge.js",
+    "src/badge/multicorn-badge.ts"
+  ],
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "lint": "eslint . && prettier --check .",
-    "lint:fix": "eslint --fix . && prettier --write .",
+    "lint": "eslint . --no-warn-ignored && prettier --check .",
+    "lint:fix": "eslint --fix . --no-warn-ignored && prettier --write .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -73,7 +78,7 @@
   },
   "lint-staged": {
     "*.ts": [
-      "eslint --fix",
+      "eslint --fix --no-warn-ignored",
       "prettier --write"
     ],
     "*.{json,md}": [
@@ -118,6 +123,11 @@
     {
       "path": "dist/index.cjs",
       "limit": "50 kB",
+      "gzip": true
+    },
+    {
+      "path": "dist/badge.js",
+      "limit": "5 kB",
       "gzip": true
     }
   ],

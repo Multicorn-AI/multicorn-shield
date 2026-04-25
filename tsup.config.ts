@@ -104,4 +104,16 @@ export default defineConfig([
     outDir: "dist",
     platform: "node",
   },
+  {
+    entry: { badge: "src/badge/badge-entrypoint.ts" },
+    format: ["esm"],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: true,
+    outDir: "dist",
+    platform: "browser",
+  },
 ]);

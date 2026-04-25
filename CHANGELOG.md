@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-04-25
+
+### Added
+
+- `<multicorn-badge>` trust badge web component for embedding in third-party products. Shadow DOM encapsulation, dark/light themes, compact/standard sizes, optional action count display.
+- CDN entrypoint (`dist/badge.js`) for single-script-tag embedding: `<script src="https://cdn.multicorn.ai/badge.js" data-agent-id="..."></script>`. Self-contained, no Lit runtime dependency.
+- `MulticornBadge` class exported from the main SDK barrel for programmatic usage.
+- Shared `shield-tokens.ts` module (`src/shared/`) extracting `SHIELD_COLORS` design tokens for reuse across consent and badge components.
+- `size-limit` budget enforcement for `dist/badge.js` at 5 kB gzip (actual ~1.75 kB).
+
 ## [0.10.0] - 2026-04-21
 
 ### Added
