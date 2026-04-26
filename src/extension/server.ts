@@ -249,9 +249,6 @@ async function autoCreateProxyConfig(
 }
 
 export async function runShieldExtension(): Promise<void> {
-  const debugBaseUrl = process.env["MULTICORN_BASE_URL"] ?? "";
-  const debugApiKeyPrefix = process.env["MULTICORN_API_KEY"]?.slice(0, 8) ?? "";
-  console.error(`[SHIELD-DEBUG] BASE_URL=${debugBaseUrl} API_KEY=${debugApiKeyPrefix}...`);
   const logger = createLogger(readLogLevel());
 
   const apiKey = readApiKey();

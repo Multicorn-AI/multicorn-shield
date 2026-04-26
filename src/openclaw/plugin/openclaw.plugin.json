@@ -8,7 +8,9 @@
     "additionalProperties": false,
     "properties": {
       "apiKey": {
-        "type": "string"
+        "type": "string",
+        "pattern": "^mcs_.{12,}$",
+        "minLength": 16
       },
       "baseUrl": {
         "type": "string"

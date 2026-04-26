@@ -130,7 +130,16 @@ function readConfig(): ShieldConfig {
     asString(cachedMulticornConfig?.agentName) ??
     null;
   const failMode = "closed" as const;
-  return { apiKey: resolvedApiKey, baseUrl: resolvedBaseUrl, agentName, failMode };
+
+  let apiKey = resolvedApiKey;
+  if (apiKey.length > 0 && (!apiKey.startsWith("mcs_") || apiKey.length < 16)) {
+    pluginLogger?.error(
+      "Invalid API key format. Key must start with mcs_ and be at least 16 characters.",
+    );
+    apiKey = "";
+  }
+
+  return { apiKey, baseUrl: resolvedBaseUrl, agentName, failMode };
 }
 
 function asString(value: unknown): string | undefined {
