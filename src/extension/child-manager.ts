@@ -81,9 +81,8 @@ export class ChildManager {
 
     const spawnStartMs = Date.now();
     const resolvedCommand = resolveCommand(entry.command);
-    const argsJson = JSON.stringify(entry.args);
     debugLog(
-      `[SHIELD] Spawning MCP child "${serverName}": command=${entry.command} resolved=${resolvedCommand} args=${argsJson} t0=${String(spawnStartMs)}`,
+      `[SHIELD] Spawning MCP child "${serverName}": command=${entry.command} resolved=${resolvedCommand} argCount=${String(entry.args.length)} t0=${String(spawnStartMs)}`,
     );
 
     // shell: false (default) — never pass user command through a shell; see resolveCommand.

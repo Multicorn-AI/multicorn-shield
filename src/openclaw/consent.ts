@@ -123,7 +123,6 @@ export async function waitForConsent(
   logger?: PluginLogger,
 ): Promise<readonly Scope[]> {
   const dashboardUrl = deriveDashboardUrl(baseUrl);
-  console.error("[SHIELD] buildConsentUrl baseUrl:", baseUrl);
   const consentUrl = buildConsentUrl(agentName, dashboardUrl, scope);
 
   process.stderr.write(
