@@ -92,9 +92,9 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
-  /** Menu index: 1 OpenClaw, 2 Claude Code, 3 Cursor, 4 Windsurf, 5 Local MCP / Other (matches `promptPlatformSelection`). */
+  /** Menu index: 1 OpenClaw, 2 Claude Code, 3 Cursor, 4 Windsurf, 5 Cline, 6 Local MCP / Other (matches `promptPlatformSelection`). */
   readonly selection: number;
-  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, or `other-mcp`. */
+  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, `cline`, or `other-mcp`. */
   readonly platform: string;
   readonly platformLabel: string;
   readonly agentName: string;
@@ -809,19 +809,28 @@ export async function updateClaudeDesktopConfig(
 // Init flow - extracted helpers
 // ---------------------------------------------------------------------------
 
-const PLATFORM_LABELS = ["OpenClaw", "Claude Code", "Cursor", "Windsurf", "Local MCP / Other"];
+const PLATFORM_LABELS = [
+  "OpenClaw",
+  "Claude Code",
+  "Cursor",
+  "Windsurf",
+  "Cline",
+  "Local MCP / Other",
+];
 const PLATFORM_BY_SELECTION: Record<number, string> = {
   1: "openclaw",
   2: "claude-code",
   3: "cursor",
   4: "windsurf",
-  5: "other-mcp",
+  5: "cline",
+  6: "other-mcp",
 };
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
   openclaw: "my-openclaw-agent",
   "claude-code": "my-claude-code-agent",
   cursor: "my-cursor-agent",
   windsurf: "my-windsurf-agent",
+  cline: "my-cline-agent",
 };
 
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
@@ -837,7 +846,7 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
   ];
 
   for (let i = 0; i < PLATFORM_LABELS.length; i++) {
-    // Last option (Local MCP / Other) has no detection logic, so skip the marker.
+    // Options 5–6 (Cline, Local MCP / Other) have no entry in detection list.
     const marker =
       i < connectedFlags.length && connectedFlags[i]
         ? " " + style.dim("\u25CF detected locally")
@@ -847,15 +856,15 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     );
   }
   process.stderr.write(
-    style.dim("     Pick 5 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
+    style.dim("     Pick 6 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
       "\n",
   );
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask("Select (1-5): ");
+    const input = await ask("Select (1-6): ");
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= 5) {
+    if (num >= 1 && num <= 6) {
       selection = num;
     }
   }
@@ -1011,7 +1020,7 @@ function printPlatformSnippet(
   shortName: string,
   apiKey: string,
 ): void {
-  const usesInlineKey = platform === "cursor" || platform === "windsurf";
+  const usesInlineKey = platform === "cursor" || platform === "windsurf" || platform === "cline";
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
 
   const urlKey = platform === "windsurf" ? "serverUrl" : "url";
@@ -1038,6 +1047,23 @@ function printPlatformSnippet(
     process.stderr.write(
       "\n" + style.dim("Add this to ~/.codeium/windsurf/mcp_config.json:") + "\n\n",
     );
+  } else if (platform === "cline") {
+    process.stderr.write("\n" + style.dim("Add this to your Cline MCP settings file:") + "\n");
+    process.stderr.write(
+      style.dim(
+        "  macOS: ~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+      ) + "\n",
+    );
+    process.stderr.write(
+      style.dim(
+        "  Windows: %APPDATA%\\Code\\User\\globalStorage\\saoudrizwan.claude-dev\\settings\\cline_mcp_settings.json",
+      ) + "\n",
+    );
+    process.stderr.write(
+      style.dim(
+        "  Linux: ~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
+      ) + "\n\n",
+    );
   } else {
     process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
   }
@@ -1060,6 +1086,14 @@ function printPlatformSnippet(
     process.stderr.write(
       style.dim(
         `Ask Cursor to use your MCP server by its short name. For example: "use the ${shortName} tool to list files in /tmp"`,
+      ) + "\n",
+    );
+  }
+
+  if (platform === "cline") {
+    process.stderr.write(
+      style.dim(
+        "After pasting, restart Cline or reload the VS Code window. Cline will discover the Shield tools automatically.",
       ) + "\n",
     );
   }
@@ -1205,8 +1239,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
 
-    // Option 5: Local MCP / Other - minimal config, no agent name, no target URL.
-    if (selection === 5) {
+    // Option 6: Local MCP / Other - minimal config, no agent name, no target URL.
+    if (selection === 6) {
       const raw =
         existing !== null
           ? { ...(existing as unknown as Record<string, unknown>) }

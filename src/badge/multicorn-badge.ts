@@ -17,6 +17,19 @@ export const BADGE_ELEMENT_TAG = "multicorn-badge" as const;
 /** 24x24 viewBox, filled shield path. */
 const SHIELD_PATH = "M12 1L3 5v6c0 5.55 3.84 9.95 9 12 5.16-2.05 9-6.45 9-12V5l-9-4z";
 
+// Allows the class declaration to survive in Node.js where HTMLElement is
+// not a global. The class body is browser-only but tree-shaking keeps it
+// out of pure-Node bundles (proxy subpath). The root barrel still re-exports
+// it, so we need a safe base class for environments without DOM globals.
+const SafeHTMLElement =
+  typeof HTMLElement !== "undefined"
+    ? HTMLElement
+    : (class {
+        connectedCallback(): void {
+          /* noop stub for Node.js */
+        }
+      } as unknown as typeof HTMLElement);
+
 function parseOptionalCount(raw: string | null): number | undefined {
   if (raw == null || raw === "") {
     return undefined;
@@ -25,7 +38,7 @@ function parseOptionalCount(raw: string | null): number | undefined {
   return Number.isNaN(n) ? undefined : n;
 }
 
-export class MulticornBadge extends HTMLElement {
+export class MulticornBadge extends SafeHTMLElement {
   #didInjectStyle = false;
 
   private ensureShadow(): ShadowRoot {
@@ -113,7 +126,7 @@ export class MulticornBadge extends HTMLElement {
   }
 }
 
-if (customElements.get(BADGE_ELEMENT_TAG) === undefined) {
+if (typeof customElements !== "undefined" && customElements.get(BADGE_ELEMENT_TAG) === undefined) {
   customElements.define(BADGE_ELEMENT_TAG, MulticornBadge);
 }
 

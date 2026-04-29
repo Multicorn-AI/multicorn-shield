@@ -34,3 +34,12 @@ export { createLogger, isValidLogLevel, type ProxyLogger, type LogLevel } from "
 export { validateScopeAccess } from "../scopes/scope-validator.js";
 
 export { mapMcpToolToScope } from "../mcp-tool-mapper.js";
+
+export {
+  createActionLogger,
+  type ActionLogger,
+  type ActionLoggerConfig,
+  type ActionPayload,
+} from "../logger/action-logger.js";
+
+export type { Scope, PermissionLevel } from "../types/index.js";
