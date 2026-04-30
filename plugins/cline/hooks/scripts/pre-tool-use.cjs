@@ -8,7 +8,6 @@
 
 "use strict";
 
-const { execFileSync, execSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -17,10 +16,8 @@ const path = require("node:path");
 
 const AUTH_HEADER = "X-Multicorn-Key";
 const LOG_PREFIX = "[multicorn-shield] Cline pre-hook:";
-const HOOK_TEST_FAST_POLL = process.env.MULTICORN_SHIELD_CLINE_PRE_HOOK_TEST_FAST_POLL === "1";
-const POLL_INTERVAL_MS = HOOK_TEST_FAST_POLL ? 1 : 3000;
-const MAX_APPROVAL_POLLS = HOOK_TEST_FAST_POLL ? 3 : 100;
-const HTTP_REQUEST_TIMEOUT_MS = HOOK_TEST_FAST_POLL ? 100 : 10000;
+const HTTP_REQUEST_TIMEOUT_MS =
+  process.env.MULTICORN_SHIELD_CLINE_PRE_HOOK_TEST_FAST_POLL === "1" ? 100 : 10000;
 
 /** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
 const TOOL_MAP = {
@@ -313,70 +310,6 @@ function blockedMessage(data, service, actionType, approvalsUrl) {
 }
 
 /**
- * @param {string} agentName
- * @returns {string}
- */
-function consentMarkerPath(agentName) {
-  const safe = agentName.replace(/[^a-zA-Z0-9_-]/g, "_");
-  return path.join(os.homedir(), ".multicorn", `.consent-cline-${safe}`);
-}
-
-/**
- * @param {string} agentName
- * @returns {boolean}
- */
-function hasConsentMarker(agentName) {
-  try {
-    fs.accessSync(consentMarkerPath(agentName));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * @param {string} agentName
- */
-function writeConsentMarker(agentName) {
-  try {
-    const marker = consentMarkerPath(agentName);
-    fs.mkdirSync(path.dirname(marker), { recursive: true });
-    fs.writeFileSync(marker, String(Date.now()), "utf8");
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * @param {string} url
- */
-function openBrowser(url) {
-  try {
-    if (process.platform === "win32") {
-      execSync(`start "" ${JSON.stringify(url)}`, {
-        shell: true,
-        stdio: "ignore",
-        windowsHide: true,
-      });
-    } else if (process.platform === "darwin") {
-      execFileSync("open", [url], { stdio: "ignore" });
-    } else {
-      execFileSync("xdg-open", [url], { stdio: "ignore" });
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
-/**
- * @param {number} ms
- * @returns {Promise<void>}
- */
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
  * Outputs JSON response to stdout and exits.
  * @param {boolean} cancel
  * @param {string} [errorMessage]
@@ -385,79 +318,6 @@ function respond(cancel, errorMessage) {
   const response = cancel ? { cancel: true, errorMessage } : { cancel: false };
   process.stdout.write(JSON.stringify(response) + "\n");
   process.exit(0);
-}
-
-/**
- * @param {{ apiKey: string; baseUrl: string; agentName: string }} config
- * @param {string} approvalId
- * @param {string} service
- * @param {string} actionType
- * @param {string} approvalsUrl
- * @returns {Promise<void>}
- */
-async function handlePendingWithConsentAndPoll(
-  config,
-  approvalId,
-  service,
-  actionType,
-  approvalsUrl,
-) {
-  if (hasConsentMarker(config.agentName)) {
-    respond(
-      true,
-      `Shield: This action requires approval before it can run. Grant access at ${approvalsUrl}`,
-    );
-    return;
-  }
-
-  const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
-  writeConsentMarker(config.agentName);
-  openBrowser(url);
-  process.stderr.write(`${LOG_PREFIX} Opening Shield consent screen... Waiting for approval.\n`);
-
-  for (let i = 0; i < MAX_APPROVAL_POLLS; i++) {
-    if (i > 0) {
-      await sleep(POLL_INTERVAL_MS);
-    }
-    let statusCode;
-    let bodyText;
-    try {
-      const res = await getJson(config.baseUrl, config.apiKey, `/api/v1/approvals/${approvalId}`);
-      statusCode = res.statusCode;
-      bodyText = res.bodyText;
-    } catch {
-      continue;
-    }
-    if (statusCode < 200 || statusCode >= 300) {
-      continue;
-    }
-    const parsed = safeJsonParse(bodyText);
-    const data = unwrapData(parsed);
-    if (data === null || typeof data !== "object") {
-      continue;
-    }
-    const d = /** @type {Record<string, unknown>} */ (data);
-    const st = String(d.status ?? "").toLowerCase();
-    if (st === "approved") {
-      respond(false);
-      return;
-    }
-    if (st === "blocked" || st === "denied" || st === "rejected") {
-      const reason =
-        typeof d.reason === "string" && d.reason.length > 0 ? d.reason : "Approval denied.";
-      respond(true, `Shield: Action denied - ${reason}. Review at ${approvalsUrl}`);
-      return;
-    }
-    if (st === "expired") {
-      respond(true, `Shield: Approval request expired. Retry the action and complete approval when prompted.`);
-      return;
-    }
-    if (st === "pending") {
-      continue;
-    }
-  }
-
-  respond(true, `Shield: Approval timed out. Approve at ${approvalsUrl}, then retry.`);
 }
 
 async function main() {
@@ -561,23 +421,11 @@ async function main() {
   const data = unwrapData(parsed);
 
   if (statusCode === 202) {
-    if (data === null || typeof data !== "object") {
-      respond(
-        true,
-        `Shield: This action needs approval. Open ${approvalsUrl} to approve, then retry.`,
-      );
-      return;
-    }
-    const approvalIdRaw = /** @type {Record<string, unknown>} */ (data).approval_id;
-    const approvalId = typeof approvalIdRaw === "string" ? approvalIdRaw : "";
-    if (approvalId.length === 0) {
-      respond(
-        true,
-        `Shield: This action needs approval. Open ${approvalsUrl} to approve, then retry.`,
-      );
-      return;
-    }
-    await handlePendingWithConsentAndPoll(config, approvalId, service, actionType, approvalsUrl);
+    const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
+    respond(
+      true,
+      `Shield: ${config.agentName} needs ${service}:${actionType} permission. Authorize at ${url} then retry this action.`,
+    );
     return;
   }
 
