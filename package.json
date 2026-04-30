@@ -37,6 +37,7 @@
   "files": [
     "dist",
     "plugins/windsurf",
+    "plugins/cline",
     "LICENSE",
     "README.md",
     "CHANGELOG.md"

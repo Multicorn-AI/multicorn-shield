@@ -100,6 +100,8 @@ interface ConfiguredAgent {
   readonly agentName: string;
   /** Set when `platform` is `windsurf` to drive Next steps copy. */
   readonly windsurfIntegration?: "native" | "hosted";
+  /** Set when `platform` is `cline` to drive Next steps copy. */
+  readonly clineIntegration?: "native" | "hosted";
   readonly shortName?: string;
   readonly proxyUrl?: string;
 }
@@ -712,6 +714,74 @@ export async function installWindsurfNativeHooks(): Promise<void> {
   const hooksDir = dirname(hooksPath);
   await mkdir(hooksDir, { recursive: true });
   await writeFile(hooksPath, JSON.stringify(base, null, 2) + "\n", { encoding: "utf8" });
+}
+
+// ---------------------------------------------------------------------------
+// Cline Hooks (native plugin)
+// ---------------------------------------------------------------------------
+
+/** Installed copy of Cline hook scripts (written by `init`). */
+export function getClineHooksInstallDir(): string {
+  return join(homedir(), ".multicorn", "cline-hooks");
+}
+
+/** Global Cline hooks directory. */
+export function getClineGlobalHooksDir(): string {
+  return join(homedir(), "Documents", "Cline", "Rules", "Hooks");
+}
+
+export async function installClineNativeHooks(): Promise<void> {
+  const root = multicornShieldPackageRoot();
+  const srcPre = join(root, "plugins", "cline", "hooks", "scripts", "pre-tool-use.cjs");
+  const srcPost = join(root, "plugins", "cline", "hooks", "scripts", "post-tool-use.cjs");
+  if (!existsSync(srcPre) || !existsSync(srcPost)) {
+    throw new Error(
+      `Could not find Shield Cline hook scripts at ${srcPre}. If you use npm, install the latest multicorn-shield package.`,
+    );
+  }
+
+  // Copy scripts to ~/.multicorn/cline-hooks/
+  const installDir = getClineHooksInstallDir();
+  await mkdir(installDir, { recursive: true });
+  const destPre = join(installDir, "pre-tool-use.cjs");
+  const destPost = join(installDir, "post-tool-use.cjs");
+  await copyFile(srcPre, destPre);
+  await copyFile(srcPost, destPost);
+
+  // Install wrapper scripts to ~/Documents/Cline/Rules/Hooks/
+  const hooksDir = getClineGlobalHooksDir();
+  await mkdir(hooksDir, { recursive: true });
+
+  const preWrapper = join(hooksDir, "PreToolUse");
+  const postWrapper = join(hooksDir, "PostToolUse");
+
+  const preContent = `#!/usr/bin/env node\nrequire(${JSON.stringify(destPre)});\n`;
+  const postContent = `#!/usr/bin/env node\nrequire(${JSON.stringify(destPost)});\n`;
+
+  await writeFile(preWrapper, preContent, { encoding: "utf8", mode: 0o755 });
+  await writeFile(postWrapper, postContent, { encoding: "utf8", mode: 0o755 });
+}
+
+async function promptClineIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
+  process.stderr.write("\n" + style.bold("Cline integration") + "\n");
+  process.stderr.write(
+    "  " +
+      style.violet("1") +
+      ". Native plugin (recommended) - Cline Hooks see every file, terminal, browser, and MCP action\n",
+  );
+  process.stderr.write(
+    "  " +
+      style.violet("2") +
+      ". Hosted proxy - govern MCP traffic only (paste proxy URL into Cline MCP settings)\n",
+  );
+  let choice = 0;
+  while (choice === 0) {
+    const input = await ask("Choose integration (1-2): ");
+    const num = parseInt(input.trim(), 10);
+    if (num === 1) choice = 1;
+    if (num === 2) choice = 2;
+  }
+  return choice === 1 ? "native" : "hosted";
 }
 
 /**
@@ -1492,6 +1562,76 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           setupSucceeded = true;
         }
       }
+    } else if (selection === 5) {
+      const clineMode = await promptClineIntegrationMode(ask);
+      if (clineMode === "native") {
+        try {
+          await installClineNativeHooks();
+          process.stderr.write("\n" + style.bold("Shield Cline hooks installed") + "\n\n");
+          process.stderr.write(
+            style.dim(
+              "The Shield hook runs with your user permissions. It intercepts Cline tool calls to check permissions and log activity. Review the scripts under ",
+            ) +
+              style.cyan("~/.multicorn/cline-hooks") +
+              style.dim(" if that is a concern.") +
+              "\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            clineIntegration: "native",
+          });
+          setupSucceeded = true;
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+        }
+      } else {
+        const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+
+        let proxyUrl = "";
+        let created = false;
+        while (!created) {
+          const spinner = withSpinner("Creating proxy config...");
+          try {
+            proxyUrl = await createProxyConfig(
+              resolvedBaseUrl,
+              apiKey,
+              agentName,
+              targetUrl,
+              shortName,
+              selectedPlatform,
+            );
+            spinner.stop(true, "Proxy config created!");
+            created = true;
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            spinner.stop(false, detail);
+            const retry = await ask("Try again? (Y/n) ");
+            if (retry.trim().toLowerCase() === "n") {
+              break;
+            }
+          }
+        }
+
+        if (created && proxyUrl.length > 0) {
+          process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
+          process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            shortName,
+            proxyUrl,
+            clineIntegration: "hosted",
+          });
+          setupSucceeded = true;
+        }
+      }
     } else {
       const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
 
@@ -1670,6 +1810,35 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.cyan("~/.codeium/windsurf/mcp_config.json") +
           " and paste the config snippet shown above\n" +
           "  3. Restart Windsurf (or launch it for the first time) to load the new MCP server\n",
+      );
+    }
+
+    const clineNativeConfigured = configuredAgents.some(
+      (a) => a.platform === "cline" && a.clineIntegration === "native",
+    );
+    const clineHostedConfigured = configuredAgents.some(
+      (a) => a.platform === "cline" && a.clineIntegration === "hosted",
+    );
+
+    if (clineNativeConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete native Cline (Shield) setup:") +
+          "\n" +
+          "  1. Enable Hooks in Cline: open VS Code, click the Cline sidebar icon, click the gear icon,\n" +
+          "     scroll down to the Advanced section, and toggle Hooks on.\n" +
+          "  2. Reload the VS Code window (Cmd+Shift+P > Reload Window)\n" +
+          "  3. Trigger any tool call to verify Shield is intercepting\n",
+      );
+    }
+    if (clineHostedConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Cline hosted-proxy setup:") +
+          "\n" +
+          "  1. If you don't have Cline yet, install it from the VS Code marketplace\n" +
+          "  2. Open your Cline MCP settings file and paste the config snippet shown above\n" +
+          "  3. Restart Cline or reload the VS Code window\n",
       );
     }
 
