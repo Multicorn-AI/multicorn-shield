@@ -16,6 +16,13 @@ export default defineConfig({
     passWithNoTests: true,
     include: ["src/**/*.{test,spec}.ts"],
     setupFiles: [],
+    pool: "forks",
+    poolOptions: {
+      forks: {
+        maxForks: 3,
+        execArgv: ["--max-old-space-size=4096"],
+      },
+    },
     coverage: {
       provider: "istanbul",
       reporter: ["text", "lcov", "html"],
