@@ -727,7 +727,7 @@ export function getClineHooksInstallDir(): string {
 
 /** Global Cline hooks directory. */
 export function getClineGlobalHooksDir(): string {
-  return join(homedir(), "Documents", "Cline", "Rules", "Hooks");
+  return join(homedir(), "Documents", "Cline", "Hooks");
 }
 
 export async function installClineNativeHooks(): Promise<void> {
@@ -748,7 +748,7 @@ export async function installClineNativeHooks(): Promise<void> {
   await copyFile(srcPre, destPre);
   await copyFile(srcPost, destPost);
 
-  // Install wrapper scripts to ~/Documents/Cline/Rules/Hooks/
+  // Install wrapper scripts to ~/Documents/Cline/Hooks/
   const hooksDir = getClineGlobalHooksDir();
   await mkdir(hooksDir, { recursive: true });
 

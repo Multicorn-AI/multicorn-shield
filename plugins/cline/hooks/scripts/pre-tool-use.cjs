@@ -163,54 +163,6 @@ function mapToolName(toolName, parameters) {
 /**
  * @param {string} baseUrl
  * @param {string} apiKey
- * @param {string} reqPath
- * @returns {Promise<{ statusCode: number; bodyText: string }>}
- */
-function getJson(baseUrl, apiKey, reqPath) {
-  return new Promise((resolve, reject) => {
-    let u;
-    try {
-      const root = String(baseUrl).replace(/\/+$/, "");
-      const p = reqPath.startsWith("/") ? reqPath : `/${reqPath}`;
-      u = new URL(`${root}${p}`);
-    } catch (e) {
-      reject(e);
-      return;
-    }
-    const isHttps = u.protocol === "https:";
-    const lib = isHttps ? https : http;
-    const port = u.port || (isHttps ? 443 : 80);
-    const options = {
-      hostname: u.hostname,
-      port,
-      path: u.pathname + u.search,
-      method: "GET",
-      headers: {
-        Connection: "close",
-        [AUTH_HEADER]: apiKey,
-      },
-    };
-    const req = lib.request(options, (res) => {
-      const chunks = [];
-      res.on("data", (c) => chunks.push(c));
-      res.on("end", () => {
-        resolve({
-          statusCode: res.statusCode ?? 0,
-          bodyText: Buffer.concat(chunks).toString("utf8"),
-        });
-      });
-    });
-    req.setTimeout(HTTP_REQUEST_TIMEOUT_MS, () => {
-      req.destroy(new Error("request timeout"));
-    });
-    req.on("error", reject);
-    req.end();
-  });
-}
-
-/**
- * @param {string} baseUrl
- * @param {string} apiKey
  * @param {Record<string, unknown>} bodyObj
  * @returns {Promise<{ statusCode: number; bodyText: string }>}
  */
