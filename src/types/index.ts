@@ -7,6 +7,24 @@
  * @module types
  */
 
+/**
+ * Agent client platforms supported by hosted proxy and native hooks (aligned with API validation).
+ */
+export const AGENT_PLATFORM_SLUGS = [
+  "openclaw",
+  "claude-code",
+  "claude-desktop",
+  "cursor",
+  "windsurf",
+  "cline",
+  "gemini-cli",
+  "other-mcp",
+  "github-actions",
+  "unknown",
+] as const;
+
+export type AgentPlatformSlug = (typeof AGENT_PLATFORM_SLUGS)[number];
+
 // Constants (prefer `as const` objects over enums for better tree-shaking)
 
 /**

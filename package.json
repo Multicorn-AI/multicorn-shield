@@ -38,6 +38,7 @@
     "dist",
     "plugins/windsurf",
     "plugins/cline",
+    "plugins/gemini-cli",
     "LICENSE",
     "README.md",
     "CHANGELOG.md"
