@@ -18,6 +18,8 @@ jobs:
     name: Lint → Type Check → Test → Build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
 
     steps:
       - name: Checkout
@@ -207,8 +209,6 @@ jobs:
 
       - name: Run tests with coverage
         run: pnpm test:coverage
-        env:
-          NODE_OPTIONS: --max-old-space-size=8192
 
       - name: Build
         run: pnpm build

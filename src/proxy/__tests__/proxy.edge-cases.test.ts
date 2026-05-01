@@ -35,6 +35,7 @@ const readFileMock = vi.hoisted(() => vi.fn());
 const writeFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const mkdirMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const copyFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const chmodMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const existsSyncMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
 
 vi.mock("node:fs/promises", () => {
@@ -43,6 +44,7 @@ vi.mock("node:fs/promises", () => {
     writeFile: writeFileMock,
     mkdir: mkdirMock,
     copyFile: copyFileMock,
+    chmod: chmodMock,
   };
   return { default: exports, ...exports };
 });
