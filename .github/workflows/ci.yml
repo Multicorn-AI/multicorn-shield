@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      NODE_OPTIONS: --max-old-space-size=4096
+      NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
       - name: Checkout
@@ -207,8 +207,8 @@ jobs:
       - name: Type check
         run: pnpm typecheck
 
-      - name: Run tests with coverage
-        run: pnpm test:coverage
+      - name: Run tests
+        run: pnpm test
 
       - name: Build
         run: pnpm build
