@@ -11,7 +11,7 @@
 
 import { LitElement, type PropertyValues } from "lit";
 import { html, type HTMLTemplateResult } from "lit";
-import { customElement, property, state } from "lit/decorators.js";
+import { property, state } from "lit/decorators.js";
 import type { Scope, PermissionLevel } from "../types/index.js";
 import type {
   ConsentGrantedEventDetail,
@@ -111,7 +111,6 @@ function scopeKey(scope: Scope): string {
  * });
  * ```
  */
-@customElement(CONSENT_ELEMENT_TAG)
 export class MulticornConsent extends LitElement {
   static override styles = [consentStyles];
 
@@ -676,6 +675,16 @@ export class MulticornConsent extends LitElement {
     this._grantedScopes = new Set(this._grantedScopes);
     this.requestUpdate();
   }
+}
+
+// Register the custom element only in browser environments where
+// customElements is available. This prevents Node.js from crashing when
+// the root barrel is imported by server-side consumers like the proxy.
+if (
+  typeof customElements !== "undefined" &&
+  customElements.get(CONSENT_ELEMENT_TAG) === undefined
+) {
+  customElements.define(CONSENT_ELEMENT_TAG, MulticornConsent);
 }
 
 declare global {

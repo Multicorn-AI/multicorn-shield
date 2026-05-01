@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [X.Y.Z] - YYYY-MM-DD
+
+### Added
+
+- Cline native plugin support via PreToolUse/PostToolUse hooks
+- Hook scripts for Cline: pre-tool-use.cjs, post-tool-use.cjs, shared.cjs
+- Cline plugin README with setup instructions and troubleshooting
+- Browser auto-open for consent screen when Shield blocks an action
+- Licence headers on all plugin scripts
+
+### Changed
+
+- CLI wizard installs Cline hooks to ~/Documents/Cline/Hooks/ (previously ~/Documents/Cline/Rules/Hooks/)
+- Cline hook reads toolName field from hook input (Cline v3.81+ sends toolName, not tool)
+- Consent flow no longer polls for approval (blocks immediately with consent URL to avoid Cline's 30-second hook timeout)
+- Extracted shared utilities (config loading, HTTP, tool mapping) into shared.cjs to eliminate duplication between hooks
+- Parameter metadata scrubbed before sending to Shield API (file contents redacted, commands truncated)
+- HTTPS enforced for non-local Shield API connections
+
+### Removed
+
+- Polling-based consent approval flow (replaced with immediate block + consent URL)
+- Consent marker filesystem state (no longer needed without polling)
+
+### Security
+
+- Fixed Windows shell injection in openBrowser (replaced execSync with execFileSync)
+- Added HTTPS enforcement for non-localhost baseUrl in hook config
+- Added parameter and result scrubbing to prevent sensitive data leakage in audit metadata
+
 ## [0.11.0] - 2026-04-25
 
 ### Added
