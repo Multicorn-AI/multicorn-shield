@@ -16,6 +16,13 @@ export default defineConfig({
     passWithNoTests: true,
     include: ["src/**/*.{test,spec}.ts"],
     setupFiles: [],
+    pool: "threads",
+    poolOptions: {
+      threads: {
+        maxThreads: 4,
+        minThreads: 1,
+      },
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html"],
