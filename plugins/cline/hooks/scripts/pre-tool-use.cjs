@@ -262,6 +262,25 @@ function blockedMessage(data, service, actionType, approvalsUrl) {
 }
 
 /**
+ * @param {string} url
+ */
+function openBrowser(url) {
+  try {
+    const { execFileSync } = require("node:child_process");
+    if (process.platform === "darwin") {
+      execFileSync("open", [url], { stdio: "ignore" });
+    } else if (process.platform === "win32") {
+      const { execSync } = require("node:child_process");
+      execSync(`start "" ${JSON.stringify(url)}`, { shell: true, stdio: "ignore", windowsHide: true });
+    } else {
+      execFileSync("xdg-open", [url], { stdio: "ignore" });
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * Outputs JSON response to stdout and exits.
  * @param {boolean} cancel
  * @param {string} [errorMessage]
@@ -374,6 +393,7 @@ async function main() {
 
   if (statusCode === 202) {
     const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
+    openBrowser(url);
     respond(
       true,
       `Shield: ${config.agentName} needs ${service}:${actionType} permission. Authorize at ${url} then retry this action.`,
