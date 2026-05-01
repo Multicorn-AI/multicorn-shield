@@ -271,7 +271,11 @@ function openBrowser(url) {
       execFileSync("open", [url], { stdio: "ignore" });
     } else if (process.platform === "win32") {
       const { execSync } = require("node:child_process");
-      execSync(`start "" ${JSON.stringify(url)}`, { shell: true, stdio: "ignore", windowsHide: true });
+      execSync(`start "" ${JSON.stringify(url)}`, {
+        shell: true,
+        stdio: "ignore",
+        windowsHide: true,
+      });
     } else {
       execFileSync("xdg-open", [url], { stdio: "ignore" });
     }
@@ -330,7 +334,12 @@ async function main() {
   }
 
   const toolUse = /** @type {Record<string, unknown>} */ (preToolUse);
-  const toolName = typeof toolUse.toolName === "string" ? toolUse.toolName : (typeof toolUse.tool === "string" ? toolUse.tool : "");
+  const toolName =
+    typeof toolUse.toolName === "string"
+      ? toolUse.toolName
+      : typeof toolUse.tool === "string"
+        ? toolUse.tool
+        : "";
   const parameters =
     typeof toolUse.parameters === "object" && toolUse.parameters !== null
       ? /** @type {Record<string, unknown>} */ (toolUse.parameters)
