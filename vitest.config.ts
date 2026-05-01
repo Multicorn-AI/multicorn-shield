@@ -16,11 +16,11 @@ export default defineConfig({
     passWithNoTests: true,
     include: ["src/**/*.{test,spec}.ts"],
     setupFiles: [],
-    pool: "threads",
+    pool: "forks",
     poolOptions: {
-      threads: {
-        maxThreads: 4,
-        minThreads: 1,
+      forks: {
+        maxForks: 2,
+        minForks: 1,
       },
     },
     coverage: {
