@@ -16,13 +16,6 @@ export default defineConfig({
     passWithNoTests: true,
     include: ["src/**/*.{test,spec}.ts"],
     setupFiles: [],
-    pool: "forks",
-    poolOptions: {
-      forks: {
-        maxForks: 2,
-        minForks: 1,
-      },
-    },
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html"],
