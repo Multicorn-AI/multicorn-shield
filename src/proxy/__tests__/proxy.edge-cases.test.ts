@@ -128,8 +128,7 @@ function stripAnsi(str: string): string {
   return str.replace(ANSI_RE, "");
 }
 
-// TODO(ag-01): unskip once CI memory budget is resolved — OOMs on GitHub runner
-describe.skip("graceful shutdown", () => {
+describe("graceful shutdown", () => {
   let mockService: MockMulticornService;
   let fakeStdin: PassThrough;
   let stdoutBuffer: string;
@@ -1277,7 +1276,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1291,9 +1290,9 @@ describe("config file parsing", () => {
     expect(openclawLine).not.toContain("detected locally");
   });
 
-  // --- Option 5: Local MCP / Other ---
+  // --- Option 6: Local MCP / Other ---
 
-  it("runInit option 5 writes config with apiKey and baseUrl only (no agents, no defaultAgent)", async () => {
+  it("runInit option 6 writes config with apiKey and baseUrl only (no agents, no defaultAgent)", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1302,7 +1301,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1328,7 +1327,7 @@ describe("config file parsing", () => {
     expect(written["platform"]).toBeUndefined();
   });
 
-  it("runInit option 5 does not prompt for target URL", async () => {
+  it("runInit option 6 does not prompt for target URL", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1337,7 +1336,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1350,7 +1349,7 @@ describe("config file parsing", () => {
     expect(hasUrlPrompt).toBe(false);
   });
 
-  it("runInit option 5 does not prompt for agent name", async () => {
+  it("runInit option 6 does not prompt for agent name", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1359,7 +1358,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1370,7 +1369,7 @@ describe("config file parsing", () => {
     expect(hasAgentNamePrompt).toBe(false);
   });
 
-  it("runInit option 5 does not call createProxyConfig (no /api/v1/proxy/config POST)", async () => {
+  it("runInit option 6 does not call createProxyConfig (no /api/v1/proxy/config POST)", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1380,7 +1379,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1392,7 +1391,7 @@ describe("config file parsing", () => {
     expect(proxyConfigCalls).toHaveLength(0);
   });
 
-  it("runInit option 5 prints the --wrap example command in success message", async () => {
+  it("runInit option 6 prints the --wrap example command in success message", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1401,7 +1400,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1411,7 +1410,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("@modelcontextprotocol/server-filesystem");
   });
 
-  it("runInit option 5 config is loadable by loadConfig", async () => {
+  it("runInit option 6 config is loadable by loadConfig", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1420,7 +1419,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1442,7 +1441,7 @@ describe("config file parsing", () => {
     expect(loaded.baseUrl).toBe("https://api.multicorn.ai");
   });
 
-  it("runInit option 5 summary does not render a trailing dash", async () => {
+  it("runInit option 6 summary does not render a trailing dash", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1451,7 +1450,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1487,7 +1486,7 @@ describe("config file parsing", () => {
     expect(plain).toContain("OpenClaw - my-oc-agent");
   });
 
-  it("runInit option 5 does not print a Next steps block", async () => {
+  it("runInit option 6 does not print a Next steps block", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1496,7 +1495,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "5",
+      Select: "6",
       "Connect another": "n",
     });
 
@@ -1835,8 +1834,7 @@ describe("config file parsing", () => {
   });
 });
 
-// TODO(ag-01): unskip once CI memory budget is resolved
-describe.skip("consent edge cases", () => {
+describe("consent edge cases", () => {
   const originalFetch = globalThis.fetch;
   const originalStderrWrite = process.stderr.write.bind(process.stderr);
 
@@ -2002,8 +2000,7 @@ describe.skip("consent edge cases", () => {
   );
 });
 
-// TODO(ag-01): unskip once CI memory budget is resolved
-describe.skip("service unavailable", () => {
+describe("service unavailable", () => {
   let mockService: MockMulticornService | null = null;
   let fakeStdin: PassThrough;
   let stdoutBuffer: string;
