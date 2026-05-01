@@ -8,7 +8,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { readFile, writeFile, mkdir, copyFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -734,7 +734,8 @@ export async function installClineNativeHooks(): Promise<void> {
   const root = multicornShieldPackageRoot();
   const srcPre = join(root, "plugins", "cline", "hooks", "scripts", "pre-tool-use.cjs");
   const srcPost = join(root, "plugins", "cline", "hooks", "scripts", "post-tool-use.cjs");
-  if (!existsSync(srcPre) || !existsSync(srcPost)) {
+  const srcShared = join(root, "plugins", "cline", "hooks", "scripts", "shared.cjs");
+  if (!existsSync(srcPre) || !existsSync(srcPost) || !existsSync(srcShared)) {
     throw new Error(
       `Could not find Shield Cline hook scripts at ${srcPre}. If you use npm, install the latest multicorn-shield package.`,
     );
@@ -745,8 +746,14 @@ export async function installClineNativeHooks(): Promise<void> {
   await mkdir(installDir, { recursive: true });
   const destPre = join(installDir, "pre-tool-use.cjs");
   const destPost = join(installDir, "post-tool-use.cjs");
+  const destShared = join(installDir, "shared.cjs");
   await copyFile(srcPre, destPre);
   await copyFile(srcPost, destPost);
+  await copyFile(srcShared, destShared);
+  const hookScriptMode = 0o755;
+  await chmod(destPre, hookScriptMode);
+  await chmod(destPost, hookScriptMode);
+  await chmod(destShared, hookScriptMode);
 
   // Install wrapper scripts to ~/Documents/Cline/Hooks/
   const hooksDir = getClineGlobalHooksDir();
