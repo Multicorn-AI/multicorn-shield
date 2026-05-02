@@ -23,6 +23,7 @@ export default defineConfig([
     treeshake: true,
     minify: false,
     outDir: "dist",
+    platform: "node",
     noExternal: [],
   },
   {

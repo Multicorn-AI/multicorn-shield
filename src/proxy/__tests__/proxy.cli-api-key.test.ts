@@ -13,7 +13,7 @@
 
 import { PassThrough } from "node:stream";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { parseArgs, resolveWrapConfig, type CliArgs } from "../../../bin/multicorn-proxy.js";
+import { parseArgs, resolveWrapConfig, type CliArgs } from "../../../bin/multicorn-shield.js";
 import { DEFAULT_SHIELD_API_BASE_URL } from "../config.js";
 import { createProxyServer, type ProxyServer } from "../index.js";
 import { createLogger } from "../logger.js";
@@ -45,7 +45,7 @@ describe("parseArgs --api-key", () => {
   it("extracts --api-key before --wrap", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--api-key",
       "mcs_test123",
       "--wrap",
@@ -59,7 +59,7 @@ describe("parseArgs --api-key", () => {
   it("extracts --api-key placed between --wrap and the command", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "--api-key",
       "mcs_fromwrap",
@@ -73,14 +73,14 @@ describe("parseArgs --api-key", () => {
   });
 
   it("returns undefined apiKey when --api-key is not provided", () => {
-    const result = parseArgs(["node", "multicorn-proxy", "--wrap", "my-server"]);
+    const result = parseArgs(["node", "multicorn-shield", "--wrap", "my-server"]);
     expect(result.apiKey).toBeUndefined();
   });
 
   it("does not strip flags that appear after the wrap command token", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "server",
       "--api-key",
@@ -102,7 +102,7 @@ describe("parseArgs --wrap flag ordering", () => {
   it("flags before --wrap (regression guard)", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--api-key",
       "mcs_x",
       "--base-url",
@@ -122,7 +122,7 @@ describe("parseArgs --wrap flag ordering", () => {
   it("flags after --wrap, before command (the bug fix)", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "--api-key",
       "mcs_x",
@@ -142,7 +142,7 @@ describe("parseArgs --wrap flag ordering", () => {
   it("single flag after --wrap (--api-key only)", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "--api-key",
       "mcs_x",
@@ -159,7 +159,7 @@ describe("parseArgs --wrap flag ordering", () => {
   it("single flag after --wrap (--base-url only)", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "--base-url",
       "http://localhost:8080",
@@ -176,7 +176,7 @@ describe("parseArgs --wrap flag ordering", () => {
   it("child command's own flags are forwarded, not consumed", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "npx",
       "some-server",
@@ -192,7 +192,7 @@ describe("parseArgs --wrap flag ordering", () => {
   it("proxy flag stripped, child flag forwarded in same argv", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "--api-key",
       "mcs_x",
@@ -210,7 +210,7 @@ describe("parseArgs --wrap flag ordering", () => {
   it("flags split across both sides of --wrap", () => {
     const result = parseArgs([
       "node",
-      "multicorn-proxy",
+      "multicorn-shield",
       "--api-key",
       "mcs_x",
       "--wrap",
@@ -355,7 +355,7 @@ describe("resolveWrapConfig", () => {
     expect(exitCode).toBe(1);
     expect(stderrBuffer).toContain("--api-key");
     expect(stderrBuffer).toContain("MULTICORN_API_KEY");
-    expect(stderrBuffer).toContain("npx multicorn-proxy init");
+    expect(stderrBuffer).toContain("npx multicorn-shield init");
   });
 });
 

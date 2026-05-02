@@ -13,7 +13,7 @@ Native Shield integration for [Windsurf](https://windsurf.com) using [Cascade Ho
 2. Run the wizard and pick **Windsurf**, then **Native plugin (recommended)**.
 
    ```bash
-   npx multicorn-proxy init
+   npx multicorn-shield init
    ```
 
 3. Restart Windsurf (quit fully, then reopen) so hooks load.
@@ -43,7 +43,7 @@ Hooks run shell commands with **your user permissions**. They can read the JSON 
 
 ## Hosted proxy alternative
 
-If you only need MCP traffic governed, use **Hosted proxy** in `npx multicorn-proxy init` and paste the proxy URL into `~/.codeium/windsurf/mcp_config.json` instead.
+If you only need MCP traffic governed, use **Hosted proxy** in `npx multicorn-shield init` and paste the proxy URL into `~/.codeium/windsurf/mcp_config.json` instead.
 
 ## Windows
 

@@ -35,21 +35,21 @@ npm install -g multicorn-shield
 **Step 2: Set up your API key**
 
 ```bash
-npx multicorn-proxy init
+npx multicorn-shield init
 ```
 
-The init wizard supports multiple agents. Run it again to add agents on different platforms (OpenClaw, Claude Code, Cursor) without losing existing config. Use `npx multicorn-proxy agents` to see configured agents.
+The init wizard supports multiple agents. Run it again to add agents on different platforms (OpenClaw, Claude Code, Cursor) without losing existing config. Use `npx multicorn-shield agents` to see configured agents.
 
 **Step 3: Wrap your MCP server**
 
 ```bash
-npx multicorn-proxy --wrap <your-mcp-server>
+npx multicorn-shield --wrap <your-mcp-server>
 ```
 
 For example, to wrap the MCP filesystem server:
 
 ```bash
-npx multicorn-proxy --wrap npx @modelcontextprotocol/server-filesystem /tmp
+npx multicorn-shield --wrap npx @modelcontextprotocol/server-filesystem /tmp
 ```
 
 That's it. Every tool call now goes through Shield's permission layer, and activity appears in your [Multicorn dashboard](https://app.multicorn.ai) in real time.
@@ -86,7 +86,7 @@ If you're running [OpenClaw](https://openclaw.ai), Shield integrates directly as
 
 ```bash
 npm install -g multicorn-shield
-npx multicorn-proxy init
+npx multicorn-shield init
 ```
 
 Enter your API key when prompted. This saves your key to `~/.multicorn/config.json` and configures the OpenClaw hook environment.

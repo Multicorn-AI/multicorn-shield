@@ -8,7 +8,7 @@
  * - after_tool_call: logs activity to the Shield dashboard (fire-and-forget)
  *
  * API key and base URL are read from (in order): process.env, then
- * ~/.multicorn/config.json (written by npx multicorn-proxy init).
+ * ~/.multicorn/config.json (written by npx multicorn-shield init).
  * Agent name and fail mode also use plugin config and env.
  *
  * Environment variables:
@@ -468,7 +468,7 @@ async function beforeToolCall(
 
     if (config.apiKey.length === 0) {
       pluginLogger?.warn(
-        "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+        "Multicorn Shield: No API key found. Run 'npx multicorn-shield init' or set MULTICORN_API_KEY.",
       );
       console.error("[SHIELD] DECISION: allow (no API key)");
       return undefined;
@@ -726,7 +726,7 @@ const plugin: OpenClawPluginDefinition = {
 
     if (config.apiKey.length === 0) {
       api.logger.error(
-        "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+        "Multicorn Shield: No API key found. Run 'npx multicorn-shield init' or set MULTICORN_API_KEY.",
       );
     } else {
       api.logger.info(`Multicorn Shield connecting to ${config.baseUrl}`);

@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.0] - 2026-05-02
+
+### Changed
+
+- CLI binary renamed from `multicorn-proxy` to `multicorn-shield`. The `multicorn-proxy` command still works but prints a deprecation warning. All user-facing documentation and dashboard references use `npx multicorn-shield`.
+
+### Deprecated
+
+- `multicorn-proxy` binary alias. Use `multicorn-shield` instead.
 
 ### Added
 
@@ -72,13 +80,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Windsurf native integration via Cascade Hooks (`pre_*` / `post_*` for reads, writes, terminal, and MCP). Hook scripts install to `~/.multicorn/windsurf-hooks/` and add entries to `~/.codeium/windsurf/hooks.json`.
-- `npx multicorn-proxy init`: when you pick Windsurf, choose Native plugin (recommended) or Hosted proxy. Native path registers Shield hooks and reminds you to restart Windsurf.
+- `npx multicorn-shield init`: when you pick Windsurf, choose Native plugin (recommended) or Hosted proxy. Native path registers Shield hooks and reminds you to restart Windsurf.
 
 ## [0.8.0] - 2026-04-12
 
 ### Added
 
-- Windsurf IDE as a supported platform in `npx multicorn-proxy init`. Generates a proxy config and prints an `~/.codeium/windsurf/mcp_config.json` snippet using the Windsurf `mcpServers` / `serverUrl` schema.
+- Windsurf IDE as a supported platform in `npx multicorn-shield init`. Generates a proxy config and prints an `~/.codeium/windsurf/mcp_config.json` snippet using the Windsurf `mcpServers` / `serverUrl` schema.
 - Auto-detection of existing Windsurf proxy entries (shows "● detected locally" in the platform selection list).
 
 ### Changed
@@ -89,23 +97,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- New `--api-key <key>` CLI flag on `multicorn-proxy --wrap`. Lets users run the proxy without first creating a config file.
+- New `--api-key <key>` CLI flag on `multicorn-shield --wrap`. Lets users run the proxy without first creating a config file.
 - New `MULTICORN_API_KEY` environment variable support. Resolves with priority `--api-key` flag > `MULTICORN_API_KEY` env var > `~/.multicorn/config.json`.
-- New "Local MCP / Other" option in the `multicorn-proxy init` wizard. Skips the platform-specific setup steps and writes a minimal config suitable for wrapping any local MCP server with `--wrap`.
+- New "Local MCP / Other" option in the `multicorn-shield init` wizard. Skips the platform-specific setup steps and writes a minimal config suitable for wrapping any local MCP server with `--wrap`.
 - SDK constructor now validates the API key format and rejects invalid keys (empty, wrong prefix, too short, or the literal placeholder `mcs_your_key_here`) with a clear error pointing at the settings page.
 
 ### Changed
 
-- `multicorn-proxy init` platform menu now labels detected platforms as "detected locally" instead of "connected", with a dimmed dot icon instead of a green checkmark. The previous label implied account-level connection state, but the underlying detection only checks for local config files.
-- Error message when no API key is configured now mentions all three sources: the `--api-key` flag, the `MULTICORN_API_KEY` environment variable, and the `npx multicorn-proxy init` config file path.
+- `multicorn-shield init` platform menu now labels detected platforms as "detected locally" instead of "connected", with a dimmed dot icon instead of a green checkmark. The previous label implied account-level connection state, but the underlying detection only checks for local config files.
+- Error message when no API key is configured now mentions all three sources: the `--api-key` flag, the `MULTICORN_API_KEY` environment variable, and the `npx multicorn-shield init` config file path.
 - All references to the API keys settings page now use the fragment URL `https://app.multicorn.ai/settings#api-keys` instead of the previous `/settings/api-keys` path which did not exist.
 
 ### Fixed
 
-- `multicorn-proxy --wrap` now fails immediately at startup with a clear error if the configured API key is rejected by the Multicorn service. Previously the proxy logged "Agent resolved" and "Proxy ready" with empty agent state and only blocked tool calls at runtime, leaving users confused about why their setup was not working.
-- `multicorn-proxy --wrap` now correctly accepts proxy flags (`--api-key`, `--base-url`, `--log-level`, `--dashboard-url`, `--agent-name`) when they appear between `--wrap` and the wrap command. Previously the parser bailed with "requires a command to run" because the early-exit guard rejected any flag-shaped token in that position before the stripping logic ran.
-- `multicorn-proxy init` exit summary no longer renders a trailing dash for the "Local MCP / Other" option (which has no agent name). The summary line now reads `✓ Local MCP / Other` instead of `✓ Local MCP / Other -`.
-- `multicorn-proxy init` no longer prints a misleading "Next steps" block referencing "Other MCP Agent" and `--agent-name` after the "Local MCP / Other" option. The "Try it" example printed inside the option 4 branch is sufficient guidance.
+- `multicorn-shield --wrap` now fails immediately at startup with a clear error if the configured API key is rejected by the Multicorn service. Previously the proxy logged "Agent resolved" and "Proxy ready" with empty agent state and only blocked tool calls at runtime, leaving users confused about why their setup was not working.
+- `multicorn-shield --wrap` now correctly accepts proxy flags (`--api-key`, `--base-url`, `--log-level`, `--dashboard-url`, `--agent-name`) when they appear between `--wrap` and the wrap command. Previously the parser bailed with "requires a command to run" because the early-exit guard rejected any flag-shaped token in that position before the stripping logic ran.
+- `multicorn-shield init` exit summary no longer renders a trailing dash for the "Local MCP / Other" option (which has no agent name). The summary line now reads `✓ Local MCP / Other` instead of `✓ Local MCP / Other -`.
+- `multicorn-shield init` no longer prints a misleading "Next steps" block referencing "Other MCP Agent" and `--agent-name` after the "Local MCP / Other" option. The "Try it" example printed inside the option 4 branch is sufficient guidance.
 
 ## [0.6.2] - 2026-04-09
 
@@ -140,7 +148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Multi-agent config support: `~/.multicorn/config.json` now stores an `agents` array with per-platform entries instead of a single `agentName`
-- New CLI commands: `npx multicorn-proxy agents` (list configured agents) and `npx multicorn-proxy delete-agent <name>` (remove an agent)
+- New CLI commands: `npx multicorn-shield agents` (list configured agents) and `npx multicorn-shield delete-agent <name>` (remove an agent)
 - New exported helpers: `getAgentByPlatform()`, `getDefaultAgent()`, `collectAgentsFromConfig()`, `deleteAgentByName()`
 - `AgentEntry` interface exported from the SDK
 - Automatic migration: legacy single-agent configs are upgraded to the new format on first read and written back to disk
@@ -160,7 +168,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Running `npx multicorn-proxy init` for a second platform no longer overwrites the first agent's config
+- Running `npx multicorn-shield init` for a second platform no longer overwrites the first agent's config
 - `delete-agent` clears `defaultAgent` when deleting the default agent instead of leaving a dangling reference
 
 ### Security
