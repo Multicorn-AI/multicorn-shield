@@ -37,6 +37,9 @@ const mkdirMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const copyFileMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const chmodMock = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
 const existsSyncMock = vi.hoisted(() => vi.fn().mockReturnValue(false));
+const statSyncMock = vi.hoisted(() =>
+  vi.fn().mockReturnValue({ isDirectory: (): boolean => true }),
+);
 
 vi.mock("node:fs/promises", () => {
   const exports = {
@@ -68,7 +71,7 @@ const spawnMock = vi.hoisted(() => vi.fn());
 /* eslint-disable @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unnecessary-type-assertion */
 vi.mock("node:fs", async (importOriginal) => {
   const real = (await importOriginal()) as Record<string, unknown>;
-  return { ...real, existsSync: existsSyncMock };
+  return { ...real, existsSync: existsSyncMock, statSync: statSyncMock };
 });
 
 vi.mock("node:readline", async (importOriginal) => {
@@ -287,6 +290,7 @@ describe("config file parsing", () => {
     vi.resetAllMocks();
     stderrBuffer = "";
     process.stdin.isTTY = true;
+    statSyncMock.mockReturnValue({ isDirectory: (): boolean => true });
   });
 
   afterEach(() => {
@@ -1092,6 +1096,41 @@ describe("config file parsing", () => {
     expect(config).not.toBeNull();
     const plain = stripAnsi(stderrBuffer);
     expect(plain).toContain("Could not find Shield Windsurf hook scripts");
+    expect(copyFileMock).not.toHaveBeenCalled();
+  });
+
+  it("runInit Windsurf native skips hook install when ~/.codeium/windsurf is missing", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    existsSyncMock.mockImplementation((p: string | Buffer | URL) => {
+      const s = String(p);
+      if (s.includes("pre-action.cjs") || s.includes("post-action.cjs")) return true;
+      return false;
+    });
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "4",
+      "Choose integration": "1",
+      "call this agent": "windsurf-dir-missing",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    expect(config?.agents?.[0]?.platform).toBe("windsurf");
+    expect(config?.defaultAgent).toBe("windsurf-dir-missing");
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain(".codeium/windsurf/");
+    expect(plain).toContain("Your agent config has been saved");
     expect(copyFileMock).not.toHaveBeenCalled();
   });
 

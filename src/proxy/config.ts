@@ -7,7 +7,7 @@
  * @module proxy/config
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -54,6 +54,37 @@ function withSpinner(message: string): { stop: (success: boolean, result: string
       process.stderr.write(`\r\x1b[2K${icon} ${result}\n`);
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// Native plugin prerequisites (CLI hooks install)
+// ---------------------------------------------------------------------------
+
+/** Thrown when native hook install is skipped because the host app is not installed yet. */
+export class NativePluginPrerequisiteMissingError extends Error {
+  constructor() {
+    super("Native plugin prerequisites not met");
+    this.name = "NativePluginPrerequisiteMissingError";
+  }
+}
+
+function isExistingDirectory(path: string): boolean {
+  try {
+    if (!existsSync(path)) return false;
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function nativePluginSkippedSaveNote(wizardCommand: string, productName: string): string {
+  return (
+    "\n" +
+    style.dim("Your agent config has been saved. Run ") +
+    style.cyan(wizardCommand) +
+    style.dim(` again after installing ${productName} to complete hook setup.`) +
+    "\n"
+  );
 }
 
 const CONFIG_DIR = join(homedir(), ".multicorn");
@@ -668,6 +699,22 @@ export async function installWindsurfNativeHooks(): Promise<void> {
       `Could not find Shield Windsurf hook scripts at ${srcPre}. If you use npm, install the latest multicorn-shield package.`,
     );
   }
+  const windsurfConfigDir = join(homedir(), ".codeium", "windsurf");
+  if (!isExistingDirectory(windsurfConfigDir)) {
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        "  Windsurf does not appear to be installed (~/.codeium/windsurf/ not found).\n\n",
+    );
+    process.stderr.write(
+      "Open Windsurf at least once so this folder exists, or install from:\n" +
+        "  " +
+        style.cyan("https://windsurf.com/download") +
+        "\n\n",
+    );
+    process.stderr.write("Then run this wizard again:\n");
+    process.stderr.write("  " + style.cyan("npx multicorn-proxy init") + "\n");
+    throw new NativePluginPrerequisiteMissingError();
+  }
   const installDir = getWindsurfHooksInstallDir();
   await mkdir(installDir, { recursive: true });
   const destPre = join(installDir, "pre-action.cjs");
@@ -741,6 +788,21 @@ export async function installClineNativeHooks(): Promise<void> {
     throw new Error(
       `Could not find Shield Cline hook scripts at ${srcPre}. If you use npm, install the latest multicorn-shield package.`,
     );
+  }
+
+  const clineDocsDir = join(homedir(), "Documents", "Cline");
+  if (!isExistingDirectory(clineDocsDir)) {
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        "  Cline does not appear to be installed (~/Documents/Cline/ not found).\n\n",
+    );
+    process.stderr.write("Install the Cline VS Code extension first. See:\n");
+    process.stderr.write(
+      "  " + style.cyan("https://docs.cline.bot/getting-started/installing-cline") + "\n\n",
+    );
+    process.stderr.write("Then run this wizard again:\n");
+    process.stderr.write("  " + style.cyan("npx multicorn-shield init") + "\n");
+    throw new NativePluginPrerequisiteMissingError();
   }
 
   // Copy scripts to ~/.multicorn/cline-hooks/
@@ -879,6 +941,19 @@ export async function installGeminiCliNativeHooks(ask: AskFn): Promise<void> {
     throw new Error(
       `Could not find Shield Gemini CLI hook scripts at ${srcBefore}. If you use npm, install the latest multicorn-shield package.`,
     );
+  }
+
+  const geminiConfigDir = join(homedir(), ".gemini");
+  if (!isExistingDirectory(geminiConfigDir)) {
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        "  Gemini CLI does not appear to be installed (~/.gemini/ not found).\n\n",
+    );
+    process.stderr.write("Install Gemini CLI first:\n");
+    process.stderr.write("  " + style.cyan("npm install -g @google/gemini-cli") + "\n\n");
+    process.stderr.write("Then run this wizard again:\n");
+    process.stderr.write("  " + style.cyan("npx multicorn-shield init") + "\n");
+    throw new NativePluginPrerequisiteMissingError();
   }
 
   const installDir = getGeminiCliHooksInstallDir();
@@ -1542,6 +1617,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
 
   let configuring = true;
   while (configuring) {
+    let postSaveNativeSkipNote: string | null = null;
     const selection = await promptPlatformSelection(ask);
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
@@ -1752,8 +1828,22 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           });
           setupSucceeded = true;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          if (error instanceof NativePluginPrerequisiteMissingError) {
+            postSaveNativeSkipNote = nativePluginSkippedSaveNote(
+              "npx multicorn-proxy init",
+              "Windsurf",
+            );
+            configuredAgents.push({
+              selection,
+              platform: selectedPlatform,
+              platformLabel: selectedLabel,
+              agentName,
+            });
+            setupSucceeded = true;
+          } else {
+            const detail = error instanceof Error ? error.message : String(error);
+            process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          }
         }
       } else {
         const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
@@ -1825,8 +1915,22 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           });
           setupSucceeded = true;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          if (error instanceof NativePluginPrerequisiteMissingError) {
+            postSaveNativeSkipNote = nativePluginSkippedSaveNote(
+              "npx multicorn-shield init",
+              "Gemini CLI",
+            );
+            configuredAgents.push({
+              selection,
+              platform: selectedPlatform,
+              platformLabel: selectedLabel,
+              agentName,
+            });
+            setupSucceeded = true;
+          } else {
+            const detail = error instanceof Error ? error.message : String(error);
+            process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          }
         }
       } else {
         const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
@@ -1895,8 +1999,22 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           });
           setupSucceeded = true;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          if (error instanceof NativePluginPrerequisiteMissingError) {
+            postSaveNativeSkipNote = nativePluginSkippedSaveNote(
+              "npx multicorn-shield init",
+              "Cline",
+            );
+            configuredAgents.push({
+              selection,
+              platform: selectedPlatform,
+              platformLabel: selectedLabel,
+              agentName,
+            });
+            setupSucceeded = true;
+          } else {
+            const detail = error instanceof Error ? error.message : String(error);
+            process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          }
         }
       } else {
         const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
@@ -2005,9 +2123,14 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         process.stderr.write(
           style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`,
         );
+        if (postSaveNativeSkipNote != null) {
+          process.stderr.write(postSaveNativeSkipNote);
+          postSaveNativeSkipNote = null;
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
+        postSaveNativeSkipNote = null;
       }
     }
 
