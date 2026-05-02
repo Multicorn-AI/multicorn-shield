@@ -7,7 +7,7 @@
  * @module proxy/config
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -56,6 +56,37 @@ function withSpinner(message: string): { stop: (success: boolean, result: string
   };
 }
 
+// ---------------------------------------------------------------------------
+// Native plugin prerequisites (CLI hooks install)
+// ---------------------------------------------------------------------------
+
+/** Thrown when native hook install is skipped because the host app is not installed yet. */
+export class NativePluginPrerequisiteMissingError extends Error {
+  constructor() {
+    super("Native plugin prerequisites not met");
+    this.name = "NativePluginPrerequisiteMissingError";
+  }
+}
+
+function isExistingDirectory(path: string): boolean {
+  try {
+    if (!existsSync(path)) return false;
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function nativePluginSkippedSaveNote(wizardCommand: string, productName: string): string {
+  return (
+    "\n" +
+    style.dim("Your agent config has been saved. Run ") +
+    style.cyan(wizardCommand) +
+    style.dim(` again after installing ${productName} to complete hook setup.`) +
+    "\n"
+  );
+}
+
 const CONFIG_DIR = join(homedir(), ".multicorn");
 export const CONFIG_PATH = join(CONFIG_DIR, "config.json");
 
@@ -92,9 +123,9 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
-  /** Menu index: 1 OpenClaw, 2 Claude Code, 3 Cursor, 4 Windsurf, 5 Cline, 6 Local MCP / Other (matches `promptPlatformSelection`). */
+  /** Menu index: 1-8 (matches `promptPlatformSelection`). */
   readonly selection: number;
-  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, `cline`, or `other-mcp`. */
+  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, `cline`, `claude-desktop`, `gemini-cli`, or `other-mcp`. */
   readonly platform: string;
   readonly platformLabel: string;
   readonly agentName: string;
@@ -102,6 +133,8 @@ interface ConfiguredAgent {
   readonly windsurfIntegration?: "native" | "hosted";
   /** Set when `platform` is `cline` to drive Next steps copy. */
   readonly clineIntegration?: "native" | "hosted";
+  /** Set when `platform` is `gemini-cli` to drive Next steps copy. */
+  readonly geminiCliIntegration?: "native" | "hosted";
   readonly shortName?: string;
   readonly proxyUrl?: string;
 }
@@ -666,6 +699,22 @@ export async function installWindsurfNativeHooks(): Promise<void> {
       `Could not find Shield Windsurf hook scripts at ${srcPre}. If you use npm, install the latest multicorn-shield package.`,
     );
   }
+  const windsurfConfigDir = join(homedir(), ".codeium", "windsurf");
+  if (!isExistingDirectory(windsurfConfigDir)) {
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        "  Windsurf does not appear to be installed (~/.codeium/windsurf/ not found).\n\n",
+    );
+    process.stderr.write(
+      "Open Windsurf at least once so this folder exists, or install from:\n" +
+        "  " +
+        style.cyan("https://windsurf.com/download") +
+        "\n\n",
+    );
+    process.stderr.write("Then run this wizard again:\n");
+    process.stderr.write("  " + style.cyan("npx multicorn-proxy init") + "\n");
+    throw new NativePluginPrerequisiteMissingError();
+  }
   const installDir = getWindsurfHooksInstallDir();
   await mkdir(installDir, { recursive: true });
   const destPre = join(installDir, "pre-action.cjs");
@@ -741,6 +790,21 @@ export async function installClineNativeHooks(): Promise<void> {
     );
   }
 
+  const clineDocsDir = join(homedir(), "Documents", "Cline");
+  if (!isExistingDirectory(clineDocsDir)) {
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        "  Cline does not appear to be installed (~/Documents/Cline/ not found).\n\n",
+    );
+    process.stderr.write("Install the Cline VS Code extension first. See:\n");
+    process.stderr.write(
+      "  " + style.cyan("https://docs.cline.bot/getting-started/installing-cline") + "\n\n",
+    );
+    process.stderr.write("Then run this wizard again:\n");
+    process.stderr.write("  " + style.cyan("npx multicorn-shield init") + "\n");
+    throw new NativePluginPrerequisiteMissingError();
+  }
+
   // Copy scripts to ~/.multicorn/cline-hooks/
   const installDir = getClineHooksInstallDir();
   await mkdir(installDir, { recursive: true });
@@ -780,6 +844,221 @@ async function promptClineIntegrationMode(ask: AskFn): Promise<"native" | "hoste
     "  " +
       style.violet("2") +
       ". Hosted proxy - govern MCP traffic only (paste proxy URL into Cline MCP settings)\n",
+  );
+  let choice = 0;
+  while (choice === 0) {
+    const input = await ask("Choose integration (1-2): ");
+    const num = parseInt(input.trim(), 10);
+    if (num === 1) choice = 1;
+    if (num === 2) choice = 2;
+  }
+  return choice === 1 ? "native" : "hosted";
+}
+
+export function getGeminiCliHooksInstallDir(): string {
+  return join(homedir(), ".multicorn", "gemini-cli-hooks");
+}
+
+function getGeminiCliSettingsPath(): string {
+  return join(homedir(), ".gemini", "settings.json");
+}
+
+function geminiInnerHooksReferenceShield(inner: unknown, multicornName: string): boolean {
+  if (!Array.isArray(inner)) return false;
+  for (const h of inner) {
+    if (typeof h !== "object" || h === null) continue;
+    const rec = h as Record<string, unknown>;
+    if (rec["name"] === multicornName) return true;
+    const cmd = rec["command"];
+    if (typeof cmd === "string" && cmd.includes("gemini-cli-hooks")) return true;
+  }
+  return false;
+}
+
+function geminiHookEventsReferenceShield(arr: unknown): boolean {
+  if (!Array.isArray(arr)) return false;
+  for (const entry of arr) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const hooks = (entry as Record<string, unknown>)["hooks"];
+    if (
+      geminiInnerHooksReferenceShield(hooks, "multicorn-shield") ||
+      geminiInnerHooksReferenceShield(hooks, "multicorn-shield-log")
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function geminiSettingsHasMulticornHooks(hooks: unknown): boolean {
+  if (hooks === null || typeof hooks !== "object" || Array.isArray(hooks)) return false;
+  const h = hooks as Record<string, unknown>;
+  return (
+    geminiHookEventsReferenceShield(h["BeforeTool"]) ||
+    geminiHookEventsReferenceShield(h["AfterTool"])
+  );
+}
+
+function geminiFilterInnerHooks(inner: unknown): unknown[] {
+  if (!Array.isArray(inner)) return [];
+  return inner.filter((h) => {
+    if (typeof h !== "object" || h === null) return true;
+    const rec = h as Record<string, unknown>;
+    if (rec["name"] === "multicorn-shield" || rec["name"] === "multicorn-shield-log") return false;
+    const cmd = rec["command"];
+    if (typeof cmd === "string" && cmd.includes("gemini-cli-hooks")) return false;
+    return true;
+  });
+}
+
+function geminiStripMatcherGroups(arr: unknown): unknown[] {
+  if (!Array.isArray(arr)) return [];
+  const out: unknown[] = [];
+  for (const entry of arr) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const e = entry as Record<string, unknown>;
+    const filtered = geminiFilterInnerHooks(e["hooks"]);
+    if (filtered.length > 0) {
+      out.push({ ...e, hooks: filtered });
+    }
+  }
+  return out;
+}
+
+function geminiStripMulticornHookEntries(hooks: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...hooks };
+  out["BeforeTool"] = geminiStripMatcherGroups(out["BeforeTool"]);
+  out["AfterTool"] = geminiStripMatcherGroups(out["AfterTool"]);
+  return out;
+}
+
+export async function installGeminiCliNativeHooks(ask: AskFn): Promise<void> {
+  const root = multicornShieldPackageRoot();
+  const srcBefore = join(root, "plugins", "gemini-cli", "hooks", "scripts", "before-tool.cjs");
+  const srcAfter = join(root, "plugins", "gemini-cli", "hooks", "scripts", "after-tool.cjs");
+  const srcShared = join(root, "plugins", "gemini-cli", "hooks", "scripts", "shared.cjs");
+  if (!existsSync(srcBefore) || !existsSync(srcAfter) || !existsSync(srcShared)) {
+    throw new Error(
+      `Could not find Shield Gemini CLI hook scripts at ${srcBefore}. If you use npm, install the latest multicorn-shield package.`,
+    );
+  }
+
+  const geminiConfigDir = join(homedir(), ".gemini");
+  if (!isExistingDirectory(geminiConfigDir)) {
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        "  Gemini CLI does not appear to be installed (~/.gemini/ not found).\n\n",
+    );
+    process.stderr.write("Install Gemini CLI first:\n");
+    process.stderr.write("  " + style.cyan("npm install -g @google/gemini-cli") + "\n\n");
+    process.stderr.write("Then run this wizard again:\n");
+    process.stderr.write("  " + style.cyan("npx multicorn-shield init") + "\n");
+    throw new NativePluginPrerequisiteMissingError();
+  }
+
+  const installDir = getGeminiCliHooksInstallDir();
+  await mkdir(installDir, { recursive: true });
+  const destBefore = join(installDir, "before-tool.cjs");
+  const destAfter = join(installDir, "after-tool.cjs");
+  const destShared = join(installDir, "shared.cjs");
+  await copyFile(srcBefore, destBefore);
+  await copyFile(srcAfter, destAfter);
+  await copyFile(srcShared, destShared);
+  const mode = 0o755;
+  await chmod(destBefore, mode);
+  await chmod(destAfter, mode);
+  await chmod(destShared, mode);
+
+  const settingsPath = getGeminiCliSettingsPath();
+  let existing: Record<string, unknown> = {};
+  try {
+    const rawText = await readFile(settingsPath, "utf8");
+    const parsed: unknown = JSON.parse(rawText);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch (err) {
+    if (isErrnoException(err) && err.code === "ENOENT") {
+      existing = {};
+    } else {
+      process.stderr.write(
+        style.yellow("\u26A0") +
+          ` Could not parse ${settingsPath}. Create valid JSON or remove the file, then run init again.\n`,
+      );
+      throw new Error(`Invalid Gemini CLI settings at ${settingsPath}`);
+    }
+  }
+
+  const hooksRaw = existing["hooks"];
+  const hooksObj =
+    typeof hooksRaw === "object" && hooksRaw !== null && !Array.isArray(hooksRaw)
+      ? (hooksRaw as Record<string, unknown>)
+      : {};
+
+  if (geminiSettingsHasMulticornHooks(hooksObj)) {
+    const answer = await ask(
+      "Existing Multicorn Shield hooks were found in ~/.gemini/settings.json. Overwrite? (Y/n) ",
+    );
+    if (answer.trim().toLowerCase() === "n") {
+      throw new Error("Installation cancelled: existing Shield hooks left unchanged.");
+    }
+  }
+
+  const cleaned = geminiStripMulticornHookEntries({ ...hooksObj });
+  const beforeArr = Array.isArray(cleaned["BeforeTool"])
+    ? [...(cleaned["BeforeTool"] as unknown[])]
+    : [];
+  const afterArr = Array.isArray(cleaned["AfterTool"])
+    ? [...(cleaned["AfterTool"] as unknown[])]
+    : [];
+
+  const beforeCmd = `node ${destBefore}`;
+  const afterCmd = `node ${destAfter}`;
+
+  beforeArr.push({
+    matcher: ".*",
+    hooks: [
+      {
+        type: "command",
+        name: "multicorn-shield",
+        command: beforeCmd,
+        timeout: 60000,
+      },
+    ],
+  });
+  afterArr.push({
+    matcher: ".*",
+    hooks: [
+      {
+        type: "command",
+        name: "multicorn-shield-log",
+        command: afterCmd,
+        timeout: 10000,
+      },
+    ],
+  });
+
+  existing["hooks"] = {
+    ...cleaned,
+    BeforeTool: beforeArr,
+    AfterTool: afterArr,
+  };
+
+  await mkdir(dirname(settingsPath), { recursive: true });
+  await writeFile(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf8");
+}
+
+async function promptGeminiCliIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
+  process.stderr.write("\n" + style.bold("Gemini CLI integration") + "\n");
+  process.stderr.write(
+    "  " +
+      style.violet("1") +
+      ". Native plugin (recommended) - Gemini CLI Hooks see every file, terminal, web, and MCP action\n",
+  );
+  process.stderr.write(
+    "  " +
+      style.violet("2") +
+      ". Hosted proxy - govern MCP traffic only (paste proxy URL into Gemini CLI settings)\n",
   );
   let choice = 0;
   while (choice === 0) {
@@ -892,6 +1171,8 @@ const PLATFORM_LABELS = [
   "Cursor",
   "Windsurf",
   "Cline",
+  "Claude Desktop",
+  "Gemini CLI",
   "Local MCP / Other",
 ];
 const PLATFORM_BY_SELECTION: Record<number, string> = {
@@ -900,7 +1181,9 @@ const PLATFORM_BY_SELECTION: Record<number, string> = {
   3: "cursor",
   4: "windsurf",
   5: "cline",
-  6: "other-mcp",
+  6: "claude-desktop",
+  7: "gemini-cli",
+  8: "other-mcp",
 };
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
   openclaw: "my-openclaw-agent",
@@ -908,6 +1191,8 @@ const DEFAULT_AGENT_NAMES: Record<string, string> = {
   cursor: "my-cursor-agent",
   windsurf: "my-windsurf-agent",
   cline: "my-cline-agent",
+  "claude-desktop": "my-claude-desktop-agent",
+  "gemini-cli": "my-gemini-cli-agent",
 };
 
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
@@ -923,7 +1208,7 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
   ];
 
   for (let i = 0; i < PLATFORM_LABELS.length; i++) {
-    // Options 5–6 (Cline, Local MCP / Other) have no entry in detection list.
+    // Options 6-8 (Claude Desktop, Gemini CLI, Local MCP / Other) have no entry in detection list.
     const marker =
       i < connectedFlags.length && connectedFlags[i]
         ? " " + style.dim("\u25CF detected locally")
@@ -933,15 +1218,15 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     );
   }
   process.stderr.write(
-    style.dim("     Pick 6 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
+    style.dim("     Pick 8 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
       "\n",
   );
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask("Select (1-6): ");
+    const input = await ask("Select (1-8): ");
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= 6) {
+    if (num >= 1 && num <= 8) {
       selection = num;
     }
   }
@@ -953,12 +1238,12 @@ async function promptWindsurfIntegrationMode(ask: AskFn): Promise<"native" | "ho
   process.stderr.write(
     "  " +
       style.violet("1") +
-      ". Native plugin (recommended) — Cascade Hooks see every file, terminal, and MCP action\n",
+      ". Native plugin (recommended) - Cascade Hooks see every file, terminal, and MCP action\n",
   );
   process.stderr.write(
     "  " +
       style.violet("2") +
-      ". Hosted proxy — govern MCP traffic only (paste proxy URL into mcp_config)\n",
+      ". Hosted proxy - govern MCP traffic only (paste proxy URL into mcp_config)\n",
   );
   let choice = 0;
   while (choice === 0) {
@@ -1097,10 +1382,16 @@ function printPlatformSnippet(
   shortName: string,
   apiKey: string,
 ): void {
-  const usesInlineKey = platform === "cursor" || platform === "windsurf" || platform === "cline";
+  const usesInlineKey =
+    platform === "cursor" ||
+    platform === "claude-desktop" ||
+    platform === "windsurf" ||
+    platform === "cline" ||
+    platform === "gemini-cli";
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
 
-  const urlKey = platform === "windsurf" ? "serverUrl" : "url";
+  const urlKey =
+    platform === "windsurf" ? "serverUrl" : platform === "gemini-cli" ? "httpUrl" : "url";
   const mcpSnippet = JSON.stringify(
     {
       mcpServers: {
@@ -1120,6 +1411,8 @@ function printPlatformSnippet(
     process.stderr.write("\n" + style.dim("Add this to your OpenClaw agent config:") + "\n\n");
   } else if (platform === "claude-code") {
     process.stderr.write("\n" + style.dim("Add this to your Claude Code MCP config:") + "\n\n");
+  } else if (platform === "claude-desktop") {
+    process.stderr.write("\n" + style.dim(`Add this to ${getClaudeDesktopConfigPath()}:`) + "\n\n");
   } else if (platform === "windsurf") {
     process.stderr.write(
       "\n" + style.dim("Add this to ~/.codeium/windsurf/mcp_config.json:") + "\n\n",
@@ -1140,6 +1433,14 @@ function printPlatformSnippet(
       style.dim(
         "  Linux: ~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
       ) + "\n\n",
+    );
+  } else if (platform === "gemini-cli") {
+    process.stderr.write(
+      "\n" +
+        style.dim(
+          "Add this to ~/.gemini/settings.json (create the file if it does not exist). For project-specific config, use .gemini/settings.json in your project root. Restart Gemini CLI after saving. Run /mcp to verify the server is connected.",
+        ) +
+        "\n\n",
     );
   } else {
     process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
@@ -1165,6 +1466,10 @@ function printPlatformSnippet(
         `Ask Cursor to use your MCP server by its short name. For example: "use the ${shortName} tool to list files in /tmp"`,
       ) + "\n",
     );
+  }
+
+  if (platform === "claude-desktop") {
+    process.stderr.write(style.dim("Then restart Claude Desktop to load the MCP server.") + "\n");
   }
 
   if (platform === "cline") {
@@ -1312,12 +1617,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
 
   let configuring = true;
   while (configuring) {
+    let postSaveNativeSkipNote: string | null = null;
     const selection = await promptPlatformSelection(ask);
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
 
-    // Option 6: Local MCP / Other - minimal config, no agent name, no target URL.
-    if (selection === 6) {
+    // Option 8: Local MCP / Other - minimal config, no agent name, no target URL.
+    if (selection === 8) {
       const raw =
         existing !== null
           ? { ...(existing as unknown as Record<string, unknown>) }
@@ -1522,8 +1828,22 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           });
           setupSucceeded = true;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          if (error instanceof NativePluginPrerequisiteMissingError) {
+            postSaveNativeSkipNote = nativePluginSkippedSaveNote(
+              "npx multicorn-proxy init",
+              "Windsurf",
+            );
+            configuredAgents.push({
+              selection,
+              platform: selectedPlatform,
+              platformLabel: selectedLabel,
+              agentName,
+            });
+            setupSucceeded = true;
+          } else {
+            const detail = error instanceof Error ? error.message : String(error);
+            process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          }
         }
       } else {
         const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
@@ -1569,6 +1889,93 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           setupSucceeded = true;
         }
       }
+    } else if (selection === 7) {
+      const geminiMode = await promptGeminiCliIntegrationMode(ask);
+      if (geminiMode === "native") {
+        try {
+          await installGeminiCliNativeHooks(ask);
+          process.stderr.write("\n" + style.bold("Shield Gemini CLI hooks installed") + "\n\n");
+          process.stderr.write(
+            style.dim("Hook scripts: ") + style.cyan(getGeminiCliHooksInstallDir()) + "\n",
+          );
+          process.stderr.write(
+            style.dim("Settings updated at ") + style.cyan("~/.gemini/settings.json") + "\n",
+          );
+          process.stderr.write(
+            style.dim(
+              "The Shield hook runs with your user permissions. It intercepts Gemini CLI tool calls to check permissions and log activity. Review the scripts if that is a concern.",
+            ) + "\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            geminiCliIntegration: "native",
+          });
+          setupSucceeded = true;
+        } catch (error) {
+          if (error instanceof NativePluginPrerequisiteMissingError) {
+            postSaveNativeSkipNote = nativePluginSkippedSaveNote(
+              "npx multicorn-shield init",
+              "Gemini CLI",
+            );
+            configuredAgents.push({
+              selection,
+              platform: selectedPlatform,
+              platformLabel: selectedLabel,
+              agentName,
+            });
+            setupSucceeded = true;
+          } else {
+            const detail = error instanceof Error ? error.message : String(error);
+            process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          }
+        }
+      } else {
+        const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+
+        let proxyUrl = "";
+        let created = false;
+        while (!created) {
+          const spinner = withSpinner("Creating proxy config...");
+          try {
+            proxyUrl = await createProxyConfig(
+              resolvedBaseUrl,
+              apiKey,
+              agentName,
+              targetUrl,
+              shortName,
+              selectedPlatform,
+            );
+            spinner.stop(true, "Proxy config created!");
+            created = true;
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            spinner.stop(false, detail);
+            const retry = await ask("Try again? (Y/n) ");
+            if (retry.trim().toLowerCase() === "n") {
+              break;
+            }
+          }
+        }
+
+        if (created && proxyUrl.length > 0) {
+          process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
+          process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            shortName,
+            proxyUrl,
+            geminiCliIntegration: "hosted",
+          });
+          setupSucceeded = true;
+        }
+      }
     } else if (selection === 5) {
       const clineMode = await promptClineIntegrationMode(ask);
       if (clineMode === "native") {
@@ -1592,8 +1999,22 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           });
           setupSucceeded = true;
         } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          if (error instanceof NativePluginPrerequisiteMissingError) {
+            postSaveNativeSkipNote = nativePluginSkippedSaveNote(
+              "npx multicorn-shield init",
+              "Cline",
+            );
+            configuredAgents.push({
+              selection,
+              platform: selectedPlatform,
+              platformLabel: selectedLabel,
+              agentName,
+            });
+            setupSucceeded = true;
+          } else {
+            const detail = error instanceof Error ? error.message : String(error);
+            process.stderr.write(style.red("\u2717 ") + detail + "\n");
+          }
         }
       } else {
         const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
@@ -1702,9 +2123,14 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         process.stderr.write(
           style.green("\u2713") + ` Config saved to ${style.cyan(CONFIG_PATH)}\n`,
         );
+        if (postSaveNativeSkipNote != null) {
+          process.stderr.write(postSaveNativeSkipNote);
+          postSaveNativeSkipNote = null;
+        }
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         process.stderr.write(style.red(`Failed to save config: ${detail}`) + "\n");
+        postSaveNativeSkipNote = null;
       }
     }
 
@@ -1732,7 +2158,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
     // Next steps grouped by platform.
-    // No block for other-mcp: the option 4 branch already prints a "Try it"
+    // No block for other-mcp: the option 8 branch already prints a "Try it"
     // message with the correct --wrap command inside the configuring loop.
     const blocks: string[] = [];
 
@@ -1846,6 +2272,34 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "  1. If you don't have Cline yet, install it from the VS Code marketplace\n" +
           "  2. Open your Cline MCP settings file and paste the config snippet shown above\n" +
           "  3. Restart Cline or reload the VS Code window\n",
+      );
+    }
+
+    const geminiCliNativeConfigured = configuredAgents.some(
+      (a) => a.platform === "gemini-cli" && a.geminiCliIntegration === "native",
+    );
+    const geminiCliHostedConfigured = configuredAgents.some(
+      (a) => a.platform === "gemini-cli" && a.geminiCliIntegration === "hosted",
+    );
+
+    if (geminiCliNativeConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("Gemini CLI native hooks:") +
+          "\n" +
+          "  Your Gemini CLI hooks are installed. Restart Gemini CLI to activate Shield governance.\n",
+      );
+    }
+    if (geminiCliHostedConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Gemini CLI setup:") +
+          "\n" +
+          "  1. Open " +
+          style.cyan("~/.gemini/settings.json") +
+          "\n" +
+          "  2. Paste the config snippet shown above\n" +
+          "  3. Restart Gemini CLI, then run /mcp to verify\n",
       );
     }
 

@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Gemini CLI native plugin: BeforeTool/AfterTool hook scripts for full governance
+- Gemini CLI hosted proxy support with httpUrl config field
+- CLI wizard: Gemini CLI platform with native plugin and hosted proxy integration modes
+- CLI wizard: platform prerequisite detection (warns if target platform is not installed)
+
 ## [X.Y.Z] - YYYY-MM-DD
 
 ### Added
