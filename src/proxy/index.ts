@@ -71,7 +71,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
     !config.baseUrl.startsWith("http://127.0.0.1")
   ) {
     throw new Error(
-      `[multicorn-proxy] Base URL must use HTTPS. Received: "${config.baseUrl}". ` +
+      `[multicorn-shield] Base URL must use HTTPS. Received: "${config.baseUrl}". ` +
         "Use https:// or http://localhost for local development.",
     );
   }
@@ -196,7 +196,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
           if (actionLogger !== null) {
             if (!config.agentName || config.agentName.trim().length === 0) {
               process.stderr.write(
-                "[multicorn-proxy] Cannot log action: agent name not resolved\n",
+                "[multicorn-shield] Cannot log action: agent name not resolved\n",
               );
             } else {
               config.logger.debug("Logging blocked action (post-consent).", {
@@ -227,7 +227,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
             if (actionLogger !== null) {
               if (!config.agentName || config.agentName.trim().length === 0) {
                 process.stderr.write(
-                  "[multicorn-proxy] Cannot log action: agent name not resolved\n",
+                  "[multicorn-shield] Cannot log action: agent name not resolved\n",
                 );
               } else {
                 config.logger.debug("Logging blocked action (spending).", {
@@ -258,7 +258,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
 
       if (actionLogger !== null) {
         if (!config.agentName || config.agentName.trim().length === 0) {
-          process.stderr.write("[multicorn-proxy] Cannot log action: agent name not resolved\n");
+          process.stderr.write("[multicorn-shield] Cannot log action: agent name not resolved\n");
         } else {
           config.logger.debug("Logging approved action.", {
             agent: config.agentName,
@@ -357,7 +357,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
       process.stderr.write(
         "\nError: API key was rejected by the Multicorn service.\n" +
           "Check your key at https://app.multicorn.ai/settings#api-keys " +
-          "or run `npx multicorn-proxy init` to reconfigure.\n\n",
+          "or run `npx multicorn-shield init` to reconfigure.\n\n",
       );
       throw new Error("API key was rejected by the Multicorn service.");
     }

@@ -1445,7 +1445,7 @@ describe("config file parsing", () => {
 
     await runInit("https://api.multicorn.ai");
 
-    expect(stderrBuffer).toContain("npx multicorn-proxy --wrap");
+    expect(stderrBuffer).toContain("npx multicorn-shield --wrap");
     expect(stderrBuffer).toContain("@modelcontextprotocol/server-filesystem");
   });
 
@@ -1730,7 +1730,7 @@ describe("config file parsing", () => {
     const entry = servers["my-agent"] as Record<string, unknown>;
     expect(entry["command"]).toBe("npx");
     const args = entry["args"] as string[];
-    expect(args).toContain("multicorn-proxy");
+    expect(args).toContain("multicorn-shield");
     expect(args).toContain("--wrap");
     expect(args).toContain("my-mcp-server");
   });
@@ -1811,7 +1811,7 @@ describe("config file parsing", () => {
     const entry = servers["my-agent"] as Record<string, unknown>;
     const args = entry["args"] as string[];
     expect(args).toEqual([
-      "multicorn-proxy",
+      "multicorn-shield",
       "--wrap",
       "node",
       "dist/server.js",

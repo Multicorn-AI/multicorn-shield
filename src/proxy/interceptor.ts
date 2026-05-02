@@ -150,7 +150,7 @@ export function buildServiceUnreachableResponse(
  */
 export function buildAuthErrorResponse(id: string | number | null): JsonRpcResponse {
   const message =
-    "Action blocked: Shield API key is invalid or has been revoked. Run npx multicorn-proxy init to reconfigure.";
+    "Action blocked: Shield API key is invalid or has been revoked. Run npx multicorn-shield init to reconfigure.";
 
   return {
     jsonrpc: "2.0",

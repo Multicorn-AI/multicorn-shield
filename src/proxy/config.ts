@@ -597,7 +597,11 @@ export async function isCursorConnected(): Promise<boolean> {
       const url = rec["url"];
       if (typeof url === "string" && url.includes("multicorn")) return true;
       const args = rec["args"];
-      if (Array.isArray(args) && args.includes("multicorn-proxy")) return true;
+      if (
+        Array.isArray(args) &&
+        (args.includes("multicorn-shield") || args.includes("multicorn-proxy"))
+      )
+        return true;
     }
     return false;
   } catch (err) {
@@ -712,7 +716,7 @@ export async function installWindsurfNativeHooks(): Promise<void> {
         "\n\n",
     );
     process.stderr.write("Then run this wizard again:\n");
-    process.stderr.write("  " + style.cyan("npx multicorn-proxy init") + "\n");
+    process.stderr.write("  " + style.cyan("npx multicorn-shield init") + "\n");
     throw new NativePluginPrerequisiteMissingError();
   }
   const installDir = getWindsurfHooksInstallDir();
@@ -1150,7 +1154,7 @@ export async function updateClaudeDesktopConfig(
 
   mcpServers[agentName] = {
     command: "npx",
-    args: ["multicorn-proxy", "--wrap", ...commandParts, "--agent-name", agentName],
+    args: ["multicorn-shield", "--wrap", ...commandParts, "--agent-name", agentName],
   };
 
   const configDir = join(configPath, "..");
@@ -1218,7 +1222,7 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     );
   }
   process.stderr.write(
-    style.dim("     Pick 8 if you want to wrap a local MCP server with multicorn-proxy --wrap.") +
+    style.dim("     Pick 8 if you want to wrap a local MCP server with multicorn-shield --wrap.") +
       "\n",
   );
 
@@ -1643,7 +1647,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
             style.bold("Try it:") +
             " " +
             style.cyan(
-              "npx multicorn-proxy --wrap npx @modelcontextprotocol/server-filesystem /tmp",
+              "npx multicorn-shield --wrap npx @modelcontextprotocol/server-filesystem /tmp",
             ) +
             "\n",
         );
@@ -1697,7 +1701,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       if (detection.status === "not-found") {
         process.stderr.write(
           style.red("\u2717") +
-            " OpenClaw is not installed. Install OpenClaw first, then run npx multicorn-proxy init again.\n",
+            " OpenClaw is not installed. Install OpenClaw first, then run npx multicorn-shield init again.\n",
         );
         rl.close();
         return null;
@@ -1830,7 +1834,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         } catch (error) {
           if (error instanceof NativePluginPrerequisiteMissingError) {
             postSaveNativeSkipNote = nativePluginSkippedSaveNote(
-              "npx multicorn-proxy init",
+              "npx multicorn-shield init",
               "Windsurf",
             );
             configuredAgents.push({

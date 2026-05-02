@@ -31,8 +31,8 @@
     }
   },
   "bin": {
-    "multicorn-proxy": "./dist/multicorn-proxy.js",
-    "multicorn-shield": "./dist/multicorn-shield.js"
+    "multicorn-shield": "./dist/multicorn-shield.js",
+    "multicorn-proxy": "./dist/multicorn-proxy.js"
   },
   "files": [
     "dist",

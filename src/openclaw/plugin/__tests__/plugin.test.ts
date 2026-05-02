@@ -226,7 +226,7 @@ describe("plugin definition", () => {
     expect(errorMock).toHaveBeenCalledWith(
       expect.stringContaining("Multicorn Shield: No API key found"),
     );
-    expect(errorMock).toHaveBeenCalledWith(expect.stringContaining("npx multicorn-proxy init"));
+    expect(errorMock).toHaveBeenCalledWith(expect.stringContaining("npx multicorn-shield init"));
   });
 
   it("register() logs connection info when API key is present", () => {
@@ -748,7 +748,7 @@ describe("config fallback", () => {
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     expect(errorMock).toHaveBeenCalledWith(
-      "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+      "Multicorn Shield: No API key found. Run 'npx multicorn-shield init' or set MULTICORN_API_KEY.",
     );
     expect(result).toBeUndefined();
     expect(findOrRegisterAgentMock).not.toHaveBeenCalled();
@@ -779,7 +779,7 @@ describe("config fallback", () => {
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
     expect(errorMock).toHaveBeenCalledWith(
-      "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+      "Multicorn Shield: No API key found. Run 'npx multicorn-shield init' or set MULTICORN_API_KEY.",
     );
     expect(result).toBeUndefined();
     expect(findOrRegisterAgentMock).not.toHaveBeenCalled();
@@ -870,7 +870,7 @@ describe("config fallback", () => {
 
     void plugin.register?.(api);
     expect(errorMock).toHaveBeenCalledWith(
-      "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+      "Multicorn Shield: No API key found. Run 'npx multicorn-shield init' or set MULTICORN_API_KEY.",
     );
 
     // Do not resetState() so pluginLogger is still set and we can assert beforeToolCall behaviour
@@ -879,7 +879,7 @@ describe("config fallback", () => {
     expect(result).toBeUndefined();
     expect(findOrRegisterAgentMock).not.toHaveBeenCalled();
     expect(warnMock).toHaveBeenCalledWith(
-      "Multicorn Shield: No API key found. Run 'npx multicorn-proxy init' or set MULTICORN_API_KEY.",
+      "Multicorn Shield: No API key found. Run 'npx multicorn-shield init' or set MULTICORN_API_KEY.",
     );
   });
 });

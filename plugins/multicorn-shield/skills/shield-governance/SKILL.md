@@ -19,6 +19,6 @@ You are working in a project protected by Multicorn Shield. Shield intercepts to
 
 ## Configuration
 
-Shield config is stored at `~/.multicorn/config.json`. The API key and base URL are configured there. Agent name is set during `npx multicorn-proxy init`.
+Shield config is stored at `~/.multicorn/config.json`. The API key and base URL are configured there. Agent name is set during `npx multicorn-shield init`.
 
 Note: These guidelines are advisory. Enforcement is handled by the Shield plugin's hook system, not by this skill file.
