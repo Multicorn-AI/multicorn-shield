@@ -162,20 +162,14 @@ async function main() {
   if (statusCode === 202) {
     const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
     openBrowser(url);
-    respond(
-      "deny",
-      `Action blocked by Multicorn Shield. Authorise at: ${url}`,
-    );
+    respond("deny", `Action blocked by Multicorn Shield. Authorise at: ${url}`);
     return;
   }
 
   if (statusCode === 201) {
     if (data === null || typeof data !== "object") {
       const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
-      respond(
-        "deny",
-        `Action blocked by Multicorn Shield. Authorise at: ${url}`,
-      );
+      respond("deny", `Action blocked by Multicorn Shield. Authorise at: ${url}`);
       return;
     }
     const st = String(/** @type {Record<string, unknown>} */ (data).status || "").toLowerCase();
