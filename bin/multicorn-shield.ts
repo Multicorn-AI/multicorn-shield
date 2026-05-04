@@ -407,9 +407,18 @@ function deriveAgentName(command: string): string {
   return base.replace(/\.[cm]?[jt]s$/, "");
 }
 
-// Only run runCli when executed as this script directly, not when imported for testing or deprecated shim.
+// Only run runCli when executed as `multicorn-shield` directly, not when
+// bundled into multicorn-proxy or imported by tests. tsup inlines this module
+// into multicorn-proxy.js, so import.meta.url matches process.argv[1] even
+// there; we must also verify the filename is actually "multicorn-shield".
+const entryBasename =
+  process.argv[1]
+    ?.split("/")
+    .pop()
+    ?.replace(/\.[cm]?[jt]s$/, "") ?? "";
 const isDirectRun =
   process.argv[1] !== undefined &&
+  entryBasename === "multicorn-shield" &&
   (import.meta.url.endsWith(process.argv[1]) ||
     import.meta.url === `file://${process.argv[1]}` ||
     import.meta.url.endsWith("/multicorn-shield.js") ||

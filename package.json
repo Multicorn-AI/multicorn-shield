@@ -38,7 +38,7 @@
     "dist",
     "plugins/windsurf",
     "plugins/cline",
-    "plugins/gemini-cli",
+    "plugins/github-copilot",
     "LICENSE",
     "README.md",
     "CHANGELOG.md"

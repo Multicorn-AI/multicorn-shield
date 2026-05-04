@@ -123,9 +123,9 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
-  /** Menu index: 1-8 (matches `promptPlatformSelection`). */
+  /** Menu index: 1-9 (matches `promptPlatformSelection`). */
   readonly selection: number;
-  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, `cline`, `claude-desktop`, `gemini-cli`, or `other-mcp`. */
+  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, `cline`, `claude-desktop`, `gemini-cli`, `github-copilot`, or `other-mcp`. */
   readonly platform: string;
   readonly platformLabel: string;
   readonly agentName: string;
@@ -135,6 +135,8 @@ interface ConfiguredAgent {
   readonly clineIntegration?: "native" | "hosted";
   /** Set when `platform` is `gemini-cli` to drive Next steps copy. */
   readonly geminiCliIntegration?: "native" | "hosted";
+  /** Set when `platform` is `github-copilot` to drive Next steps copy. */
+  readonly githubCopilotIntegration?: "native" | "hosted";
   readonly shortName?: string;
   readonly proxyUrl?: string;
 }
@@ -837,6 +839,102 @@ export async function installClineNativeHooks(): Promise<void> {
   await writeFile(postWrapper, postContent, { encoding: "utf8", mode: 0o755 });
 }
 
+// ---------------------------------------------------------------------------
+// GitHub Copilot Hooks (native plugin, workspace .github/hooks/)
+// ---------------------------------------------------------------------------
+
+async function promptGitHubCopilotIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
+  process.stderr.write("\n" + style.bold("GitHub Copilot integration") + "\n");
+  process.stderr.write(
+    "  " +
+      style.violet("1") +
+      ". Native plugin (recommended) - Copilot Hooks see file, terminal, and MCP actions\n",
+  );
+  process.stderr.write(
+    "  " +
+      style.violet("2") +
+      ". Hosted proxy - govern MCP traffic only (paste proxy URL into workspace .vscode/mcp.json)\n",
+  );
+  let choice = 0;
+  while (choice === 0) {
+    const input = await ask("Choose integration (1-2): ");
+    const num = parseInt(input.trim(), 10);
+    if (num === 1) choice = 1;
+    if (num === 2) choice = 2;
+  }
+  return choice === 1 ? "native" : "hosted";
+}
+
+/** Filenames bundled under plugins/github-copilot/hooks/scripts/ (ASCII plain names only). */
+const GITHUB_COPILOT_HOOK_SCRIPT_FILENAMES = [
+  "shared.cjs",
+  "shield-pre-tool.cjs",
+  "shield-post-tool.cjs",
+  "shield-pre-tool.sh",
+  "shield-pre-tool.ps1",
+  "shield-post-tool.sh",
+  "shield-post-tool.ps1",
+] as const;
+
+/** Relative paths from workspace root written to multicorn-shield.json (plain strings only). */
+const GITHUB_COPILOT_HOOKS_MANIFEST_PATHS = {
+  bashPre: ".github/hooks/scripts/shield-pre-tool.sh",
+  powershellPre: ".github/hooks/scripts/shield-pre-tool.ps1",
+  bashPost: ".github/hooks/scripts/shield-post-tool.sh",
+  powershellPost: ".github/hooks/scripts/shield-post-tool.ps1",
+} as const;
+
+/** Writes Shield GitHub Copilot hook scripts under `.github/hooks/` in cwd and a hooks JSON file. */
+export async function installGithubCopilotNativeHooks(): Promise<void> {
+  const root = multicornShieldPackageRoot();
+  const srcDir = join(root, "plugins", "github-copilot", "hooks", "scripts");
+  for (const name of GITHUB_COPILOT_HOOK_SCRIPT_FILENAMES) {
+    const p = join(srcDir, name);
+    if (!existsSync(p)) {
+      throw new Error(
+        `Could not find Shield GitHub Copilot hook file at ${p}. If you use npm, install the latest multicorn-shield package.`,
+      );
+    }
+  }
+
+  const destRoot = join(process.cwd(), ".github", "hooks");
+  const destScripts = join(destRoot, "scripts");
+  await mkdir(destScripts, { recursive: true });
+
+  for (const name of GITHUB_COPILOT_HOOK_SCRIPT_FILENAMES) {
+    await copyFile(join(srcDir, name), join(destScripts, name));
+    if (name.endsWith(".sh")) {
+      await chmod(join(destScripts, name), 0o755);
+    }
+  }
+
+  const hooksConfig = {
+    version: 1,
+    hooks: {
+      preToolUse: [
+        {
+          type: "command",
+          bash: GITHUB_COPILOT_HOOKS_MANIFEST_PATHS.bashPre,
+          powershell: GITHUB_COPILOT_HOOKS_MANIFEST_PATHS.powershellPre,
+          timeoutSec: 15,
+        },
+      ],
+      postToolUse: [
+        {
+          type: "command",
+          bash: GITHUB_COPILOT_HOOKS_MANIFEST_PATHS.bashPost,
+          powershell: GITHUB_COPILOT_HOOKS_MANIFEST_PATHS.powershellPost,
+        },
+      ],
+    },
+  };
+
+  const hooksJsonPath = join(destRoot, "multicorn-shield.json");
+  await writeFile(hooksJsonPath, JSON.stringify(hooksConfig, null, 2) + "\n", {
+    encoding: "utf8",
+  });
+}
+
 async function promptClineIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
   process.stderr.write("\n" + style.bold("Cline integration") + "\n");
   process.stderr.write(
@@ -1172,22 +1270,24 @@ export async function updateClaudeDesktopConfig(
 const PLATFORM_LABELS = [
   "OpenClaw",
   "Claude Code",
-  "Cursor",
   "Windsurf",
   "Cline",
-  "Claude Desktop",
   "Gemini CLI",
+  "GitHub Copilot",
+  "Claude Desktop",
+  "Cursor",
   "Local MCP / Other",
 ];
 const PLATFORM_BY_SELECTION: Record<number, string> = {
   1: "openclaw",
   2: "claude-code",
-  3: "cursor",
-  4: "windsurf",
-  5: "cline",
-  6: "claude-desktop",
-  7: "gemini-cli",
-  8: "other-mcp",
+  3: "windsurf",
+  4: "cline",
+  5: "gemini-cli",
+  6: "github-copilot",
+  7: "claude-desktop",
+  8: "cursor",
+  9: "other-mcp",
 };
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
   openclaw: "my-openclaw-agent",
@@ -1197,6 +1297,7 @@ const DEFAULT_AGENT_NAMES: Record<string, string> = {
   cline: "my-cline-agent",
   "claude-desktop": "my-claude-desktop-agent",
   "gemini-cli": "my-gemini-cli-agent",
+  "github-copilot": "my-github-copilot-agent",
 };
 
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
@@ -1207,12 +1308,12 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
   const connectedFlags = [
     await isOpenClawConnected(),
     isClaudeCodeConnected(),
-    await isCursorConnected(),
     await isWindsurfConnected(),
+    false,
   ];
 
   for (let i = 0; i < PLATFORM_LABELS.length; i++) {
-    // Options 6-8 (Claude Desktop, Gemini CLI, Local MCP / Other) have no entry in detection list.
+    // First four platforms: OpenClaw, Claude Code, Windsurf use detectors; Cline has no wired detector yet (fourth slot is false).
     const marker =
       i < connectedFlags.length && connectedFlags[i]
         ? " " + style.dim("\u25CF detected locally")
@@ -1222,15 +1323,15 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     );
   }
   process.stderr.write(
-    style.dim("     Pick 8 if you want to wrap a local MCP server with multicorn-shield --wrap.") +
+    style.dim("     Pick 9 if you want to wrap a local MCP server with multicorn-shield --wrap.") +
       "\n",
   );
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask("Select (1-8): ");
+    const input = await ask("Select (1-9): ");
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= 8) {
+    if (num >= 1 && num <= 9) {
       selection = num;
     }
   }
@@ -1391,25 +1492,44 @@ function printPlatformSnippet(
     platform === "claude-desktop" ||
     platform === "windsurf" ||
     platform === "cline" ||
-    platform === "gemini-cli";
+    platform === "gemini-cli" ||
+    platform === "github-copilot";
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
+
+  const isGithubCopilot = platform === "github-copilot";
 
   const urlKey =
     platform === "windsurf" ? "serverUrl" : platform === "gemini-cli" ? "httpUrl" : "url";
-  const mcpSnippet = JSON.stringify(
-    {
-      mcpServers: {
-        [shortName]: {
-          [urlKey]: routingToken,
-          headers: {
-            Authorization: authHeader,
+  const snippet = isGithubCopilot
+    ? JSON.stringify(
+        {
+          servers: {
+            [shortName]: {
+              type: "http",
+              url: routingToken,
+              headers: {
+                Authorization: authHeader,
+              },
+            },
           },
         },
-      },
-    },
-    null,
-    2,
-  );
+        null,
+        2,
+      )
+    : JSON.stringify(
+        {
+          mcpServers: {
+            [shortName]: {
+              [urlKey]: routingToken,
+              headers: {
+                Authorization: authHeader,
+              },
+            },
+          },
+        },
+        null,
+        2,
+      );
 
   if (platform === "openclaw") {
     process.stderr.write("\n" + style.dim("Add this to your OpenClaw agent config:") + "\n\n");
@@ -1446,11 +1566,19 @@ function printPlatformSnippet(
         ) +
         "\n\n",
     );
+  } else if (platform === "github-copilot") {
+    process.stderr.write("\n" + style.dim("Workspace (recommended): .vscode/mcp.json") + "\n");
+    process.stderr.write(style.dim("User profile: VS Code Settings (global MCP)") + "\n\n");
+    process.stderr.write(
+      style.dim(
+        "Create .vscode/mcp.json in your workspace root (create the .vscode folder if it does not exist). After saving, VS Code will detect the MCP server. You may need to confirm trust when prompted. MCP tools are available in Copilot Agent Mode.",
+      ) + "\n\n",
+    );
   } else {
     process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
   }
 
-  process.stderr.write(style.cyan(mcpSnippet) + "\n\n");
+  process.stderr.write(style.cyan(snippet) + "\n\n");
   if (!usesInlineKey) {
     process.stderr.write(
       style.dim(
@@ -1626,8 +1754,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
 
-    // Option 8: Local MCP / Other - minimal config, no agent name, no target URL.
-    if (selection === 8) {
+    // Option 9: Local MCP / Other - minimal config, no agent name, no target URL.
+    if (selection === 9) {
       const raw =
         existing !== null
           ? { ...(existing as unknown as Record<string, unknown>) }
@@ -1799,7 +1927,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         agentName,
       });
       setupSucceeded = true;
-    } else if (selection === 4) {
+    } else if (selection === 3) {
       const windsurfMode = await promptWindsurfIntegrationMode(ask);
       if (windsurfMode === "native") {
         try {
@@ -1893,7 +2021,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           setupSucceeded = true;
         }
       }
-    } else if (selection === 7) {
+    } else if (selection === 5) {
       const geminiMode = await promptGeminiCliIntegrationMode(ask);
       if (geminiMode === "native") {
         try {
@@ -1980,7 +2108,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           setupSucceeded = true;
         }
       }
-    } else if (selection === 5) {
+    } else if (selection === 4) {
       const clineMode = await promptClineIntegrationMode(ask);
       if (clineMode === "native") {
         try {
@@ -2060,6 +2188,85 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
             shortName,
             proxyUrl,
             clineIntegration: "hosted",
+          });
+          setupSucceeded = true;
+        }
+      }
+    } else if (selection === 6) {
+      const copilotMode = await promptGitHubCopilotIntegrationMode(ask);
+      if (copilotMode === "native") {
+        try {
+          await installGithubCopilotNativeHooks();
+          process.stderr.write("\n" + style.bold("Shield GitHub Copilot hooks installed") + "\n\n");
+          process.stderr.write(
+            style.dim("Hooks manifest: ") +
+              style.cyan(join(process.cwd(), ".github", "hooks", "multicorn-shield.json")) +
+              "\n",
+          );
+          process.stderr.write(
+            style.dim("Scripts: ") +
+              style.cyan(join(process.cwd(), ".github", "hooks", "scripts")) +
+              "\n",
+          );
+          process.stderr.write(
+            "\n" +
+              style.dim(
+                "Commit the `.github/hooks/` folder so teammates and GitHub Copilot Cloud use the same hooks.",
+              ) +
+              "\n\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            githubCopilotIntegration: "native",
+          });
+          setupSucceeded = true;
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+        }
+      } else {
+        const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+
+        let proxyUrl = "";
+        let created = false;
+        while (!created) {
+          const spinner = withSpinner("Creating proxy config...");
+          try {
+            proxyUrl = await createProxyConfig(
+              resolvedBaseUrl,
+              apiKey,
+              agentName,
+              targetUrl,
+              shortName,
+              selectedPlatform,
+            );
+            spinner.stop(true, "Proxy config created!");
+            created = true;
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            spinner.stop(false, detail);
+            const retry = await ask("Try again? (Y/n) ");
+            if (retry.trim().toLowerCase() === "n") {
+              break;
+            }
+          }
+        }
+
+        if (created && proxyUrl.length > 0) {
+          process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
+          process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            shortName,
+            proxyUrl,
+            githubCopilotIntegration: "hosted",
           });
           setupSucceeded = true;
         }
@@ -2162,7 +2369,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
     // Next steps grouped by platform.
-    // No block for other-mcp: the option 8 branch already prints a "Try it"
+    // No block for other-mcp: option 9 branch prints "Try it" (--wrap).
     // message with the correct --wrap command inside the configuring loop.
     const blocks: string[] = [];
 
@@ -2304,6 +2511,36 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "\n" +
           "  2. Paste the config snippet shown above\n" +
           "  3. Restart Gemini CLI, then run /mcp to verify\n",
+      );
+    }
+
+    const githubCopilotNativeConfigured = configuredAgents.some(
+      (a) => a.platform === "github-copilot" && a.githubCopilotIntegration === "native",
+    );
+    const githubCopilotHostedConfigured = configuredAgents.some(
+      (a) => a.platform === "github-copilot" && a.githubCopilotIntegration === "hosted",
+    );
+
+    if (githubCopilotNativeConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete native GitHub Copilot (Shield) setup:") +
+          "\n" +
+          "  1. Hooks: " +
+          style.cyan(join(process.cwd(), ".github", "hooks", "multicorn-shield.json")) +
+          "\n" +
+          "  2. Use Copilot Agent Mode in VS Code; trigger a tool call to verify Shield intercepts\n",
+      );
+    }
+    if (githubCopilotHostedConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your GitHub Copilot hosted-proxy setup:") +
+          "\n" +
+          "  1. Open " +
+          style.cyan(".vscode/mcp.json") +
+          " in this workspace and paste the snippet from above\n" +
+          "  2. Reload VS Code and use Copilot Agent Mode with MCP tools\n",
       );
     }
 

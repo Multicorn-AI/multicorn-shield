@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": ".github/hooks/scripts/shield-pre-tool.sh",
+        "powershell": ".github/hooks/scripts/shield-pre-tool.ps1",
+        "timeoutSec": 15
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "bash": ".github/hooks/scripts/shield-post-tool.sh",
+        "powershell": ".github/hooks/scripts/shield-post-tool.ps1"
+      }
+    ]
+  }
+}

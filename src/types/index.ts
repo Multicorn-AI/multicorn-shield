@@ -18,6 +18,7 @@ export const AGENT_PLATFORM_SLUGS = [
   "windsurf",
   "cline",
   "gemini-cli",
+  "github-copilot",
   "other-mcp",
   "github-actions",
   "unknown",
