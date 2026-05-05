@@ -2399,12 +2399,15 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Continue MCP:") +
           "\n" +
-          "  1. Save JSON as " +
+          "  1. If you don't have Continue yet, install from " +
+          style.cyan("https://docs.continue.dev/ide-extensions/install") +
+          "\n" +
+          "  2. Save JSON as " +
           style.cyan(".continue/mcpServers/shield.json") +
           " in your workspace, or add to " +
           style.cyan("~/.continue/config.yaml") +
           "\n" +
-          "  2. Reload VS Code and open Continue agent mode\n",
+          "  3. Reload VS Code and open Continue agent mode\n",
       );
     }
     if (configuredPlatforms.has("goose")) {
