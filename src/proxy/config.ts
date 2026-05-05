@@ -123,9 +123,9 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
-  /** Menu index: 1-8 (matches `promptPlatformSelection`). */
+  /** Menu index: 1..PLATFORM_SELECTION_MAX (matches `promptPlatformSelection`). */
   readonly selection: number;
-  /** `openclaw`, `claude-code`, `cursor`, `windsurf`, `cline`, `claude-desktop`, `gemini-cli`, or `other-mcp`. */
+  /** Agent platform slug sent to the Shield API (e.g. `cursor`, `github-copilot`). */
   readonly platform: string;
   readonly platformLabel: string;
   readonly agentName: string;
@@ -1169,26 +1169,61 @@ export async function updateClaudeDesktopConfig(
 // Init flow - extracted helpers
 // ---------------------------------------------------------------------------
 
-const PLATFORM_LABELS = [
-  "OpenClaw",
-  "Claude Code",
-  "Cursor",
-  "Windsurf",
-  "Cline",
-  "Claude Desktop",
-  "Gemini CLI",
-  "Local MCP / Other",
+/** Init wizard menu: two labelled sections, continuous numbering 1..N. */
+const PLATFORM_MENU_SECTIONS: readonly {
+  readonly title: string;
+  readonly items: readonly { readonly platform: string; readonly label: string }[];
+}[] = [
+  {
+    title: "Recommended (native plugin)",
+    items: [
+      { platform: "openclaw", label: "OpenClaw" },
+      { platform: "claude-code", label: "Claude Code" },
+      { platform: "windsurf", label: "Windsurf" },
+      { platform: "cline", label: "Cline" },
+      { platform: "gemini-cli", label: "Gemini CLI" },
+      { platform: "github-copilot", label: "GitHub Copilot" },
+    ],
+  },
+  {
+    title: "Hosted proxy (MCP only)",
+    items: [
+      { platform: "cursor", label: "Cursor" },
+      { platform: "claude-desktop", label: "Claude Desktop" },
+      { platform: "kilo-code", label: "Kilo Code" },
+      { platform: "continue-dev", label: "Continue" },
+      { platform: "goose", label: "Goose" },
+      { platform: "aider", label: "Aider" },
+      { platform: "other-mcp", label: "Local MCP / Other" },
+    ],
+  },
 ];
-const PLATFORM_BY_SELECTION: Record<number, string> = {
-  1: "openclaw",
-  2: "claude-code",
-  3: "cursor",
-  4: "windsurf",
-  5: "cline",
-  6: "claude-desktop",
-  7: "gemini-cli",
-  8: "other-mcp",
-};
+
+const PLATFORM_SELECTION_MAX: number = PLATFORM_MENU_SECTIONS.reduce(
+  (n, sec) => n + sec.items.length,
+  0,
+);
+
+const PLATFORM_BY_SELECTION: Record<number, string> = (() => {
+  const m: Record<number, string> = {};
+  let i = 1;
+  for (const sec of PLATFORM_MENU_SECTIONS) {
+    for (const it of sec.items) {
+      m[i++] = it.platform;
+    }
+  }
+  return m;
+})();
+
+function platformMenuLabelForSelection(sel: number): string {
+  const slug = PLATFORM_BY_SELECTION[sel];
+  if (slug === undefined) return "Unknown";
+  for (const sec of PLATFORM_MENU_SECTIONS) {
+    const item = sec.items.find((it) => it.platform === slug);
+    if (item !== undefined) return item.label;
+  }
+  return slug;
+}
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
   openclaw: "my-openclaw-agent",
   "claude-code": "my-claude-code-agent",
@@ -1197,11 +1232,16 @@ const DEFAULT_AGENT_NAMES: Record<string, string> = {
   cline: "my-cline-agent",
   "claude-desktop": "my-claude-desktop-agent",
   "gemini-cli": "my-gemini-cli-agent",
+  "kilo-code": "my-kilo-code-agent",
+  "github-copilot": "my-github-copilot-agent",
+  "continue-dev": "my-continue-agent",
+  goose: "my-goose-agent",
+  aider: "my-aider-agent",
 };
 
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
   process.stderr.write(
-    "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n",
+    "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n\n",
   );
 
   const connectedFlags = [
@@ -1211,26 +1251,44 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     await isWindsurfConnected(),
   ];
 
-  for (let i = 0; i < PLATFORM_LABELS.length; i++) {
-    // Options 6-8 (Claude Desktop, Gemini CLI, Local MCP / Other) have no entry in detection list.
-    const marker =
-      i < connectedFlags.length && connectedFlags[i]
-        ? " " + style.dim("\u25CF detected locally")
-        : "";
-    process.stderr.write(
-      `  ${style.violet(String(i + 1))}. ${PLATFORM_LABELS[i] ?? ""}${marker}\n`,
-    );
+  function markerFor(platform: string): string {
+    const detectionIndexByPlatform: Record<string, number> = {
+      openclaw: 0,
+      "claude-code": 1,
+      cursor: 2,
+      windsurf: 3,
+    };
+    const idx = detectionIndexByPlatform[platform];
+    if (idx === undefined) return "";
+    if (!connectedFlags[idx]) return "";
+    return " " + style.dim("\u25CF detected locally");
   }
+
+  let optionNum = 1;
+  for (const section of PLATFORM_MENU_SECTIONS) {
+    process.stderr.write("  " + style.dim(section.title) + "\n");
+    for (const item of section.items) {
+      const indent = optionNum >= 10 ? "   " : "    ";
+      process.stderr.write(
+        `${indent}${style.violet(String(optionNum))}. ${item.label}${markerFor(item.platform)}\n`,
+      );
+      optionNum++;
+    }
+  }
+
   process.stderr.write(
-    style.dim("     Pick 8 if you want to wrap a local MCP server with multicorn-shield --wrap.") +
+    "\n" +
+      style.dim(
+        `  Pick ${String(PLATFORM_SELECTION_MAX)} to wrap a local MCP server with multicorn-shield --wrap.`,
+      ) +
       "\n",
   );
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask("Select (1-8): ");
+    const input = await ask(`Select (1-${String(PLATFORM_SELECTION_MAX)}): `);
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= 8) {
+    if (num >= 1 && num <= PLATFORM_SELECTION_MAX) {
       selection = num;
     }
   }
@@ -1380,36 +1438,93 @@ async function createProxyConfig(
   return typeof data?.["proxy_url"] === "string" ? data["proxy_url"] : "";
 }
 
+function gooseHostedProxyYaml(shortName: string, proxyUrl: string, bearerHeader: string): string {
+  return (
+    `extensions:\n` +
+    `  ${shortName}:\n` +
+    `    type: streamable_http\n` +
+    `    url: ${proxyUrl}\n` +
+    `    headers:\n` +
+    `      Authorization: ${bearerHeader}\n` +
+    `    enabled: true\n` +
+    `    timeout: 300\n`
+  );
+}
+
 function printPlatformSnippet(
   platform: string,
   routingToken: string,
   shortName: string,
   apiKey: string,
 ): void {
-  const usesInlineKey =
-    platform === "cursor" ||
-    platform === "claude-desktop" ||
-    platform === "windsurf" ||
-    platform === "cline" ||
-    platform === "gemini-cli";
+  const hostedInlinePlatforms = new Set([
+    "cursor",
+    "claude-desktop",
+    "windsurf",
+    "cline",
+    "gemini-cli",
+    "kilo-code",
+    "github-copilot",
+    "continue-dev",
+    "goose",
+    "aider",
+  ]);
+  const usesInlineKey = hostedInlinePlatforms.has(platform);
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
 
-  const urlKey =
-    platform === "windsurf" ? "serverUrl" : platform === "gemini-cli" ? "httpUrl" : "url";
-  const mcpSnippet = JSON.stringify(
-    {
-      mcpServers: {
-        [shortName]: {
-          [urlKey]: routingToken,
-          headers: {
-            Authorization: authHeader,
+  let snippetText: string;
+  if (platform === "github-copilot") {
+    snippetText = JSON.stringify(
+      {
+        mcp: {
+          servers: {
+            [shortName]: {
+              type: "http",
+              url: routingToken,
+              headers: {
+                Authorization: authHeader,
+              },
+            },
           },
         },
       },
-    },
-    null,
-    2,
-  );
+      null,
+      2,
+    );
+  } else if (platform === "goose") {
+    snippetText = gooseHostedProxyYaml(shortName, routingToken, authHeader);
+  } else if (platform === "gemini-cli") {
+    snippetText = JSON.stringify(
+      {
+        mcpServers: {
+          [shortName]: {
+            httpUrl: routingToken,
+            headers: {
+              Authorization: authHeader,
+            },
+          },
+        },
+      },
+      null,
+      2,
+    );
+  } else {
+    const urlKey = platform === "windsurf" ? "serverUrl" : "url";
+    snippetText = JSON.stringify(
+      {
+        mcpServers: {
+          [shortName]: {
+            [urlKey]: routingToken,
+            headers: {
+              Authorization: authHeader,
+            },
+          },
+        },
+      },
+      null,
+      2,
+    );
+  }
 
   if (platform === "openclaw") {
     process.stderr.write("\n" + style.dim("Add this to your OpenClaw agent config:") + "\n\n");
@@ -1446,11 +1561,41 @@ function printPlatformSnippet(
         ) +
         "\n\n",
     );
+  } else if (platform === "kilo-code") {
+    process.stderr.write(
+      "\n" + style.dim("Add this to .kilocode/mcp.json in your project root.") + "\n\n",
+    );
+  } else if (platform === "github-copilot") {
+    process.stderr.write(
+      "\n" +
+        style.dim(
+          "Open VS Code Settings (JSON) and merge this under the mcp key. If you do not have an mcp section yet, add one. Copilot picks up MCP servers when you use Agent mode.",
+        ) +
+        "\n\n",
+    );
+  } else if (platform === "continue-dev") {
+    process.stderr.write(
+      "\n" +
+        style.dim("Save this as .continue/mcpServers/shield.json in your workspace root.") +
+        "\n\n",
+    );
+  } else if (platform === "goose") {
+    process.stderr.write(
+      "\n" +
+        style.dim("Add this to ~/.config/goose/config.yaml under the extensions key.") +
+        "\n\n",
+    );
+  } else if (platform === "aider") {
+    process.stderr.write(
+      "\n" +
+        style.dim("Save this as ~/.aider/mcp.json (create the directory if it does not exist).") +
+        "\n\n",
+    );
   } else {
     process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
   }
 
-  process.stderr.write(style.cyan(mcpSnippet) + "\n\n");
+  process.stderr.write(style.cyan(snippetText) + "\n\n");
   if (!usesInlineKey) {
     process.stderr.write(
       style.dim(
@@ -1491,6 +1636,16 @@ function printPlatformSnippet(
         "Open the Cascade panel and verify the server appears with a green status indicator.",
       ) + "\n",
     );
+  }
+
+  if (platform === "github-copilot" || platform === "continue-dev" || platform === "aider") {
+    process.stderr.write(
+      style.dim("Reload the editor window if the MCP server does not appear immediately.") + "\n",
+    );
+  }
+
+  if (platform === "goose") {
+    process.stderr.write(style.dim("Start a new Goose session after updating config.") + "\n");
   }
 }
 
@@ -1624,10 +1779,10 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     let postSaveNativeSkipNote: string | null = null;
     const selection = await promptPlatformSelection(ask);
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
-    const selectedLabel = PLATFORM_LABELS[selection - 1] ?? "Cursor";
+    const selectedLabel = platformMenuLabelForSelection(selection);
 
-    // Option 8: Local MCP / Other - minimal config, no agent name, no target URL.
-    if (selection === 8) {
+    // Local MCP / Other - minimal config, no agent name, no target URL.
+    if (selectedPlatform === "other-mcp") {
       const raw =
         existing !== null
           ? { ...(existing as unknown as Record<string, unknown>) }
@@ -1687,7 +1842,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
 
     let setupSucceeded = false;
 
-    if (selection === 1) {
+    if (selectedPlatform === "openclaw") {
       let detection: OpenClawDetection;
       try {
         detection = await detectOpenClaw();
@@ -1771,7 +1926,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         agentName,
       });
       setupSucceeded = true;
-    } else if (selection === 2) {
+    } else if (selectedPlatform === "claude-code") {
       process.stderr.write("\nTo connect Claude Code to Shield:\n\n");
       process.stderr.write(
         "  " +
@@ -1799,7 +1954,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         agentName,
       });
       setupSucceeded = true;
-    } else if (selection === 4) {
+    } else if (selectedPlatform === "windsurf") {
       const windsurfMode = await promptWindsurfIntegrationMode(ask);
       if (windsurfMode === "native") {
         try {
@@ -1893,7 +2048,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           setupSucceeded = true;
         }
       }
-    } else if (selection === 7) {
+    } else if (selectedPlatform === "gemini-cli") {
       const geminiMode = await promptGeminiCliIntegrationMode(ask);
       if (geminiMode === "native") {
         try {
@@ -1980,7 +2135,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           setupSucceeded = true;
         }
       }
-    } else if (selection === 5) {
+    } else if (selectedPlatform === "cline") {
       const clineMode = await promptClineIntegrationMode(ask);
       if (clineMode === "native") {
         try {
@@ -2162,7 +2317,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
     // Next steps grouped by platform.
-    // No block for other-mcp: the option 8 branch already prints a "Try it"
+    // No block for other-mcp: the option 13 branch already prints a "Try it"
     // message with the correct --wrap command inside the configuring loop.
     const blocks: string[] = [];
 
@@ -2212,6 +2367,66 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.cyan("~/.cursor/mcp.json") +
           " and paste the config snippet shown above\n" +
           "  3. Restart Cursor (or launch it for the first time) to load the new MCP server\n",
+      );
+    }
+    if (configuredPlatforms.has("kilo-code")) {
+      blocks.push(
+        "\n" +
+          style.bold("To complete your Kilo Code setup:") +
+          "\n" +
+          "  1. Save the snippet to " +
+          style.cyan(".kilocode/mcp.json") +
+          " in your project root, or under the mcp key in " +
+          style.cyan("kilo.jsonc") +
+          "\n" +
+          "  2. Run your next task in Kilo Code so it picks up the MCP server\n",
+      );
+    }
+    if (configuredPlatforms.has("github-copilot")) {
+      blocks.push(
+        "\n" +
+          style.bold("GitHub Copilot MCP:") +
+          "\n" +
+          "  1. Open VS Code Command Palette: Preferences: Open User Settings (JSON)\n" +
+          "  2. Merge the snippet under the " +
+          style.cyan("mcp") +
+          " key and save\n" +
+          "  3. Use Copilot Agent mode and verify the MCP server connects\n",
+      );
+    }
+    if (configuredPlatforms.has("continue-dev")) {
+      blocks.push(
+        "\n" +
+          style.bold("Continue MCP:") +
+          "\n" +
+          "  1. Save JSON as " +
+          style.cyan(".continue/mcpServers/shield.json") +
+          " in your workspace, or add to " +
+          style.cyan("~/.continue/config.yaml") +
+          "\n" +
+          "  2. Reload VS Code and open Continue agent mode\n",
+      );
+    }
+    if (configuredPlatforms.has("goose")) {
+      blocks.push(
+        "\n" +
+          style.bold("Goose MCP extension:") +
+          "\n" +
+          "  1. Edit " +
+          style.cyan("~/.config/goose/config.yaml") +
+          " (or use goose configure)\n" +
+          "  2. Restart Goose CLI or Desktop\n",
+      );
+    }
+    if (configuredPlatforms.has("aider")) {
+      blocks.push(
+        "\n" +
+          style.bold("Aider MCP:") +
+          "\n" +
+          "  1. Save snippet to " +
+          style.cyan("~/.aider/mcp.json") +
+          "\n" +
+          "  2. Restart Aider (or pass --mcp-config with your file path)\n",
       );
     }
     const windsurfNativeConfigured = configuredAgents.some(
