@@ -127,6 +127,47 @@ export async function findAgentByName(
   return { id: match.id, name: match.name, scopes: [] };
 }
 
+/**
+ * Lists all agents for the signed-in account (same GET as API key validation).
+ * Used by `init` to detect agents that exist in the dashboard but are not yet in ~/.multicorn/config.json.
+ */
+export async function fetchRemoteAgentsSummaries(
+  apiKey: string,
+  baseUrl: string,
+): Promise<readonly { name: string; platform: string | null }[]> {
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/v1/agents`, {
+      headers: { "X-Multicorn-Key": apiKey },
+      signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    return [];
+  }
+  if (!response.ok) return [];
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return [];
+  }
+  if (!isApiSuccessResponse(body)) return [];
+  const agents = body.data;
+  if (!Array.isArray(agents)) return [];
+  const out: { name: string; platform: string | null }[] = [];
+  for (const a of agents) {
+    if (typeof a !== "object" || a === null) continue;
+    const o = a as Record<string, unknown>;
+    const rawName = o["name"];
+    if (typeof rawName !== "string" || rawName.length === 0) continue;
+    const plat = o["platform"];
+    const platform =
+      plat === null || plat === undefined ? null : typeof plat === "string" ? plat : null;
+    out.push({ name: rawName, platform });
+  }
+  return out;
+}
+
 export async function registerAgent(
   agentName: string,
   apiKey: string,

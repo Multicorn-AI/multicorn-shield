@@ -9,11 +9,12 @@
 
 import { existsSync, statSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 
+import { fetchRemoteAgentsSummaries } from "./consent.js";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -102,6 +103,8 @@ export type OpenClawUpdateResult = "updated" | "not-found" | "parse-error";
 export interface AgentEntry {
   readonly name: string;
   readonly platform: string;
+  /** Directory where `init` was run; used to pick the right agent when multiple share a platform. */
+  readonly workspacePath?: string;
 }
 
 export interface ProxyConfig {
@@ -174,16 +177,58 @@ function isProxyConfig(value: unknown): value is ProxyConfig {
 function isAgentEntry(value: unknown): value is AgentEntry {
   if (typeof value !== "object" || value === null) return false;
   const o = value as Record<string, unknown>;
-  return typeof o["name"] === "string" && typeof o["platform"] === "string";
+  if (typeof o["name"] !== "string" || typeof o["platform"] !== "string") return false;
+  if (o["workspacePath"] !== undefined && typeof o["workspacePath"] !== "string") return false;
+  return true;
 }
 
 /**
- * Returns the first agent whose platform matches (e.g. "claude-code", "openclaw").
+ * True when `cwdResolved` (already `resolve()`d by the caller) equals `workspacePath` resolved,
+ * or lies under it as a subdirectory. `workspacePath` is normalized here.
  */
-export function getAgentByPlatform(config: ProxyConfig, platform: string): AgentEntry | undefined {
+export function cwdUnderWorkspacePath(cwdResolved: string, workspacePath: string): boolean {
+  const w = resolve(workspacePath);
+  if (cwdResolved === w) return true;
+  const prefix = w.endsWith(sep) ? w : w + sep;
+  return cwdResolved.startsWith(prefix);
+}
+
+/**
+ * Returns an agent for the platform. When `cwd` is set, prefers entries whose `workspacePath`
+ * contains the current working directory (longest match wins). Falls back to the first platform match
+ * when no `workspacePath` fits (backwards compatible).
+ */
+export function getAgentByPlatform(
+  config: ProxyConfig,
+  platform: string,
+  cwd?: string,
+): AgentEntry | undefined {
   const list = config.agents;
   if (list === undefined || list.length === 0) return undefined;
-  return list.find((a) => a.platform === platform);
+  const matches = list.filter((a) => a.platform === platform);
+  if (matches.length === 0) return undefined;
+  if (cwd === undefined || cwd.length === 0) return matches[0];
+
+  const resolvedCwd = resolve(cwd);
+  const withPath = matches.filter(
+    (a) => typeof a.workspacePath === "string" && a.workspacePath.length > 0,
+  );
+  if (withPath.length === 0) return matches[0];
+
+  let best: AgentEntry | undefined;
+  let bestLen = -1;
+  for (const a of withPath) {
+    const ws = a.workspacePath;
+    if (typeof ws !== "string" || ws.length === 0) continue;
+    if (!cwdUnderWorkspacePath(resolvedCwd, ws)) continue;
+    const len = resolve(ws).length;
+    if (len > bestLen) {
+      bestLen = len;
+      best = a;
+    }
+  }
+  if (best !== undefined) return best;
+  return matches[0];
 }
 
 /**
@@ -206,7 +251,13 @@ export function getDefaultAgent(config: ProxyConfig): AgentEntry | undefined {
 export function collectAgentsFromConfig(cfg: ProxyConfig | null): AgentEntry[] {
   if (cfg === null) return [];
   if (cfg.agents !== undefined && cfg.agents.length > 0) {
-    return cfg.agents.map((a) => ({ name: a.name, platform: a.platform }));
+    return cfg.agents.map((a) => {
+      const e: AgentEntry = { name: a.name, platform: a.platform };
+      if (typeof a.workspacePath === "string" && a.workspacePath.length > 0) {
+        return { ...e, workspacePath: a.workspacePath };
+      }
+      return e;
+    });
   }
   const raw = cfg as unknown as Record<string, unknown>;
   const legacyName = raw["agentName"];
@@ -1304,20 +1355,6 @@ function isPlatformDetectedForMenu(slug: string): Promise<boolean> {
   }
 }
 
-const DEFAULT_AGENT_NAMES: Record<string, string> = {
-  openclaw: "my-openclaw-agent",
-  "claude-code": "my-claude-code-agent",
-  cursor: "my-cursor-agent",
-  windsurf: "my-windsurf-agent",
-  cline: "my-cline-agent",
-  "claude-desktop": "my-claude-desktop-agent",
-  "gemini-cli": "my-gemini-cli-agent",
-  "kilo-code": "my-kilo-code-agent",
-  "github-copilot": "my-github-copilot-agent",
-  "continue-dev": "my-continue-agent",
-  goose: "my-goose-agent",
-};
-
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
   process.stderr.write(
     "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n\n",
@@ -1390,8 +1427,97 @@ async function promptWindsurfIntegrationMode(ask: AskFn): Promise<"native" | "ho
   return choice === 1 ? "native" : "hosted";
 }
 
+/**
+ * Arrow-key single-select prompt rendered to stderr. Returns the 0-based index of the selected option.
+ * Falls back to a numbered text prompt when stdin is not a TTY (piped input / tests).
+ */
+async function arrowSelect(
+  options: readonly string[],
+  ask: AskFn,
+  fallbackLabel?: string,
+): Promise<number> {
+  const canRaw = process.stdin.isTTY && typeof process.stdin.setRawMode === "function";
+  if (!canRaw) {
+    for (let i = 0; i < options.length; i++) {
+      const optLine = options.at(i) ?? "";
+      process.stderr.write(`  ${style.violet(String(i + 1))}. ${optLine}\n`);
+    }
+    const label = fallbackLabel ?? "Choose";
+    let sel = -1;
+    while (sel < 0) {
+      const input = await ask(`${label} (1-${String(options.length)}): `);
+      const n = parseInt(input.trim(), 10);
+      if (n >= 1 && n <= options.length) sel = n - 1;
+    }
+    return sel;
+  }
+
+  let idx = 0;
+
+  function render(): void {
+    for (let i = 0; i < options.length; i++) {
+      const opt = options.at(i);
+      if (opt === undefined) continue;
+      const prefix = i === idx ? style.violet("❯") : " ";
+      const label = i === idx ? style.cyan(opt) : opt;
+      process.stderr.write(`${prefix} ${label}\n`);
+    }
+  }
+
+  function clearLines(): void {
+    for (let n = options.length; n > 0; n -= 1) {
+      process.stderr.write("\x1b[1A\x1b[2K");
+    }
+  }
+
+  process.stderr.write("\n");
+  render();
+
+  return new Promise<number>((resolvePromise) => {
+    const wasRaw = process.stdin.isRaw;
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+
+    function onData(buf: Buffer): void {
+      const s = buf.toString("utf8");
+      if (s === "\x1b[A" || s === "k") {
+        idx = (idx - 1 + options.length) % options.length;
+        clearLines();
+        render();
+      } else if (s === "\x1b[B" || s === "j") {
+        idx = (idx + 1) % options.length;
+        clearLines();
+        render();
+      } else if (s === "\r" || s === "\n") {
+        cleanup();
+        clearLines();
+        const chosen = options.at(idx);
+        if (chosen !== undefined) {
+          process.stderr.write(`${style.violet("❯")} ${style.cyan(chosen)}\n`);
+        }
+        resolvePromise(idx);
+      } else if (s === "\x03") {
+        cleanup();
+        process.exit(130);
+      }
+    }
+
+    function cleanup(): void {
+      process.stdin.removeListener("data", onData);
+      process.stdin.setRawMode(wasRaw);
+    }
+
+    process.stdin.on("data", onData);
+  });
+}
+
 async function promptAgentName(ask: AskFn, platform: string): Promise<string> {
-  const defaultAgentName = DEFAULT_AGENT_NAMES[platform] ?? "my-agent";
+  /** `platform` is the API slug (e.g. cursor, github-copilot), not a human label. */
+  const dirPart = normalizeAgentName(basename(process.cwd()));
+  const defaultAgentName =
+    dirPart.length > 0
+      ? normalizeAgentName(`${dirPart}-${platform}`) || platform
+      : normalizeAgentName(platform) || platform;
 
   let agentName = "";
   while (agentName.length === 0) {
@@ -1708,6 +1834,27 @@ function printPlatformSnippet(
   }
 }
 
+/**
+ * Merges `~/.multicorn/config.json` entries with GET /api/v1/agents so the wizard sees
+ * dashboard-registered agents that were never written to disk.
+ */
+function mergeAgentsForPlatform(
+  localAgents: readonly AgentEntry[],
+  remoteAgents: readonly { name: string; platform: string | null }[],
+  selectedPlatform: string,
+): AgentEntry[] {
+  const localMatches = localAgents.filter((a) => a.platform === selectedPlatform);
+  const seen = new Set(localMatches.map((a) => a.name));
+  const out: AgentEntry[] = localMatches.map((a) => ({ ...a }));
+  for (const r of remoteAgents) {
+    if (r.platform !== selectedPlatform) continue;
+    if (seen.has(r.name)) continue;
+    seen.add(r.name);
+    out.push({ name: r.name, platform: selectedPlatform });
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Main init
 // ---------------------------------------------------------------------------
@@ -1836,6 +1983,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
   let configuring = true;
   while (configuring) {
     let postSaveNativeSkipNote: string | null = null;
+    let removeAgentNameBeforeSave: string | undefined = undefined;
+    const initWorkspacePath = resolve(process.cwd());
     const selection = await promptPlatformSelection(ask);
     const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
     const selectedLabel = platformMenuLabelForSelection(selection);
@@ -1882,18 +2031,95 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       continue;
     }
 
-    const existingForPlatform = currentAgents.find((a) => a.platform === selectedPlatform);
-    if (existingForPlatform !== undefined) {
-      process.stderr.write(
-        `\nAn agent for ${selectedLabel} already exists: ${style.cyan(existingForPlatform.name)}\n`,
+    const remoteAccountAgents = await fetchRemoteAgentsSummaries(apiKey, resolvedBaseUrl);
+
+    const agentsForPlatform = mergeAgentsForPlatform(
+      currentAgents,
+      remoteAccountAgents,
+      selectedPlatform,
+    );
+
+    const localForPlatformCount = currentAgents.filter(
+      (a) => a.platform === selectedPlatform,
+    ).length;
+    const accountForPlatformCount = remoteAccountAgents.filter(
+      (r) => r.platform === selectedPlatform,
+    ).length;
+    const savedSummary =
+      currentAgents.length === 0
+        ? "none on disk"
+        : currentAgents.map((a) => `${a.name} (${a.platform})`).join(", ");
+    process.stderr.write(
+      style.dim(
+        `[shield init] Menu option ${String(selection)} -> platform slug "${selectedPlatform}". ` +
+          `${String(agentsForPlatform.length)} agent(s) for this platform ` +
+          `(local file: ${String(localForPlatformCount)}, account API: ${String(accountForPlatformCount)}). ` +
+          `On-disk entries: ${savedSummary}.`,
+      ) + "\n",
+    );
+
+    if (agentsForPlatform.length > 0) {
+      const exactForWorkspace = agentsForPlatform.find(
+        (a) =>
+          typeof a.workspacePath === "string" &&
+          a.workspacePath.length > 0 &&
+          resolve(a.workspacePath) === initWorkspacePath,
       );
-      const replace = await ask("Replace it? (Y/n) ");
-      if (replace.trim().toLowerCase() === "n") {
-        const another = await ask("\nConnect another agent? (Y/n) ");
-        if (another.trim().toLowerCase() === "n") {
-          configuring = false;
+
+      if (exactForWorkspace !== undefined) {
+        process.stderr.write(
+          `\nThis workspace already has a ${selectedLabel} agent registered (${style.cyan(
+            exactForWorkspace.name,
+          )}).\n`,
+        );
+        process.stderr.write(
+          style.dim(
+            "Replace updates this directory's saved agent. (n) returns to platform selection — the wizard keeps running.",
+          ) + "\n",
+        );
+        const replace = await ask("Replace it? (Y/n) ");
+        if (replace.trim().toLowerCase() === "n") {
+          process.stderr.write(style.dim("Skipping. Returning to platform selection.") + "\n");
+          continue;
         }
-        continue;
+        removeAgentNameBeforeSave = exactForWorkspace.name;
+      } else {
+        process.stderr.write(
+          `\nYou have ${String(agentsForPlatform.length)} agent(s) connected for ${selectedLabel}:\n`,
+        );
+        for (const a of agentsForPlatform) {
+          const wsHint =
+            typeof a.workspacePath === "string" && a.workspacePath.length > 0
+              ? `  ${style.dim(a.workspacePath)}`
+              : "";
+          process.stderr.write(`  ${style.dim("•")} ${style.cyan(a.name)}${wsHint}\n`);
+        }
+
+        process.stderr.write("\n" + style.bold("What would you like to do?") + "\n");
+        const actionIdx = await arrowSelect(
+          [
+            "Add a new agent alongside these",
+            "Replace an existing agent",
+            "Skip — choose a different platform",
+          ],
+          ask,
+          "Action",
+        );
+        if (actionIdx === 2) {
+          continue;
+        }
+        if (actionIdx === 1) {
+          process.stderr.write("\n" + style.bold("Which agent to replace?") + "\n");
+          const replaceIdx = await arrowSelect(
+            agentsForPlatform.map((a) => a.name),
+            ask,
+            "Agent",
+          );
+          const victim = agentsForPlatform[replaceIdx];
+          if (victim !== undefined) {
+            removeAgentNameBeforeSave = victim.name;
+          }
+        }
       }
     }
 
@@ -2339,8 +2565,14 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     }
 
     if (setupSucceeded) {
-      currentAgents = currentAgents.filter((a) => a.platform !== selectedPlatform);
-      currentAgents.push({ name: agentName, platform: selectedPlatform });
+      if (removeAgentNameBeforeSave !== undefined) {
+        currentAgents = currentAgents.filter((a) => a.name !== removeAgentNameBeforeSave);
+      }
+      currentAgents.push({
+        name: agentName,
+        platform: selectedPlatform,
+        workspacePath: initWorkspacePath,
+      });
       const raw =
         existing !== null
           ? { ...(existing as unknown as Record<string, unknown>) }

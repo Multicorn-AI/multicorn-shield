@@ -53,21 +53,58 @@ function readStdin() {
  * @param {Record<string, unknown>} obj
  * @returns {string}
  */
-function resolveClineAgentName(obj) {
+function cwdUnderWorkspacePath(cwdResolved, workspacePath) {
+  const w = path.resolve(workspacePath);
+  if (cwdResolved === w) return true;
+  const prefix = w.endsWith(path.sep) ? w : w + path.sep;
+  return cwdResolved.startsWith(prefix);
+}
+
+function pickAgentNameForPlatform(obj, platform, cwd) {
   const agents = obj.agents;
-  if (Array.isArray(agents)) {
-    for (const entry of agents) {
-      if (
-        entry &&
-        typeof entry === "object" &&
-        /** @type {{ platform?: string; name?: string }} */ (entry).platform === "cline" &&
-        typeof (/** @type {{ platform?: string; name?: string }} */ (entry).name) === "string"
-      ) {
-        return /** @type {{ name: string }} */ (entry).name;
-      }
+  if (!Array.isArray(agents)) {
+    return typeof obj.agentName === "string" ? obj.agentName : "";
+  }
+  const matches = [];
+  for (const entry of agents) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      /** @type {{ platform?: string; name?: string; workspacePath?: string }} */ (entry)
+        .platform === platform &&
+      typeof (/** @type {{ platform?: string; name?: string }} */ (entry).name) === "string"
+    ) {
+      matches.push(/** @type {{ name: string; workspacePath?: string }} */ (entry));
     }
   }
-  return typeof obj.agentName === "string" ? obj.agentName : "";
+  if (matches.length === 0) {
+    return typeof obj.agentName === "string" ? obj.agentName : "";
+  }
+  const withWs = matches.filter(
+    (m) => typeof m.workspacePath === "string" && m.workspacePath.length > 0,
+  );
+  if (withWs.length === 0) {
+    return matches[0].name;
+  }
+  const resolvedCwd = path.resolve(cwd);
+  let best = null;
+  let bestLen = -1;
+  for (const m of withWs) {
+    if (!cwdUnderWorkspacePath(resolvedCwd, m.workspacePath)) continue;
+    const len = path.resolve(m.workspacePath).length;
+    if (len > bestLen) {
+      bestLen = len;
+      best = m;
+    }
+  }
+  if (best !== null) {
+    return best.name;
+  }
+  return matches[0].name;
+}
+
+function resolveClineAgentName(obj) {
+  return pickAgentNameForPlatform(obj, "cline", process.cwd());
 }
 
 /**

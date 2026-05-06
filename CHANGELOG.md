@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-06
+
+### Added
+
+- Agents now remember which project directory they were set up in - running `init` from different repos creates separate agents on the same platform (e.g. one Cursor agent per project)
+- When a platform already has agents registered, the wizard offers to replace a specific one, add a new agent alongside them, or skip to another platform
+- If the current directory already has an agent for the selected platform, the wizard detects it and offers a targeted replace prompt
+- Default agent names now include the project folder (e.g. `multicorn-dashboard-cursor` instead of `cursor`)
+
+### Changed
+
+- Agent resolution now picks the most specific workspace match when multiple agents share a platform - falls back to the original behaviour for existing setups
+- Native hook scripts (Cline, Claude Code, Windsurf, Gemini CLI) use workspace-aware agent resolution
+- Replacing an agent no longer removes all agents for that platform - only the specific one being replaced
+
 ## [1.1.0] - 2026-05-06
 
 ### Added

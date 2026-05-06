@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   loadConfig,
@@ -7,6 +8,7 @@ import {
   getAgentByPlatform,
   getDefaultAgent,
   collectAgentsFromConfig,
+  cwdUnderWorkspacePath,
   type ProxyConfig,
 } from "./config.js";
 
@@ -237,6 +239,44 @@ describe("getAgentByPlatform", () => {
   it("returns undefined when no platform matches", () => {
     expect(getAgentByPlatform(sample, "cursor")).toBeUndefined();
   });
+
+  it("prefers the longest workspace path that contains cwd", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [
+        { name: "parent", platform: "cline", workspacePath: "/projects/foo" },
+        { name: "child", platform: "cline", workspacePath: "/projects/foo/bar" },
+      ],
+    };
+    expect(getAgentByPlatform(cfg, "cline", "/projects/foo/bar/baz")?.name).toBe("child");
+  });
+
+  it("falls back to the first platform match when cwd fits no workspacePath", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [
+        { name: "first", platform: "cline" },
+        { name: "second", platform: "cline", workspacePath: "/other" },
+      ],
+    };
+    expect(getAgentByPlatform(cfg, "cline", "/unrelated/path")?.name).toBe("first");
+  });
+});
+
+describe("cwdUnderWorkspacePath", () => {
+  it("is true for the same resolved path", () => {
+    expect(cwdUnderWorkspacePath(resolve("/a/b"), "/a/b")).toBe(true);
+  });
+
+  it("is true when cwd is a subdirectory of workspace", () => {
+    expect(cwdUnderWorkspacePath(resolve("/a/b/c"), "/a/b")).toBe(true);
+  });
+
+  it("is false when cwd is outside workspace", () => {
+    expect(cwdUnderWorkspacePath(resolve("/a/c"), "/a/b")).toBe(false);
+  });
 });
 
 describe("getDefaultAgent", () => {
@@ -285,6 +325,17 @@ describe("collectAgentsFromConfig", () => {
       agents: [{ name: "x", platform: "p" }],
     };
     expect(collectAgentsFromConfig(cfg)).toEqual([{ name: "x", platform: "p" }]);
+  });
+
+  it("preserves workspacePath when present", () => {
+    const cfg: ProxyConfig = {
+      apiKey: "k",
+      baseUrl: "https://api.multicorn.ai",
+      agents: [{ name: "x", platform: "p", workspacePath: "/tmp/ws" }],
+    };
+    expect(collectAgentsFromConfig(cfg)).toEqual([
+      { name: "x", platform: "p", workspacePath: "/tmp/ws" },
+    ]);
   });
 
   it("falls back to legacy agentName and platform", () => {
