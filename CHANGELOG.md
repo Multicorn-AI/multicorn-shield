@@ -32,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Proxy ALLOW_PRIVATE_TARGETS env var not bypassing localhost validation
-- Goose prereq URL updated (moved from Block to AAIF)
+- Goose prereq URL updated (moved from Block to the Agentic AI Foundation (AAIF))
 - Continue prereq URL updated
 - ProxySetup form input contrast (WCAG AA fix)
 - Governance disclosure now lists all four native plugin platforms

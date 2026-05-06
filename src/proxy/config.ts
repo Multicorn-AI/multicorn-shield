@@ -123,7 +123,7 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
-  /** Menu index: 1..PLATFORM_SELECTION_MAX (matches `promptPlatformSelection`). */
+  /** Menu index: 1..INIT_WIZARD_SELECTION_MAX (matches `promptPlatformSelection`). */
   readonly selection: number;
   /** Agent platform slug sent to the Shield API (e.g. `cursor`, `github-copilot`). */
   readonly platform: string;
@@ -1169,101 +1169,114 @@ export async function updateClaudeDesktopConfig(
 // Init flow - extracted helpers
 // ---------------------------------------------------------------------------
 
-/** Init wizard menu: two labelled sections, continuous numbering 1..N. */
-const PLATFORM_MENU_SECTIONS: readonly {
-  readonly title: string;
-  readonly items: readonly { readonly platform: string; readonly label: string }[];
-}[] = [
+export type InitWizardPlatformSection = "native" | "hosted";
+
+/** Single source of truth for `npx multicorn-shield init` platform menu and prereqs. */
+export interface InitWizardPlatformEntry {
+  readonly slug: string;
+  readonly displayName: string;
+  readonly section: InitWizardPlatformSection;
+  /** Install doc URL; omit when no prereq step before the agent name prompt. */
+  readonly prereqUrl?: string;
+  /** When true, participate in local detection markers (order follows this registry). */
+  readonly detectable: boolean;
+}
+
+export const INIT_WIZARD_PLATFORM_REGISTRY: readonly InitWizardPlatformEntry[] = [
+  { slug: "openclaw", displayName: "OpenClaw", section: "native", detectable: true },
+  { slug: "claude-code", displayName: "Claude Code", section: "native", detectable: true },
+  { slug: "windsurf", displayName: "Windsurf", section: "native", detectable: true },
+  { slug: "cline", displayName: "Cline", section: "native", detectable: false },
+  { slug: "gemini-cli", displayName: "Gemini CLI", section: "native", detectable: false },
   {
-    title: "Recommended (native plugin)",
-    items: [
-      { platform: "openclaw", label: "OpenClaw" },
-      { platform: "claude-code", label: "Claude Code" },
-      { platform: "windsurf", label: "Windsurf" },
-      { platform: "cline", label: "Cline" },
-      { platform: "gemini-cli", label: "Gemini CLI" },
-    ],
+    slug: "cursor",
+    displayName: "Cursor",
+    section: "hosted",
+    prereqUrl: "https://www.cursor.com/downloads",
+    detectable: true,
   },
   {
-    title: "Hosted proxy (MCP only)",
-    items: [
-      { platform: "cursor", label: "Cursor" },
-      { platform: "claude-desktop", label: "Claude Desktop" },
-      { platform: "github-copilot", label: "GitHub Copilot" },
-      { platform: "kilo-code", label: "Kilo Code" },
-      { platform: "continue-dev", label: "Continue" },
-      { platform: "goose", label: "Goose" },
-      { platform: "other-mcp", label: "Local MCP / Other" },
-    ],
+    slug: "claude-desktop",
+    displayName: "Claude Desktop",
+    section: "hosted",
+    prereqUrl: "https://claude.ai/download",
+    detectable: false,
   },
+  {
+    slug: "github-copilot",
+    displayName: "GitHub Copilot",
+    section: "hosted",
+    prereqUrl: "https://docs.github.com/en/copilot/get-started",
+    detectable: false,
+  },
+  {
+    slug: "kilo-code",
+    displayName: "Kilo Code",
+    section: "hosted",
+    prereqUrl: "https://kilocode.ai/docs/getting-started",
+    detectable: false,
+  },
+  {
+    slug: "continue-dev",
+    displayName: "Continue",
+    section: "hosted",
+    prereqUrl: "https://docs.continue.dev/ide-extensions/install",
+    detectable: false,
+  },
+  {
+    slug: "goose",
+    displayName: "Goose",
+    section: "hosted",
+    prereqUrl: "https://goose-docs.ai/docs/quickstart/",
+    detectable: false,
+  },
+  { slug: "other-mcp", displayName: "Local MCP / Other", section: "hosted", detectable: false },
 ];
 
-const PLATFORM_SELECTION_MAX: number = PLATFORM_MENU_SECTIONS.reduce(
-  (n, sec) => n + sec.items.length,
-  0,
-);
-
-const PLATFORM_BY_SELECTION: Record<number, string> = (() => {
-  const m: Record<number, string> = {};
-  let i = 1;
-  for (const sec of PLATFORM_MENU_SECTIONS) {
-    for (const it of sec.items) {
-      m[i++] = it.platform;
-    }
-  }
-  return m;
+const INIT_WIZARD_MENU_SECTIONS: readonly {
+  readonly title: string;
+  readonly items: readonly { readonly platform: string; readonly label: string }[];
+}[] = (() => {
+  const itemsFor = (
+    section: InitWizardPlatformSection,
+  ): readonly { readonly platform: string; readonly label: string }[] =>
+    INIT_WIZARD_PLATFORM_REGISTRY.filter((e) => e.section === section).map((e) => ({
+      platform: e.slug,
+      label: e.displayName,
+    }));
+  return [
+    { title: "Recommended (native plugin)", items: itemsFor("native") },
+    { title: "Hosted proxy (MCP only)", items: itemsFor("hosted") },
+  ];
 })();
+
+const INIT_WIZARD_SELECTION_MAX: number = INIT_WIZARD_PLATFORM_REGISTRY.length;
+
+const PLATFORM_BY_SELECTION: Record<number, string> = Object.fromEntries(
+  INIT_WIZARD_PLATFORM_REGISTRY.map((e, i) => [i + 1, e.slug]),
+) as Record<number, string>;
+
+/** 1-based menu index for tests and tooling (matches `promptPlatformSelection`). */
+export function initWizardSelectionNumberForSlug(slug: string): number {
+  const i = INIT_WIZARD_PLATFORM_REGISTRY.findIndex((e) => e.slug === slug);
+  if (i === -1) {
+    throw new Error(`Unknown init wizard platform slug: ${slug}`);
+  }
+  return i + 1;
+}
 
 function platformMenuLabelForSelection(sel: number): string {
   const slug = PLATFORM_BY_SELECTION[sel];
   if (slug === undefined) return "Unknown";
-  for (const sec of PLATFORM_MENU_SECTIONS) {
-    const item = sec.items.find((it) => it.platform === slug);
-    if (item !== undefined) return item.label;
-  }
-  return slug;
-}
-
-/**
- * Hosted menu platforms that show an install reminder before the agent name prompt.
- * URLs match dashboard `hosted-proxy-wizard.ts` hostedPrereqDocsUrl (keep in sync).
- */
-const HOSTED_PROXY_PREREQ_PLATFORMS: ReadonlySet<string> = new Set([
-  "cursor",
-  "claude-desktop",
-  "github-copilot",
-  "kilo-code",
-  "continue-dev",
-  "goose",
-]);
-
-function hostedProxyPrereqDocsUrl(platform: string): string | null {
-  switch (platform) {
-    case "cursor":
-      return "https://www.cursor.com/downloads";
-    case "claude-desktop":
-      return "https://claude.ai/download";
-    case "github-copilot":
-      return "https://docs.github.com/en/copilot/get-started";
-    case "kilo-code":
-      return "https://kilocode.ai/docs/getting-started";
-    case "continue-dev":
-      return "https://docs.continue.dev/ide-extensions/install";
-    case "goose":
-      return "https://goose-docs.ai/docs/quickstart/";
-    default:
-      return null;
-  }
+  const entry = INIT_WIZARD_PLATFORM_REGISTRY.find((e) => e.slug === slug);
+  return entry?.displayName ?? slug;
 }
 
 async function promptHostedProxyInstallPrereq(
   ask: AskFn,
   platformLabel: string,
-  platform: string,
+  prereqUrl: string,
 ): Promise<boolean> {
-  const url = hostedProxyPrereqDocsUrl(platform);
-  if (url === null) return true;
-
   process.stderr.write("\n");
   process.stderr.write(
     style.bold("Before continuing, make sure you have ") +
@@ -1271,9 +1284,24 @@ async function promptHostedProxyInstallPrereq(
       style.bold(" installed.") +
       "\n",
   );
-  process.stderr.write("  → " + style.cyan(url) + "\n\n");
+  process.stderr.write("  → " + style.cyan(prereqUrl) + "\n\n");
   const answer = await ask("Ready to continue? (Y/n) ");
   return answer.trim().toLowerCase() !== "n";
+}
+
+function isPlatformDetectedForMenu(slug: string): Promise<boolean> {
+  switch (slug) {
+    case "openclaw":
+      return isOpenClawConnected();
+    case "claude-code":
+      return Promise.resolve(isClaudeCodeConnected());
+    case "cursor":
+      return isCursorConnected();
+    case "windsurf":
+      return isWindsurfConnected();
+    default:
+      return Promise.resolve(false);
+  }
 }
 
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
@@ -1295,28 +1323,22 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n\n",
   );
 
-  const connectedFlags = [
-    await isOpenClawConnected(),
-    isClaudeCodeConnected(),
-    await isCursorConnected(),
-    await isWindsurfConnected(),
-  ];
+  const detectionSlugs = INIT_WIZARD_PLATFORM_REGISTRY.filter((e) => e.detectable).map(
+    (e) => e.slug,
+  );
+  const connectedFlags = await Promise.all(
+    detectionSlugs.map((slug) => isPlatformDetectedForMenu(slug)),
+  );
 
   function markerFor(platform: string): string {
-    const detectionIndexByPlatform: Record<string, number> = {
-      openclaw: 0,
-      "claude-code": 1,
-      cursor: 2,
-      windsurf: 3,
-    };
-    const idx = detectionIndexByPlatform[platform];
-    if (idx === undefined) return "";
+    const idx = detectionSlugs.indexOf(platform);
+    if (idx === -1) return "";
     if (!connectedFlags[idx]) return "";
     return " " + style.dim("\u25CF detected locally");
   }
 
   let optionNum = 1;
-  for (const section of PLATFORM_MENU_SECTIONS) {
+  for (const section of INIT_WIZARD_MENU_SECTIONS) {
     process.stderr.write("  " + style.dim(section.title) + "\n");
     for (const item of section.items) {
       const indent = optionNum >= 10 ? "   " : "    ";
@@ -1330,16 +1352,16 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
   process.stderr.write(
     "\n" +
       style.dim(
-        `  Pick ${String(PLATFORM_SELECTION_MAX)} to wrap a local MCP server with multicorn-shield --wrap.`,
+        `  Pick ${String(INIT_WIZARD_SELECTION_MAX)} to wrap a local MCP server with multicorn-shield --wrap.`,
       ) +
       "\n",
   );
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask(`Select (1-${String(PLATFORM_SELECTION_MAX)}): `);
+    const input = await ask(`Select (1-${String(INIT_WIZARD_SELECTION_MAX)}): `);
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= PLATFORM_SELECTION_MAX) {
+    if (num >= 1 && num <= INIT_WIZARD_SELECTION_MAX) {
       selection = num;
     }
   }
@@ -1875,8 +1897,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       }
     }
 
-    if (HOSTED_PROXY_PREREQ_PLATFORMS.has(selectedPlatform)) {
-      const proceed = await promptHostedProxyInstallPrereq(ask, selectedLabel, selectedPlatform);
+    const prereqEntry = INIT_WIZARD_PLATFORM_REGISTRY.find((e) => e.slug === selectedPlatform);
+    if (prereqEntry?.prereqUrl !== undefined) {
+      const proceed = await promptHostedProxyInstallPrereq(
+        ask,
+        prereqEntry.displayName,
+        prereqEntry.prereqUrl,
+      );
       if (!proceed) {
         const another = await ask("\nConnect another agent? (Y/n) ");
         if (another.trim().toLowerCase() === "n") {
