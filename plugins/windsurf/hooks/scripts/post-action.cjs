@@ -66,8 +66,8 @@ function pickAgentNameForPlatform(obj, platform, cwd) {
     if (
       entry &&
       typeof entry === "object" &&
-      /** @type {{ platform?: string; name?: string; workspacePath?: string }} */ (entry).platform ===
-        platform &&
+      /** @type {{ platform?: string; name?: string; workspacePath?: string }} */ (entry)
+        .platform === platform &&
       typeof (/** @type {{ platform?: string; name?: string }} */ (entry).name) === "string"
     ) {
       matches.push(/** @type {{ name: string; workspacePath?: string }} */ (entry));
