@@ -388,7 +388,7 @@ function resolveWrapAgentName(cli: CliArgs, config: ProxyConfig): string {
   // After migration, config.platform is usually absent so this lookup falls through to getDefaultAgent. When --platform is added as a CLI flag, this becomes the primary resolution path.
   const platformKey =
     typeof legacyPlatform === "string" && legacyPlatform.length > 0 ? legacyPlatform : "other-mcp";
-  const fromPlatform = getAgentByPlatform(config, platformKey);
+  const fromPlatform = getAgentByPlatform(config, platformKey, process.cwd());
   if (fromPlatform !== undefined) {
     return fromPlatform.name;
   }

@@ -39,25 +39,74 @@ function readStdin() {
 
 // Duplicated in pre-tool-use.cjs because CJS hooks cannot import shared TypeScript modules. If you change this function, update the copy in pre-tool-use.cjs to match.
 /**
+ * @param {string} cwdResolved
+ * @param {string} workspacePath
+ * @returns {boolean}
+ */
+function cwdUnderWorkspacePath(cwdResolved, workspacePath) {
+  const w = path.resolve(workspacePath);
+  const c = path.resolve(cwdResolved);
+  if (c === w) return true;
+  const prefix = w.endsWith(path.sep) ? w : w + path.sep;
+  return c.startsWith(prefix);
+}
+
+/**
+ * @param {Record<string, unknown>} obj
+ * @param {string} platform
+ * @param {string} cwd
+ * @returns {string}
+ */
+function pickAgentNameForPlatform(obj, platform, cwd) {
+  const agents = obj.agents;
+  if (!Array.isArray(agents)) {
+    return typeof obj.agentName === "string" ? obj.agentName : "";
+  }
+  const matches = [];
+  for (const entry of agents) {
+    if (
+      entry &&
+      typeof entry === "object" &&
+      /** @type {{ platform?: string; name?: string; workspacePath?: string }} */ (entry).platform ===
+        platform &&
+      typeof (/** @type {{ platform?: string; name?: string }} */ (entry).name) === "string"
+    ) {
+      matches.push(/** @type {{ name: string; workspacePath?: string }} */ (entry));
+    }
+  }
+  if (matches.length === 0) {
+    return typeof obj.agentName === "string" ? obj.agentName : "";
+  }
+  const withWs = matches.filter(
+    (m) => typeof m.workspacePath === "string" && m.workspacePath.length > 0,
+  );
+  if (withWs.length === 0) {
+    return matches[0].name;
+  }
+  const resolvedCwd = path.resolve(cwd);
+  let best = null;
+  let bestLen = -1;
+  for (const m of withWs) {
+    if (!cwdUnderWorkspacePath(resolvedCwd, m.workspacePath)) continue;
+    const len = path.resolve(m.workspacePath).length;
+    if (len > bestLen) {
+      bestLen = len;
+      best = m;
+    }
+  }
+  if (best !== null) {
+    return best.name;
+  }
+  return matches[0].name;
+}
+
+/**
  * Returns the agent name for the Claude Code platform from the agents array, or falls back to the legacy agentName field.
  * @param {Record<string, unknown>} obj
  * @returns {string}
  */
 function resolveClaudeCodeAgentName(obj) {
-  const agents = obj.agents;
-  if (Array.isArray(agents)) {
-    for (const entry of agents) {
-      if (
-        entry &&
-        typeof entry === "object" &&
-        /** @type {{ platform?: string; name?: string }} */ (entry).platform === "claude-code" &&
-        typeof (/** @type {{ platform?: string; name?: string }} */ (entry).name) === "string"
-      ) {
-        return /** @type {{ name: string }} */ (entry).name;
-      }
-    }
-  }
-  return typeof obj.agentName === "string" ? obj.agentName : "";
+  return pickAgentNameForPlatform(obj, "claude-code", process.cwd());
 }
 
 /**

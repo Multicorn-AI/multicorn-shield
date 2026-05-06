@@ -1656,7 +1656,8 @@ describe("config file parsing", () => {
     mockPrompts({
       "Use this key": "y",
       Select: menuSel("openclaw"),
-      "Replace it?": "y",
+      Action: "2",
+      Agent: "1",
       "call this agent": "new-openclaw",
       "Connect another": "n",
     });
@@ -1669,6 +1670,129 @@ describe("config file parsing", () => {
     expect(config.agents?.[0]?.name).toBe("new-openclaw");
     expect(config.agents?.[0]?.platform).toBe("openclaw");
     expect(config.defaultAgent).toBe("new-openclaw");
+  });
+
+  it("runInit uses tier-1 replace prompt when workspacePath matches cwd", async () => {
+    const ws = "/tmp/multicorn-tier1-ws";
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(ws);
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) {
+        return Promise.resolve(
+          JSON.stringify({
+            apiKey: "mcs_existing_key1",
+            baseUrl: "https://api.multicorn.ai",
+            agents: [{ name: "old-openclaw", platform: "openclaw", workspacePath: ws }],
+            defaultAgent: "old-openclaw",
+          }),
+        );
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "Use this key": "y",
+      Select: menuSel("openclaw"),
+      "Replace it?": "y",
+      "call this agent": "new-openclaw",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    cwdSpy.mockRestore();
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.length).toBe(1);
+    expect(config.agents?.[0]?.name).toBe("new-openclaw");
+  });
+
+  it("runInit appends second agent on same platform when user chooses add", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) {
+        return Promise.resolve(
+          JSON.stringify({
+            apiKey: "mcs_existing_key1",
+            baseUrl: "https://api.multicorn.ai",
+            agents: [{ name: "first-oc", platform: "openclaw" }],
+            defaultAgent: "first-oc",
+          }),
+        );
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "Use this key": "y",
+      Select: menuSel("openclaw"),
+      Action: "1",
+      "call this agent": "second-oc",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents?.length).toBe(2);
+    expect(config.agents?.map((a) => a.name).sort()).toEqual(["first-oc", "second-oc"].sort());
+    expect(config.defaultAgent).toBe("second-oc");
+  });
+
+  it("runInit includes dashboard-only agents from GET /api/v1/agents when merging by platform", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/api/v1/agents")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: [
+                {
+                  id: "86a1c4b9-77d6-4f5d-86e1-3295ee043c3d",
+                  name: "my-cursor-agent",
+                  platform: "cursor",
+                },
+              ],
+            }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200 });
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: [menuSel("cursor"), menuSel("openclaw")],
+      Action: "3",
+      "call this agent": "test-openclaw",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("account API: 1");
+    expect(plain).toContain("local file: 0");
+    expect(plain).toContain("1 agent(s) for this platform");
   });
 
   it("updateOpenClawConfigIfPresent creates agents.list when missing", async () => {

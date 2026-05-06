@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-05-06
+
+### Added
+
+- `workspacePath` field on `AgentEntry` - agents now record the directory where `init` was run, enabling workspace-scoped resolution when multiple agents share a platform
+- Multi-agent per platform support in the CLI wizard - when an agent already exists for a selected platform, the wizard now offers replace, add alongside, or skip (instead of only "Replace it?")
+- Tier 1 workspace-match detection - if the current directory already has an agent registered for the selected platform, the wizard shows a targeted replace prompt to prevent duplicates
+- `cwdUnderWorkspacePath` helper (exported) for parent-directory matching using `path.resolve()` and `path.sep`
+- Default agent name now includes the workspace directory basename (e.g. `multicorn-dashboard-cursor` instead of `cursor`)
+- Init wizard merges agents from `GET /api/v1/agents` so dashboard-registered agents are detected even when missing from `~/.multicorn/config.json`
+- Arrow-key (or j/k) picker for replace / add alongside / skip when stdin supports raw mode; numbered fallback when not
+
+### Changed
+
+- `getAgentByPlatform` now accepts an optional `cwd` parameter and prefers the longest matching `workspacePath` - falls back to first platform match for backwards compatibility
+- `collectAgentsFromConfig` preserves `workspacePath` when present
+- `resolveWrapAgentName` passes `process.cwd()` to `getAgentByPlatform` for workspace-scoped `--wrap` resolution
+- Native hook scripts (Cline, Claude Code, Windsurf, Gemini CLI) now use `pickAgentNameForPlatform` with workspace-scoped resolution instead of returning the first platform match
+- Save logic no longer removes all agents for a platform - only the specific agent being replaced (if any) is removed before pushing the new entry
+
+### Fixed
+
+- After arrow-key selection, stdin is no longer paused so the readline-based wizard continues (e.g. hosted prereq and agent name prompts)
+
 ## [1.1.0] - 2026-05-06
 
 ### Added
