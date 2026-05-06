@@ -18,7 +18,6 @@ export const AGENT_PLATFORM_SLUGS = [
   "windsurf",
   "cline",
   "gemini-cli",
-  "aider",
   "continue-dev",
   "github-copilot",
   "goose",

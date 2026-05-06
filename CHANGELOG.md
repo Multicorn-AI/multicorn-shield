@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-05-06
+
+### Added
+
+- Kilo Code as a hosted proxy platform
+- GitHub Copilot as a hosted proxy platform
+- Continue as a hosted proxy platform
+- Goose as a hosted proxy platform
+- Claude Desktop as a hosted proxy platform
+- Prereq check step in CLI wizard for all hosted proxy platforms
+- Platform filter and search in dashboard platform select
+
+### Changed
+
+- GitHub Copilot moved from native plugin to hosted proxy section in CLI wizard
+- Kilo Code config snippet now includes `"type": "streamable-http"`
+- Goose config snippet uses `"type": "streamable_http"` and `"url"` (SSE deprecated)
+- ProxySetup is now a stepped wizard (prereq check, OS selection, proxy form, snippet, completion)
+- Short name prompt removed from CLI wizard (uses agent name automatically)
+
+### Removed
+
+- Aider as a supported platform (no MCP client support)
+
+### Fixed
+
+- Proxy ALLOW_PRIVATE_TARGETS env var not bypassing localhost validation
+- Goose prereq URL updated (moved from Block to AAIF)
+- Continue prereq URL updated
+- ProxySetup form input contrast (WCAG AA fix)
+- Governance disclosure now lists all four native plugin platforms
+
 ## [1.0.0] - 2026-05-02
 
 ### Changed

@@ -1182,7 +1182,6 @@ const PLATFORM_MENU_SECTIONS: readonly {
       { platform: "windsurf", label: "Windsurf" },
       { platform: "cline", label: "Cline" },
       { platform: "gemini-cli", label: "Gemini CLI" },
-      { platform: "github-copilot", label: "GitHub Copilot" },
     ],
   },
   {
@@ -1190,10 +1189,10 @@ const PLATFORM_MENU_SECTIONS: readonly {
     items: [
       { platform: "cursor", label: "Cursor" },
       { platform: "claude-desktop", label: "Claude Desktop" },
+      { platform: "github-copilot", label: "GitHub Copilot" },
       { platform: "kilo-code", label: "Kilo Code" },
       { platform: "continue-dev", label: "Continue" },
       { platform: "goose", label: "Goose" },
-      { platform: "aider", label: "Aider" },
       { platform: "other-mcp", label: "Local MCP / Other" },
     ],
   },
@@ -1224,6 +1223,59 @@ function platformMenuLabelForSelection(sel: number): string {
   }
   return slug;
 }
+
+/**
+ * Hosted menu platforms that show an install reminder before the agent name prompt.
+ * URLs match dashboard `hosted-proxy-wizard.ts` hostedPrereqDocsUrl (keep in sync).
+ */
+const HOSTED_PROXY_PREREQ_PLATFORMS: ReadonlySet<string> = new Set([
+  "cursor",
+  "claude-desktop",
+  "github-copilot",
+  "kilo-code",
+  "continue-dev",
+  "goose",
+]);
+
+function hostedProxyPrereqDocsUrl(platform: string): string | null {
+  switch (platform) {
+    case "cursor":
+      return "https://www.cursor.com/downloads";
+    case "claude-desktop":
+      return "https://claude.ai/download";
+    case "github-copilot":
+      return "https://docs.github.com/en/copilot/get-started";
+    case "kilo-code":
+      return "https://kilocode.ai/docs/getting-started";
+    case "continue-dev":
+      return "https://docs.continue.dev/ide-extensions/install";
+    case "goose":
+      return "https://goose-docs.ai/docs/quickstart/";
+    default:
+      return null;
+  }
+}
+
+async function promptHostedProxyInstallPrereq(
+  ask: AskFn,
+  platformLabel: string,
+  platform: string,
+): Promise<boolean> {
+  const url = hostedProxyPrereqDocsUrl(platform);
+  if (url === null) return true;
+
+  process.stderr.write("\n");
+  process.stderr.write(
+    style.bold("Before continuing, make sure you have ") +
+      platformLabel +
+      style.bold(" installed.") +
+      "\n",
+  );
+  process.stderr.write("  → " + style.cyan(url) + "\n\n");
+  const answer = await ask("Ready to continue? (Y/n) ");
+  return answer.trim().toLowerCase() !== "n";
+}
+
 const DEFAULT_AGENT_NAMES: Record<string, string> = {
   openclaw: "my-openclaw-agent",
   "claude-code": "my-claude-code-agent",
@@ -1236,7 +1288,6 @@ const DEFAULT_AGENT_NAMES: Record<string, string> = {
   "github-copilot": "my-github-copilot-agent",
   "continue-dev": "my-continue-agent",
   goose: "my-goose-agent",
-  aider: "my-aider-agent",
 };
 
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
@@ -1374,14 +1425,7 @@ async function promptProxyConfig(
     targetUrl = input.trim();
   }
 
-  const defaultShortName = normalizeAgentName(agentName) || "shield-mcp";
-  const shortNameInput = await ask(
-    `\nShort name (a nickname for this connection, used in your proxy URL): ${style.dim(`(${defaultShortName})`)} `,
-  );
-  const shortName =
-    shortNameInput.trim().length > 0
-      ? normalizeAgentName(shortNameInput.trim()) || defaultShortName
-      : defaultShortName;
+  const shortName = normalizeAgentName(agentName) || "shield-mcp";
 
   return { targetUrl, shortName };
 }
@@ -1467,7 +1511,6 @@ function printPlatformSnippet(
     "github-copilot",
     "continue-dev",
     "goose",
-    "aider",
   ]);
   const usesInlineKey = hostedInlinePlatforms.has(platform);
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
@@ -1585,12 +1628,6 @@ function printPlatformSnippet(
         style.dim("Add this to ~/.config/goose/config.yaml under the extensions key.") +
         "\n\n",
     );
-  } else if (platform === "aider") {
-    process.stderr.write(
-      "\n" +
-        style.dim("Save this as ~/.aider/mcp.json (create the directory if it does not exist).") +
-        "\n\n",
-    );
   } else {
     process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
   }
@@ -1638,7 +1675,7 @@ function printPlatformSnippet(
     );
   }
 
-  if (platform === "github-copilot" || platform === "continue-dev" || platform === "aider") {
+  if (platform === "github-copilot" || platform === "continue-dev") {
     process.stderr.write(
       style.dim("Reload the editor window if the MCP server does not appear immediately.") + "\n",
     );
@@ -1830,6 +1867,17 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       );
       const replace = await ask("Replace it? (Y/n) ");
       if (replace.trim().toLowerCase() === "n") {
+        const another = await ask("\nConnect another agent? (Y/n) ");
+        if (another.trim().toLowerCase() === "n") {
+          configuring = false;
+        }
+        continue;
+      }
+    }
+
+    if (HOSTED_PROXY_PREREQ_PLATFORMS.has(selectedPlatform)) {
+      const proceed = await promptHostedProxyInstallPrereq(ask, selectedLabel, selectedPlatform);
+      if (!proceed) {
         const another = await ask("\nConnect another agent? (Y/n) ");
         if (another.trim().toLowerCase() === "n") {
           configuring = false;
@@ -2317,7 +2365,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
     // Next steps grouped by platform.
-    // No block for other-mcp: the option 13 branch already prints a "Try it"
+    // No block for other-mcp: the Local MCP / Other branch already prints a "Try it"
     // message with the correct --wrap command inside the configuring loop.
     const blocks: string[] = [];
 
@@ -2419,17 +2467,6 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.cyan("~/.config/goose/config.yaml") +
           " (or use goose configure)\n" +
           "  2. Restart Goose CLI or Desktop\n",
-      );
-    }
-    if (configuredPlatforms.has("aider")) {
-      blocks.push(
-        "\n" +
-          style.bold("Aider MCP:") +
-          "\n" +
-          "  1. Save snippet to " +
-          style.cyan("~/.aider/mcp.json") +
-          "\n" +
-          "  2. Restart Aider (or pass --mcp-config with your file path)\n",
       );
     }
     const windsurfNativeConfigured = configuredAgents.some(

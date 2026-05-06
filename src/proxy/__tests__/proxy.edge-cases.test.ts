@@ -842,10 +842,9 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: "7",
+      Select: "6",
       "call this agent": "cursor-agent",
       "URL:": "https://upstream.example/mcp",
-      "Short name": "myproxy",
       "Connect another": "n",
     });
 
@@ -855,12 +854,44 @@ describe("config file parsing", () => {
     if (!config) throw new Error("expected config");
     expect(config.agents?.[0]?.platform).toBe("cursor");
     expect(config.defaultAgent).toBe("cursor-agent");
+    expect(stripAnsi(stderrBuffer)).toContain(
+      "Before continuing, make sure you have Cursor installed.",
+    );
+    expect(stripAnsi(stderrBuffer)).toContain("https://www.cursor.com/downloads");
     expect(stderrBuffer).toContain("To complete your Cursor setup");
     expect(stderrBuffer).toContain("Restart Cursor");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
     expect(stderrBuffer).toContain("cursor.com/downloads");
     expect(stderrBuffer).toContain("paste the config snippet shown above");
+  });
+
+  it("runInit skips Cursor agent when user declines hosted prereq prompt", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: "6",
+      "Ready to continue": "n",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.agents).toBeUndefined();
+    expect(stripAnsi(stderrBuffer)).toContain(
+      "Before continuing, make sure you have Cursor installed.",
+    );
   });
 
   it("runInit completes Windsurf platform with proxy URL and Windsurf next steps", async () => {
@@ -897,7 +928,6 @@ describe("config file parsing", () => {
       "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
-      "Short name": "myproxy",
       "Connect another": "n",
     });
 
@@ -952,7 +982,6 @@ describe("config file parsing", () => {
       "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
-      "Short name": "myproxy",
       "Connect another": "n",
     });
 
@@ -996,7 +1025,6 @@ describe("config file parsing", () => {
       "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
-      "Short name": "myproxy",
       "Connect another": "n",
     });
 
