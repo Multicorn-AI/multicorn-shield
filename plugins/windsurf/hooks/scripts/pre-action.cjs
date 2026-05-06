@@ -48,10 +48,9 @@ function readStdin() {
  */
 function cwdUnderWorkspacePath(cwdResolved, workspacePath) {
   const w = path.resolve(workspacePath);
-  const c = path.resolve(cwdResolved);
-  if (c === w) return true;
+  if (cwdResolved === w) return true;
   const prefix = w.endsWith(path.sep) ? w : w + path.sep;
-  return c.startsWith(prefix);
+  return cwdResolved.startsWith(prefix);
 }
 
 /**

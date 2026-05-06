@@ -183,14 +183,14 @@ function isAgentEntry(value: unknown): value is AgentEntry {
 }
 
 /**
- * True if `cwdResolved` equals `workspacePath` resolved, or lies under it (e.g. subfolder of the workspace).
+ * True when `cwdResolved` (already `resolve()`d by the caller) equals `workspacePath` resolved,
+ * or lies under it as a subdirectory. `workspacePath` is normalized here.
  */
 export function cwdUnderWorkspacePath(cwdResolved: string, workspacePath: string): boolean {
   const w = resolve(workspacePath);
-  const c = resolve(cwdResolved);
-  if (c === w) return true;
+  if (cwdResolved === w) return true;
   const prefix = w.endsWith(sep) ? w : w + sep;
-  return c.startsWith(prefix);
+  return cwdResolved.startsWith(prefix);
 }
 
 /**
