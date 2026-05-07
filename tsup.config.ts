@@ -93,6 +93,20 @@ export default defineConfig([
     outDir: "dist",
     platform: "node",
   },
+  /** Claude Code plugin: shared tool mapping for CJS hook scripts (pre/post). */
+  {
+    entry: { "claude-code-tool-map": "src/hooks/claude-code-tool-map.ts" },
+    format: ["cjs"],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: false,
+    outDir: "plugins/multicorn-shield/hooks/scripts",
+    platform: "node",
+    outExtension: () => ({ js: ".cjs" }),
+  },
   {
     entry: { proxy: "src/proxy/exports.ts" },
     format: ["esm", "cjs"],

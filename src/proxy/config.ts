@@ -7,7 +7,7 @@
  * @module proxy/config
  */
 
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -73,6 +73,35 @@ function isExistingDirectory(path: string): boolean {
   try {
     if (!existsSync(path)) return false;
     return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function jsonValueMentionsMulticornShield(value: unknown): boolean {
+  if (typeof value === "string") {
+    return value.includes("multicorn-shield");
+  }
+  if (Array.isArray(value)) {
+    return value.some(jsonValueMentionsMulticornShield);
+  }
+  if (value !== null && typeof value === "object") {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (k.includes("multicorn-shield")) return true;
+      if (jsonValueMentionsMulticornShield(v)) return true;
+    }
+  }
+  return false;
+}
+
+/** True when ~/.claude/plugins/installed_plugins.json lists the Shield plugin. */
+function claudeInstalledPluginsListsMulticornShield(): boolean {
+  const path = join(homedir(), ".claude", "plugins", "installed_plugins.json");
+  if (!existsSync(path)) return false;
+  try {
+    const raw = readFileSync(path, "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    return jsonValueMentionsMulticornShield(parsed);
   } catch {
     return false;
   }
@@ -593,103 +622,6 @@ export async function validateApiKey(
       valid: false,
       error: `Could not reach ${baseUrl}. Check your network connection. (${detail})`,
     };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Connection status
-// ---------------------------------------------------------------------------
-
-async function isOpenClawConnected(): Promise<boolean> {
-  try {
-    const raw = await readFile(OPENCLAW_CONFIG_PATH, "utf8");
-    const obj = JSON.parse(raw) as Record<string, unknown>;
-    const hooks = obj["hooks"] as Record<string, unknown> | undefined;
-    const internal = hooks?.["internal"] as Record<string, unknown> | undefined;
-    const entries = internal?.["entries"] as Record<string, unknown> | undefined;
-    const shield = entries?.["multicorn-shield"] as Record<string, unknown> | undefined;
-    const env = shield?.["env"] as Record<string, unknown> | undefined;
-    const key = env?.["MULTICORN_API_KEY"];
-    return typeof key === "string" && key.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-function isClaudeCodeConnected(): boolean {
-  try {
-    return existsSync(join(homedir(), ".claude", "plugins", "cache", "multicorn-shield"));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Returns the path to the Cursor MCP config file.
- * @returns Absolute path to ~/.cursor/mcp.json.
- */
-export function getCursorConfigPath(): string {
-  return join(homedir(), ".cursor", "mcp.json");
-}
-
-/**
- * Checks whether a Multicorn proxy entry exists in the Cursor MCP config.
- * @returns True if an existing Multicorn entry was found.
- */
-export async function isCursorConnected(): Promise<boolean> {
-  try {
-    const raw = await readFile(getCursorConfigPath(), "utf8");
-    const obj = JSON.parse(raw) as Record<string, unknown>;
-    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
-    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
-    for (const entry of Object.values(mcpServers)) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const rec = entry as Record<string, unknown>;
-      const url = rec["url"];
-      if (typeof url === "string" && url.includes("multicorn")) return true;
-      const args = rec["args"];
-      if (
-        Array.isArray(args) &&
-        (args.includes("multicorn-shield") || args.includes("multicorn-proxy"))
-      )
-        return true;
-    }
-    return false;
-  } catch (err) {
-    process.stderr.write(
-      `Warning: could not check Cursor connection status: ${err instanceof Error ? err.message : String(err)}\n`,
-    );
-    return false;
-  }
-}
-
-/**
- * Returns the path to the Windsurf MCP config file.
- * @returns Absolute path to ~/.codeium/windsurf/mcp_config.json.
- */
-export function getWindsurfConfigPath(): string {
-  return join(homedir(), ".codeium", "windsurf", "mcp_config.json");
-}
-
-/**
- * Checks whether a Multicorn proxy entry exists in the Windsurf MCP config.
- * @returns True if an existing Multicorn entry was found.
- */
-export async function isWindsurfConnected(): Promise<boolean> {
-  try {
-    const raw = await readFile(getWindsurfConfigPath(), "utf8");
-    const obj = JSON.parse(raw) as Record<string, unknown>;
-    const mcpServers = obj["mcpServers"] as Record<string, unknown> | undefined;
-    if (mcpServers === undefined || typeof mcpServers !== "object") return false;
-    for (const entry of Object.values(mcpServers)) {
-      if (typeof entry !== "object" || entry === null) continue;
-      const rec = entry as Record<string, unknown>;
-      const url = rec["serverUrl"];
-      if (typeof url === "string" && url.includes("multicorn")) return true;
-    }
-    return false;
-  } catch {
-    return false;
   }
 }
 
@@ -1229,59 +1161,51 @@ export interface InitWizardPlatformEntry {
   readonly section: InitWizardPlatformSection;
   /** Install doc URL; omit when no prereq step before the agent name prompt. */
   readonly prereqUrl?: string;
-  /** When true, participate in local detection markers (order follows this registry). */
-  readonly detectable: boolean;
 }
 
 export const INIT_WIZARD_PLATFORM_REGISTRY: readonly InitWizardPlatformEntry[] = [
-  { slug: "openclaw", displayName: "OpenClaw", section: "native", detectable: true },
-  { slug: "claude-code", displayName: "Claude Code", section: "native", detectable: true },
-  { slug: "windsurf", displayName: "Windsurf", section: "native", detectable: true },
-  { slug: "cline", displayName: "Cline", section: "native", detectable: false },
-  { slug: "gemini-cli", displayName: "Gemini CLI", section: "native", detectable: false },
+  { slug: "openclaw", displayName: "OpenClaw", section: "native" },
+  { slug: "claude-code", displayName: "Claude Code", section: "native" },
+  { slug: "windsurf", displayName: "Windsurf", section: "native" },
+  { slug: "cline", displayName: "Cline", section: "native" },
+  { slug: "gemini-cli", displayName: "Gemini CLI", section: "native" },
   {
     slug: "cursor",
     displayName: "Cursor",
     section: "hosted",
     prereqUrl: "https://www.cursor.com/downloads",
-    detectable: true,
   },
   {
     slug: "claude-desktop",
     displayName: "Claude Desktop",
     section: "hosted",
     prereqUrl: "https://claude.ai/download",
-    detectable: false,
   },
   {
     slug: "github-copilot",
     displayName: "GitHub Copilot",
     section: "hosted",
     prereqUrl: "https://docs.github.com/en/copilot/get-started",
-    detectable: false,
   },
   {
     slug: "kilo-code",
     displayName: "Kilo Code",
     section: "hosted",
     prereqUrl: "https://kilocode.ai/docs/getting-started",
-    detectable: false,
   },
   {
     slug: "continue-dev",
     displayName: "Continue",
     section: "hosted",
     prereqUrl: "https://docs.continue.dev/ide-extensions/install",
-    detectable: false,
   },
   {
     slug: "goose",
     displayName: "Goose",
     section: "hosted",
     prereqUrl: "https://goose-docs.ai/docs/quickstart/",
-    detectable: false,
   },
-  { slug: "other-mcp", displayName: "Local MCP / Other", section: "hosted", detectable: false },
+  { slug: "other-mcp", displayName: "Local MCP / Other", section: "hosted" },
 ];
 
 const INIT_WIZARD_MENU_SECTIONS: readonly {
@@ -1340,48 +1264,17 @@ async function promptHostedProxyInstallPrereq(
   return answer.trim().toLowerCase() !== "n";
 }
 
-function isPlatformDetectedForMenu(slug: string): Promise<boolean> {
-  switch (slug) {
-    case "openclaw":
-      return isOpenClawConnected();
-    case "claude-code":
-      return Promise.resolve(isClaudeCodeConnected());
-    case "cursor":
-      return isCursorConnected();
-    case "windsurf":
-      return isWindsurfConnected();
-    default:
-      return Promise.resolve(false);
-  }
-}
-
 async function promptPlatformSelection(ask: AskFn): Promise<number> {
   process.stderr.write(
     "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n\n",
   );
-
-  const detectionSlugs = INIT_WIZARD_PLATFORM_REGISTRY.filter((e) => e.detectable).map(
-    (e) => e.slug,
-  );
-  const connectedFlags = await Promise.all(
-    detectionSlugs.map((slug) => isPlatformDetectedForMenu(slug)),
-  );
-
-  function markerFor(platform: string): string {
-    const idx = detectionSlugs.indexOf(platform);
-    if (idx === -1) return "";
-    if (!connectedFlags[idx]) return "";
-    return " " + style.dim("\u25CF detected locally");
-  }
 
   let optionNum = 1;
   for (const section of INIT_WIZARD_MENU_SECTIONS) {
     process.stderr.write("  " + style.dim(section.title) + "\n");
     for (const item of section.items) {
       const indent = optionNum >= 10 ? "   " : "    ";
-      process.stderr.write(
-        `${indent}${style.violet(String(optionNum))}. ${item.label}${markerFor(item.platform)}\n`,
-      );
+      process.stderr.write(`${indent}${style.violet(String(optionNum))}. ${item.label}\n`);
       optionNum++;
     }
   }
@@ -2059,66 +1952,45 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     );
 
     if (agentsForPlatform.length > 0) {
-      const exactForWorkspace = agentsForPlatform.find(
-        (a) =>
+      process.stderr.write(
+        `\nYou have ${String(agentsForPlatform.length)} agent(s) connected for ${selectedLabel}:\n`,
+      );
+      for (const a of agentsForPlatform) {
+        const isThisWorkspace =
           typeof a.workspacePath === "string" &&
           a.workspacePath.length > 0 &&
-          resolve(a.workspacePath) === initWorkspacePath,
+          resolve(a.workspacePath) === initWorkspacePath;
+        const wsHint =
+          typeof a.workspacePath === "string" && a.workspacePath.length > 0
+            ? `  ${style.dim(a.workspacePath)}`
+            : "";
+        const marker = isThisWorkspace ? `  ${style.yellow("(this workspace)")}` : "";
+        process.stderr.write(`  ${style.dim("•")} ${style.cyan(a.name)}${wsHint}${marker}\n`);
+      }
+
+      process.stderr.write("\n" + style.bold("What would you like to do?") + "\n");
+      const actionIdx = await arrowSelect(
+        [
+          "Add a new agent alongside these",
+          "Replace an existing agent",
+          "Skip - choose a different platform",
+        ],
+        ask,
+        "Action",
       );
-
-      if (exactForWorkspace !== undefined) {
-        process.stderr.write(
-          `\nThis workspace already has a ${selectedLabel} agent registered (${style.cyan(
-            exactForWorkspace.name,
-          )}).\n`,
-        );
-        process.stderr.write(
-          style.dim(
-            "Replace updates this directory's saved agent. (n) returns to platform selection — the wizard keeps running.",
-          ) + "\n",
-        );
-        const replace = await ask("Replace it? (Y/n) ");
-        if (replace.trim().toLowerCase() === "n") {
-          process.stderr.write(style.dim("Skipping. Returning to platform selection.") + "\n");
-          continue;
-        }
-        removeAgentNameBeforeSave = exactForWorkspace.name;
-      } else {
-        process.stderr.write(
-          `\nYou have ${String(agentsForPlatform.length)} agent(s) connected for ${selectedLabel}:\n`,
-        );
-        for (const a of agentsForPlatform) {
-          const wsHint =
-            typeof a.workspacePath === "string" && a.workspacePath.length > 0
-              ? `  ${style.dim(a.workspacePath)}`
-              : "";
-          process.stderr.write(`  ${style.dim("•")} ${style.cyan(a.name)}${wsHint}\n`);
-        }
-
-        process.stderr.write("\n" + style.bold("What would you like to do?") + "\n");
-        const actionIdx = await arrowSelect(
-          [
-            "Add a new agent alongside these",
-            "Replace an existing agent",
-            "Skip — choose a different platform",
-          ],
+      if (actionIdx === 2) {
+        continue;
+      }
+      if (actionIdx === 1) {
+        process.stderr.write("\n" + style.bold("Which agent to replace?") + "\n");
+        const replaceIdx = await arrowSelect(
+          agentsForPlatform.map((a) => a.name),
           ask,
-          "Action",
+          "Agent",
         );
-        if (actionIdx === 2) {
-          continue;
-        }
-        if (actionIdx === 1) {
-          process.stderr.write("\n" + style.bold("Which agent to replace?") + "\n");
-          const replaceIdx = await arrowSelect(
-            agentsForPlatform.map((a) => a.name),
-            ask,
-            "Agent",
-          );
-          const victim = agentsForPlatform[replaceIdx];
-          if (victim !== undefined) {
-            removeAgentNameBeforeSave = victim.name;
-          }
+        const victim = agentsForPlatform[replaceIdx];
+        if (victim !== undefined) {
+          removeAgentNameBeforeSave = victim.name;
         }
       }
     }
@@ -2245,6 +2117,14 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
           "\n\n",
       );
+      if (claudeInstalledPluginsListsMulticornShield()) {
+        process.stderr.write(
+          "  " +
+            style.dim("Plugin already installed? Update with: ") +
+            style.cyan("claude plugin update multicorn-shield@multicorn-shield") +
+            "\n\n",
+        );
+      }
       process.stderr.write(
         style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
       );
@@ -2644,13 +2524,12 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     if (configuredPlatforms.has("claude-code")) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Claude Code setup:") +
+          style.bold("Claude Code:") +
           "\n" +
-          "  \u2192 Add marketplace: " +
-          style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
+          "  \u2192 Start Claude Code: " +
+          style.cyan("claude") +
           "\n" +
-          "  \u2192 Install plugin: " +
-          style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
+          "  \u2192 Shield will intercept tool calls automatically once the plugin is active." +
           "\n",
       );
     }

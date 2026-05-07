@@ -36,6 +36,7 @@
   },
   "files": [
     "dist",
+    "plugins/multicorn-shield",
     "plugins/windsurf",
     "plugins/cline",
     "plugins/gemini-cli",

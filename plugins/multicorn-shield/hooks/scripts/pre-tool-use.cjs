@@ -1,6 +1,9 @@
 /**
  * Claude Code PreToolUse hook: asks Shield whether a tool call is allowed.
  * Fail-closed on API errors once config is loaded. Fail-open only if Shield is not configured (no config file, no API key).
+ *
+ * Tool → service/actionType mapping lives in `src/hooks/claude-code-tool-map.ts` and is bundled to
+ * `./claude-code-tool-map.cjs` (run `pnpm build` in this package after changing the map).
  */
 
 "use strict";
@@ -12,22 +15,12 @@ const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 
+const { mapClaudeCodeToolToShield } = require("./claude-code-tool-map.cjs");
+
 const AUTH_HEADER = "X-Multicorn-Key";
 const HOOK_TEST_FAST_POLL = process.env.MULTICORN_SHIELD_PRE_HOOK_TEST_FAST_POLL === "1";
 const POLL_INTERVAL_MS = HOOK_TEST_FAST_POLL ? 1 : 3000;
 const MAX_APPROVAL_POLLS = HOOK_TEST_FAST_POLL ? 3 : 100;
-
-/** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
-const TOOL_MAP = {
-  bash: { service: "terminal", actionType: "execute" },
-  shell: { service: "terminal", actionType: "execute" },
-  read: { service: "filesystem", actionType: "read" },
-  write: { service: "filesystem", actionType: "write" },
-  edit: { service: "filesystem", actionType: "write" },
-  grep: { service: "filesystem", actionType: "read" },
-  webfetch: { service: "web", actionType: "read" },
-  task: { service: "subagent", actionType: "execute" },
-};
 
 /**
  * @returns {Promise<string>}
@@ -42,7 +35,7 @@ function readStdin() {
   });
 }
 
-// Duplicated in post-tool-use.cjs because CJS hooks cannot import shared TypeScript modules. If you change this function, update the copy in post-tool-use.cjs to match.
+// pickAgent helpers duplicated in post-tool-use.cjs (CJS hooks; shared logic is not imported by both).
 /**
  * @param {string} cwdResolved
  * @param {string} workspacePath
@@ -177,24 +170,6 @@ function consentUrl(apiBaseUrl, agentName, service, actionType) {
   params.set("scopes", `${service}:${actionType}`);
   params.set("platform", "claude-code");
   return `${origin}/consent?${params.toString()}`;
-}
-
-/**
- * @param {string} toolName
- * @returns {{ service: string; actionType: string }}
- */
-function mapTool(toolName) {
-  const key = String(toolName || "")
-    .trim()
-    .toLowerCase();
-  if (key.length === 0) {
-    return { service: "unknown", actionType: "execute" };
-  }
-  const mapped = TOOL_MAP[key];
-  if (mapped !== undefined) {
-    return mapped;
-  }
-  return { service: key, actionType: "execute" };
 }
 
 /**
@@ -554,7 +529,7 @@ async function main() {
     process.exit(0);
   }
 
-  const { service, actionType } = mapTool(toolNameRaw);
+  const { service, actionType } = mapClaudeCodeToolToShield(toolNameRaw, toolInput);
   const approvalsUrl = dashboardHintUrl(config.baseUrl);
 
   /** @type {Record<string, unknown>} */

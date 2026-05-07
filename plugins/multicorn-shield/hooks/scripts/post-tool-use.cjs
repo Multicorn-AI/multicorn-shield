@@ -1,6 +1,8 @@
 /**
  * Claude Code PostToolUse hook: logs completed tool calls to Shield (audit trail).
  * Never blocks; always exit 0.
+ *
+ * Tool mapping: see `./claude-code-tool-map.cjs` (built from `src/hooks/claude-code-tool-map.ts`).
  */
 
 "use strict";
@@ -11,18 +13,9 @@ const https = require("node:https");
 const os = require("node:os");
 const path = require("node:path");
 
-const AUTH_HEADER = "X-Multicorn-Key";
+const { mapClaudeCodeToolToShield } = require("./claude-code-tool-map.cjs");
 
-/** @type {Readonly<Record<string, { service: string; actionType: string }>>} */
-const TOOL_MAP = {
-  bash: { service: "terminal", actionType: "execute" },
-  read: { service: "filesystem", actionType: "read" },
-  write: { service: "filesystem", actionType: "write" },
-  edit: { service: "filesystem", actionType: "write" },
-  grep: { service: "filesystem", actionType: "read" },
-  webfetch: { service: "web", actionType: "read" },
-  task: { service: "subagent", actionType: "execute" },
-};
+const AUTH_HEADER = "X-Multicorn-Key";
 
 /**
  * @returns {Promise<string>}
@@ -37,7 +30,7 @@ function readStdin() {
   });
 }
 
-// Duplicated in pre-tool-use.cjs because CJS hooks cannot import shared TypeScript modules. If you change this function, update the copy in pre-tool-use.cjs to match.
+// pickAgent helpers duplicated in pre-tool-use.cjs (CJS hooks; shared logic is not imported by both).
 /**
  * @param {string} cwdResolved
  * @param {string} workspacePath
@@ -126,24 +119,6 @@ function loadConfig() {
   } catch {
     return null;
   }
-}
-
-/**
- * @param {string} toolName
- * @returns {{ service: string; actionType: string }}
- */
-function mapTool(toolName) {
-  const key = String(toolName || "")
-    .trim()
-    .toLowerCase();
-  if (key.length === 0) {
-    return { service: "unknown", actionType: "execute" };
-  }
-  const mapped = TOOL_MAP[key];
-  if (mapped !== undefined) {
-    return mapped;
-  }
-  return { service: key, actionType: "execute" };
 }
 
 /**
@@ -236,7 +211,7 @@ async function main() {
     process.exit(0);
   }
 
-  const { service, actionType } = mapTool(toolNameRaw);
+  const { service, actionType } = mapClaudeCodeToolToShield(toolNameRaw, toolInput);
 
   /** @type {Record<string, unknown>} */
   const metadata = {
