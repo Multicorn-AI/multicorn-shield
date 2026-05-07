@@ -43,6 +43,8 @@ export interface CliArgs {
   readonly deleteAgentName: string;
   /** Set only when `--api-key` appears on the command line. */
   readonly apiKey: string | undefined;
+  /** Extra diagnostics during `init` (menu selection, agent counts). */
+  readonly verbose: boolean;
 }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -57,6 +59,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let agentName = "";
   let deleteAgentName = "";
   let apiKey: string | undefined = undefined;
+  let verbose = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -163,6 +166,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         apiKey = next;
         i++;
       }
+    } else if (arg === "--verbose") {
+      verbose = true;
     }
   }
 
@@ -176,6 +181,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     agentName,
     deleteAgentName,
     apiKey,
+    verbose,
   };
 }
 
@@ -202,6 +208,7 @@ function printHelp(): void {
       "      Shield's permission layer.",
       "",
       "Options:",
+      "  --verbose             Print extra diagnostics during init (menu selection, agent counts)",
       "  --api-key <key>       Multicorn API key (overrides MULTICORN_API_KEY env var and config file)",
       "  --log-level <level>   Log level: debug | info | warn | error  (default: info)",
       "  --base-url <url>      Multicorn API base URL  (default: https://api.multicorn.ai)",
@@ -237,7 +244,7 @@ export async function runCli(): Promise<void> {
   }
 
   if (cli.subcommand === "init") {
-    await runInit(cli.baseUrl);
+    await runInit(cli.baseUrl, { verbose: cli.verbose });
     return;
   }
 

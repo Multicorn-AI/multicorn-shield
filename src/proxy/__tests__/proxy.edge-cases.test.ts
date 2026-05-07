@@ -829,14 +829,86 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain(".claude/settings.json");
     expect(plain).toContain("Setup complete");
     expect(plain).toContain("Next steps");
-    expect(plain).toContain("Start Claude Code:");
-    expect(plain).toContain("Shield will intercept tool calls automatically.");
+    expect(plain).toContain("Start coding:");
+    expect(plain).toContain("Shield hooks apply to both");
+    expect(plain).toContain("Try it:");
+    expect(plain).toContain("Shield will intercept the first tool call and ask for your consent");
     expect(plain).not.toContain("claude plugin marketplace");
     expect(plain).not.toContain("claude plugin install");
     const claudeWrite = writeFileMock.mock.calls.find(
       (c) => String(c[0]).includes(".claude") && String(c[0]).includes("settings.json"),
     );
     expect(claudeWrite).toBeDefined();
+  });
+
+  it("runInit omits internal menu debug line unless verbose option", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes(".claude") && path.includes("settings.json")) {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        return Promise.reject(err);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    existsSyncMock.mockImplementation((p: string | Buffer | URL) => {
+      const s = String(p);
+      if (s.includes("pre-tool-use.cjs") && s.includes("multicorn-shield")) return true;
+      if (s.includes("post-tool-use.cjs") && s.includes("multicorn-shield")) return true;
+      return false;
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: menuSel("claude-code"),
+      "call this agent": "my-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai");
+
+    expect(stripAnsi(stderrBuffer)).not.toContain("[shield init] Menu option");
+  });
+
+  it("runInit prints internal menu debug line when verbose option is true", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes(".claude") && path.includes("settings.json")) {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        return Promise.reject(err);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    existsSyncMock.mockImplementation((p: string | Buffer | URL) => {
+      const s = String(p);
+      if (s.includes("pre-tool-use.cjs") && s.includes("multicorn-shield")) return true;
+      if (s.includes("post-tool-use.cjs") && s.includes("multicorn-shield")) return true;
+      return false;
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: menuSel("claude-code"),
+      "call this agent": "my-agent",
+      "Connect another": "n",
+    });
+
+    await runInit("https://api.multicorn.ai", { verbose: true });
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("[shield init] Menu option");
+    expect(plain).toContain('platform slug "claude-code"');
   });
 
   it("runInit shows Claude Code plugin uninstall note when installed_plugins lists multicorn-shield", async () => {
@@ -988,6 +1060,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
     expect(stderrBuffer).toContain("cursor.com/downloads");
+    expect(stripAnsi(stderrBuffer)).toContain("Try it: open Composer");
     expect(stderrBuffer).not.toContain("paste the config snippet shown above");
   });
 
@@ -1068,7 +1141,11 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
     expect(stderrBuffer).toContain("Windsurf (hosted)");
-    expect(stderrBuffer).toContain("Restart Windsurf");
+    expect(stderrBuffer).toContain("Restart Windsurf so it loads the MCP server");
+    expect(stripAnsi(stderrBuffer)).toContain(
+      "In Windsurf, click the \u22ef menu (top-right of the Cascade panel)",
+    );
+    expect(stripAnsi(stderrBuffer)).toContain("Try it: ask Cascade");
     expect(stderrBuffer).toContain("windsurf.com/download");
     expect(stderrBuffer).not.toContain("paste the config snippet shown above");
   });
@@ -1114,6 +1191,10 @@ describe("config file parsing", () => {
 
     expect(stripAnsi(stderrBuffer)).toContain("windsurf.com/download");
     expect(stripAnsi(stderrBuffer)).toContain("Restart Windsurf so it loads the MCP server");
+    expect(stripAnsi(stderrBuffer)).toContain(
+      "In Windsurf, click the \u22ef menu (top-right of the Cascade panel)",
+    );
+    expect(stripAnsi(stderrBuffer)).toContain("Try it: ask Cascade");
   });
 
   it("runInit completes Windsurf platform with proxy URL and Windsurf next steps", async () => {
@@ -1164,7 +1245,10 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("Bearer mcs_valid_key");
     expect(stderrBuffer).toContain("Windsurf (hosted)");
-    expect(stderrBuffer).toContain("Restart Windsurf");
+    expect(stderrBuffer).toContain("Restart Windsurf so it loads the MCP server");
+    expect(stripAnsi(stderrBuffer)).toContain(
+      "In Windsurf, click the \u22ef menu (top-right of the Cascade panel)",
+    );
   });
 
   // --- Windsurf native plugin ---
@@ -1205,7 +1289,8 @@ describe("config file parsing", () => {
     expect(plain).toContain("Shield Windsurf hooks installed");
     expect(plain).toContain("windsurf-hooks");
     expect(plain).toContain("hooks.json");
-    expect(plain).toContain("Restart Windsurf");
+    expect(plain).toContain("Open Windsurf");
+    expect(plain).toContain("Cascade");
     expect(plain).toContain("Windsurf (native)");
 
     expect(copyFileMock).toHaveBeenCalledTimes(2);
@@ -1613,7 +1698,7 @@ describe("config file parsing", () => {
     expect(plain).toContain("OpenClaw - my-oc-agent");
   });
 
-  it("runInit Local MCP / Other does not print a Next steps block", async () => {
+  it("runInit Local MCP / Other prints a Next steps block with try-it line", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1629,7 +1714,9 @@ describe("config file parsing", () => {
     await runInit("https://api.multicorn.ai");
 
     const plain = stripAnsi(stderrBuffer);
-    expect(plain).not.toContain("Next steps");
+    expect(plain).toContain("Next steps");
+    expect(plain).toContain("Local MCP / Other");
+    expect(plain).toContain("npx multicorn-shield --wrap");
     expect(plain).not.toContain("Other MCP Agent");
     expect(plain).not.toContain("--agent-name");
   });
@@ -1855,7 +1942,7 @@ describe("config file parsing", () => {
       "Connect another": "n",
     });
 
-    await runInit("https://api.multicorn.ai");
+    await runInit("https://api.multicorn.ai", { verbose: true });
 
     const plain = stripAnsi(stderrBuffer);
     expect(plain).toContain("account API: 1");

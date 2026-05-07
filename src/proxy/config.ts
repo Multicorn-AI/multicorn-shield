@@ -1966,9 +1966,15 @@ export const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
  * and configures one or more agents.
  * @param explicitBaseUrl - Optional Shield API base URL from `--base-url`. When omitted, resolution uses
  *   full config, then partial config file, then `MULTICORN_BASE_URL`, then the production default.
+ * @param options - When `verbose` is true, prints extra init diagnostics (e.g. menu selection and agent counts).
  * @returns The last saved config, or null if the user exited early.
  */
-export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | null> {
+export async function runInit(
+  explicitBaseUrl?: string,
+  options?: { readonly verbose?: boolean },
+): Promise<ProxyConfig | null> {
+  const verbose = options?.verbose === true;
+
   if (!process.stdin.isTTY) {
     process.stderr.write(
       style.red("Error: interactive terminal required. Cannot run init with piped input.") + "\n",
@@ -2162,14 +2168,16 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       currentAgents.length === 0
         ? "none on disk"
         : currentAgents.map((a) => `${a.name} (${a.platform})`).join(", ");
-    process.stderr.write(
-      style.dim(
-        `[shield init] Menu option ${String(selection)} -> platform slug "${selectedPlatform}". ` +
-          `${String(agentsForPlatform.length)} agent(s) for this platform ` +
-          `(local file: ${String(localForPlatformCount)}, account API: ${String(accountForPlatformCount)}). ` +
-          `On-disk entries: ${savedSummary}.`,
-      ) + "\n",
-    );
+    if (verbose) {
+      process.stderr.write(
+        style.dim(
+          `[shield init] Menu option ${String(selection)} -> platform slug "${selectedPlatform}". ` +
+            `${String(agentsForPlatform.length)} agent(s) for this platform ` +
+            `(local file: ${String(localForPlatformCount)}, account API: ${String(accountForPlatformCount)}). ` +
+            `On-disk entries: ${savedSummary}.`,
+        ) + "\n",
+      );
+    }
 
     if (agentsForPlatform.length > 0) {
       process.stderr.write(
@@ -2372,7 +2380,9 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
               "\n\n",
           );
           process.stderr.write(
-            style.dim("Restart Windsurf (quit fully, then reopen) so hooks load.") + "\n",
+            style.dim(
+              "Open Windsurf (or restart if it is already running) and ask Cascade to do something - Shield will intercept the first action and ask for your consent.",
+            ) + "\n",
           );
           configuredAgents.push({
             selection,
@@ -2719,8 +2729,6 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
     // Next steps grouped by platform.
-    // No block for other-mcp: the Local MCP / Other branch already prints a "Try it"
-    // message with the correct --wrap command inside the configuring loop.
     const blocks: string[] = [];
 
     if (configuredPlatforms.has("openclaw")) {
@@ -2733,7 +2741,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "\n" +
           "  \u2192 Start a session: " +
           style.cyan("openclaw tui") +
-          "\n",
+          "\n" +
+          "  \u2192 Try it: in that session, ask the agent to use a tool - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("claude-code")) {
@@ -2741,10 +2750,10 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Claude Code") +
           "\n" +
-          "  \u2192 Start Claude Code: " +
+          "  \u2192 Start coding: run " +
           style.cyan("claude") +
-          "\n" +
-          "  \u2192 Shield will intercept tool calls automatically.\n",
+          " in the terminal, or use Cursor with a Claude model - Shield hooks apply to both\n" +
+          "  \u2192 Try it: ask your agent to do something - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("claude-desktop")) {
@@ -2752,7 +2761,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Claude Desktop") +
           "\n" +
-          "  \u2192 Restart Claude Desktop to pick up config changes\n",
+          "  \u2192 Restart Claude Desktop to pick up config changes\n" +
+          "  \u2192 Try it: ask the agent to do something - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("cursor")) {
@@ -2761,10 +2771,10 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("Cursor") +
           "\n" +
           "  \u2192 If needed, download Cursor from " +
-          style.cyan("https://cursor.com/downloads") +
+          style.cyan("https://www.cursor.com/downloads") +
           "\n" +
           "  \u2192 Restart Cursor so it loads the MCP server\n" +
-          "  \u2192 Ask the agent to use your Shield MCP tools by short name\n",
+          "  \u2192 Try it: open Composer, ask your agent to do something - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("kilo-code")) {
@@ -2773,7 +2783,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("Kilo Code") +
           "\n" +
           "  \u2192 Restart the editor or reload the window if the MCP server does not appear\n" +
-          "  \u2192 Run your next task in Kilo Code so it picks up Shield\n",
+          "  \u2192 Try it: run your next task in Kilo Code - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("github-copilot")) {
@@ -2782,7 +2792,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("GitHub Copilot") +
           "\n" +
           "  \u2192 Reload the editor window if the MCP server does not appear\n" +
-          "  \u2192 Use Copilot Agent mode and verify the MCP server connects\n",
+          "  \u2192 Open Copilot Agent mode and confirm the MCP server connects\n" +
+          "  \u2192 Try it: ask the agent to run a tool - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("continue-dev")) {
@@ -2793,7 +2804,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "  \u2192 If needed, install Continue from " +
           style.cyan("https://docs.continue.dev/ide-extensions/install") +
           "\n" +
-          "  \u2192 Reload VS Code and open Continue agent mode\n",
+          "  \u2192 Reload VS Code and open Continue agent mode\n" +
+          "  \u2192 Try it: ask Continue to use a tool - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("goose")) {
@@ -2801,7 +2813,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Goose") +
           "\n" +
-          "  \u2192 Start a new Goose session after updating config\n",
+          "  \u2192 Start a new Goose session after updating config\n" +
+          "  \u2192 Try it: in that session, ask Goose to use a tool - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     const windsurfNativeConfigured = configuredAgents.some(
@@ -2816,7 +2829,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Windsurf (native)") +
           "\n" +
-          "  \u2192 Restart Windsurf (quit fully, then reopen)\n",
+          "  \u2192 Open Windsurf (or restart if it is already running) and ask Cascade to do something - Shield will intercept the first action and ask for your consent\n",
       );
     }
     if (windsurfHostedConfigured) {
@@ -2827,7 +2840,9 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "  \u2192 If needed, install from " +
           style.cyan("https://windsurf.com/download") +
           "\n" +
-          "  \u2192 Restart Windsurf so it loads the MCP server\n",
+          "  \u2192 Restart Windsurf so it loads the MCP server\n" +
+          "  \u2192 In Windsurf, click the \u22ef menu (top-right of the Cascade panel), find your MCP server at the bottom, and toggle it on\n" +
+          "  \u2192 Try it: ask Cascade to do something - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
 
@@ -2844,7 +2859,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("Cline (native)") +
           "\n" +
           "  \u2192 Enable Hooks in Cline settings (Advanced), then reload the VS Code window\n" +
-          "  \u2192 Trigger a tool call to verify Shield is intercepting\n",
+          "  \u2192 Try it: start a task in Cline - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (clineHostedConfigured) {
@@ -2852,7 +2867,9 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Cline (hosted)") +
           "\n" +
-          "  \u2192 Restart Cline or reload the VS Code window\n",
+          "  \u2192 Restart Cline or reload the VS Code window\n" +
+          "  \u2192 If the Shield MCP server does not appear, enable it in Cline or VS Code MCP settings\n" +
+          "  \u2192 Try it: start a task in Cline - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
 
@@ -2868,7 +2885,10 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Gemini CLI (native)") +
           "\n" +
-          "  \u2192 Restart Gemini CLI to activate Shield governance\n",
+          "  \u2192 Restart Gemini CLI to activate Shield governance\n" +
+          "  \u2192 Try it: run " +
+          style.cyan("gemini") +
+          " and trigger a tool call - Shield will intercept and ask for your consent\n",
       );
     }
     if (geminiCliHostedConfigured) {
@@ -2878,7 +2898,19 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "\n" +
           "  \u2192 Restart Gemini CLI, then run " +
           style.cyan("/mcp") +
-          " to verify the server\n",
+          " to verify the server\n" +
+          "  \u2192 Try it: trigger a tool call in Gemini CLI - Shield will intercept the first tool call and ask for your consent\n",
+      );
+    }
+
+    if (configuredPlatforms.has("other-mcp")) {
+      blocks.push(
+        "\n" +
+          style.bold("Local MCP / Other") +
+          "\n" +
+          "  \u2192 Try it: run your configured " +
+          style.cyan("npx multicorn-shield --wrap ...") +
+          " command, then ask your agent to use a tool - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
 
