@@ -23,6 +23,7 @@ import {
   type MockMulticornService,
   type MockServiceConfig,
 } from "../__fixtures__/mockMulticornService.js";
+import type { SpendingLimits } from "../../spending/spending-checker.js";
 
 // Mock node:fs/promises to prevent disk I/O to ~/.multicorn/
 
@@ -75,7 +76,10 @@ describe("proxy happy path", () => {
    * Boot the proxy against a mock Multicorn service with the supplied config.
    * Returns once the proxy has finished its startup HTTP calls.
    */
-  async function setupProxy(serviceConfig?: MockServiceConfig): Promise<void> {
+  async function setupProxy(
+    serviceConfig?: MockServiceConfig,
+    spendingLimits?: SpendingLimits,
+  ): Promise<void> {
     // Prevent filesystem access (loadCachedScopes / saveCachedScopes).
     readFileMock.mockRejectedValue(new Error("ENOENT"));
     writeFileMock.mockResolvedValue(undefined);
@@ -121,6 +125,7 @@ describe("proxy happy path", () => {
       baseUrl,
       dashboardUrl: deriveDashboardUrl(baseUrl),
       logger: createLogger("error"),
+      ...(spendingLimits !== undefined && { spendingLimits }),
     });
 
     startPromise = proxy.start();
@@ -140,6 +145,27 @@ describe("proxy happy path", () => {
   /** Write a JSON-RPC message to the proxy's faked stdin. */
   function sendJsonRpc(msg: Record<string, unknown>): void {
     fakeStdin.write(JSON.stringify(msg) + "\n");
+  }
+
+  /** Collect POST /api/v1/actions bodies for test-agent after proxy.stop() has flushed the logger. */
+  function collectTestAgentActionPayloads(): Record<string, unknown>[] {
+    const actionRequests = mockService.requests.filter(
+      (r) => r.method === "POST" && r.path === "/api/v1/actions",
+    );
+    const payloads: Record<string, unknown>[] = [];
+    for (const request of actionRequests) {
+      const body = request.body as Record<string, unknown> | undefined;
+      if (!body) continue;
+      const actions = body["actions"] as Record<string, unknown>[] | undefined;
+      if (Array.isArray(actions)) {
+        for (const a of actions) {
+          if (a["agent"] === "test-agent") payloads.push(a);
+        }
+      } else if (body["agent"] === "test-agent") {
+        payloads.push(body);
+      }
+    }
+    return payloads;
   }
 
   afterEach(async () => {
@@ -321,5 +347,172 @@ describe("proxy happy path", () => {
       (r) => r.method === "GET" && scopePattern.test(r.path),
     );
     expect(allScopeFetches).toHaveLength(1);
+  });
+
+  it("logs approved action with cost in USD when tool arguments include amount", async () => {
+    await setupProxy();
+
+    sendJsonRpc({
+      jsonrpc: "2.0",
+      id: 20,
+      method: "tools/call",
+      params: {
+        name: "gmail_send_email",
+        arguments: {
+          to: "user@example.com",
+          subject: "Hi",
+          body: "Hello",
+          amount: 2.5,
+        },
+      },
+    });
+
+    await waitFor(() => getStdoutLines().length >= 1);
+    await proxy.stop();
+
+    const payloads = collectTestAgentActionPayloads();
+    const approved = payloads.find((p) => p["status"] === "approved");
+    expect(approved).toBeDefined();
+    expect(approved?.["cost"]).toBe(2.5);
+  });
+
+  it("logs approved action without cost when tool arguments omit amount", async () => {
+    await setupProxy();
+
+    sendJsonRpc({
+      jsonrpc: "2.0",
+      id: 21,
+      method: "tools/call",
+      params: {
+        name: "gmail_send_email",
+        arguments: { to: "user@example.com", subject: "Hi", body: "Hello" },
+      },
+    });
+
+    await waitFor(() => getStdoutLines().length >= 1);
+    await proxy.stop();
+
+    const payloads = collectTestAgentActionPayloads();
+    const approved = payloads.find((p) => p["status"] === "approved");
+    expect(approved).toBeDefined();
+    expect(Object.hasOwn(approved as object, "cost")).toBe(false);
+  });
+
+  it("logs approved action without cost when amount is negative", async () => {
+    await setupProxy();
+
+    sendJsonRpc({
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: {
+        name: "gmail_send_email",
+        arguments: {
+          to: "user@example.com",
+          subject: "Hi",
+          body: "Hello",
+          amount: -10,
+        },
+      },
+    });
+
+    await waitFor(() => getStdoutLines().length >= 1);
+    await proxy.stop();
+
+    const payloads = collectTestAgentActionPayloads();
+    const approved = payloads.find((p) => p["status"] === "approved");
+    expect(approved).toBeDefined();
+    expect(Object.hasOwn(approved as object, "cost")).toBe(false);
+  });
+
+  it("logs approved action without cost when amount is not numeric", async () => {
+    await setupProxy();
+
+    sendJsonRpc({
+      jsonrpc: "2.0",
+      id: 23,
+      method: "tools/call",
+      params: {
+        name: "gmail_send_email",
+        arguments: {
+          to: "user@example.com",
+          subject: "Hi",
+          body: "Hello",
+          amount: "not-a-number",
+        },
+      },
+    });
+
+    await waitFor(() => getStdoutLines().length >= 1);
+    await proxy.stop();
+
+    const payloads = collectTestAgentActionPayloads();
+    const approved = payloads.find((p) => p["status"] === "approved");
+    expect(approved).toBeDefined();
+    expect(Object.hasOwn(approved as object, "cost")).toBe(false);
+  });
+
+  it("logs approved action without cost when amount is null (e.g. NaN in JSON)", async () => {
+    await setupProxy();
+
+    sendJsonRpc({
+      jsonrpc: "2.0",
+      id: 24,
+      method: "tools/call",
+      params: {
+        name: "gmail_send_email",
+        arguments: {
+          to: "user@example.com",
+          subject: "Hi",
+          body: "Hello",
+          amount: null,
+        },
+      },
+    });
+
+    await waitFor(() => getStdoutLines().length >= 1);
+    await proxy.stop();
+
+    const payloads = collectTestAgentActionPayloads();
+    const approved = payloads.find((p) => p["status"] === "approved");
+    expect(approved).toBeDefined();
+    expect(Object.hasOwn(approved as object, "cost")).toBe(false);
+  });
+
+  it("logs spending-blocked action with cost when per-transaction limit exceeded", async () => {
+    await setupProxy(
+      {
+        scopes: [{ service: "payments", permissionLevel: "execute" }],
+      },
+      {
+        perTransaction: 10000,
+        perDay: 500_000,
+        perMonth: 1_000_000,
+      },
+    );
+
+    sendJsonRpc({
+      jsonrpc: "2.0",
+      id: 25,
+      method: "tools/call",
+      params: {
+        name: "payments_charge",
+        arguments: { amount: 500, currency: "USD" },
+      },
+    });
+
+    await waitFor(() => getStdoutLines().length >= 1);
+    await waitFor(
+      () =>
+        mockService.requests.filter((r) => r.method === "POST" && r.path === "/api/v1/actions")
+          .length >= 1,
+      2000,
+    );
+    await proxy.stop();
+
+    const payloads = collectTestAgentActionPayloads();
+    const blocked = payloads.find((p) => p["status"] === "blocked" && p["service"] === "payments");
+    expect(blocked).toBeDefined();
+    expect(blocked?.["cost"]).toBe(500);
   });
 });

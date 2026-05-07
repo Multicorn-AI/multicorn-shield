@@ -39,6 +39,7 @@ import {
   saveCachedScopes,
   waitForConsent,
   resolveAgentRecord,
+  deriveDashboardUrl,
 } from "./consent.js";
 import type { ProxyLogger } from "./logger.js";
 
@@ -87,6 +88,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
   const pendingLines: string[] = [];
   let draining = false;
   let stopped = false;
+  let hasLoggedFirstAction = false;
 
   async function refreshScopes(): Promise<void> {
     if (stopped) return;
@@ -219,8 +221,14 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         }
       }
 
+      const rawCostCents = extractCostCents(toolParams.arguments);
+      const costCents =
+        Number.isFinite(rawCostCents) && rawCostCents > 0
+          ? Math.min(rawCostCents, 100_000_000) // cap at $1M
+          : 0;
+      const costUsd = costCents > 0 ? costCents / 100 : undefined;
+
       if (spendingChecker !== null) {
-        const costCents = extractCostCents(toolParams.arguments);
         if (costCents > 0) {
           const spendResult = spendingChecker.checkSpend(costCents);
           if (!spendResult.allowed) {
@@ -240,6 +248,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
                   service,
                   actionType: action,
                   status: "blocked",
+                  ...(costUsd !== undefined ? { cost: costUsd } : {}),
                 });
                 config.logger.debug("Spending-blocked action logged.", { tool: toolParams.name });
               }
@@ -270,8 +279,14 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
             service,
             actionType: action,
             status: "approved",
+            ...(costUsd !== undefined ? { cost: costUsd } : {}),
           });
           config.logger.debug("Approved action logged.", { tool: toolParams.name });
+          if (!hasLoggedFirstAction) {
+            hasLoggedFirstAction = true;
+            const dashUrl = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
+            config.logger.info(`First action recorded. View activity → ${dashUrl}/agents`);
+          }
         }
       }
 

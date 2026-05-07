@@ -57,6 +57,7 @@ let pluginLogger: PluginLogger | null = null;
 let pluginConfig: Record<string, unknown> | undefined;
 let connectionLogged = false;
 let pinnedAgentName: string | null = null;
+let hasLoggedFirstAction = false;
 
 const SCOPE_REFRESH_INTERVAL_MS = 60_000;
 
@@ -686,6 +687,14 @@ function afterToolCall(
     pluginLogger ?? undefined,
   );
 
+  if (!event.error && !hasLoggedFirstAction) {
+    hasLoggedFirstAction = true;
+    const dashUrl = deriveDashboardUrl(config.baseUrl).replace(/\/+$/, "");
+    if (pluginLogger) {
+      pluginLogger.info(`First action recorded. View activity → ${dashUrl}/agents`);
+    }
+  }
+
   return Promise.resolve();
 }
 
@@ -759,4 +768,5 @@ export function resetState(): void {
   cachedMulticornConfig = null;
   connectionLogged = false;
   pinnedAgentName = null;
+  hasLoggedFirstAction = false;
 }
