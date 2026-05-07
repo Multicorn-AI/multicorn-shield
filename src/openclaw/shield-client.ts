@@ -39,6 +39,8 @@ export interface ActionLogPayload {
   readonly service: string;
   readonly actionType: string;
   readonly status: ActionStatus;
+  /** Optional cost in USD incurred by this action. */
+  readonly cost?: number;
   readonly metadata?: Readonly<Record<string, string | number | boolean>>;
 }
 

@@ -219,8 +219,10 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
         }
       }
 
+      const costCents = extractCostCents(toolParams.arguments);
+      const costUsd = costCents > 0 ? costCents / 100 : undefined;
+
       if (spendingChecker !== null) {
-        const costCents = extractCostCents(toolParams.arguments);
         if (costCents > 0) {
           const spendResult = spendingChecker.checkSpend(costCents);
           if (!spendResult.allowed) {
@@ -240,6 +242,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
                   service,
                   actionType: action,
                   status: "blocked",
+                  ...(costUsd !== undefined ? { cost: costUsd } : {}),
                 });
                 config.logger.debug("Spending-blocked action logged.", { tool: toolParams.name });
               }
@@ -270,6 +273,7 @@ export function createProxyServer(config: ProxyServerConfig): ProxyServer {
             service,
             actionType: action,
             status: "approved",
+            ...(costUsd !== undefined ? { cost: costUsd } : {}),
           });
           config.logger.debug("Approved action logged.", { tool: toolParams.name });
         }
