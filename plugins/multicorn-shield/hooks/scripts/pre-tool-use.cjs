@@ -35,7 +35,7 @@ function readStdin() {
   });
 }
 
-// pickAgent helpers duplicated in post-tool-use.cjs (CJS hooks; shared logic is not imported by both).
+// Agent resolution for Claude Code (duplicated in post-tool-use.cjs).
 /**
  * @param {string} cwdResolved
  * @param {string} workspacePath
@@ -50,42 +50,48 @@ function cwdUnderWorkspacePath(cwdResolved, workspacePath) {
 
 /**
  * @param {Record<string, unknown>} obj
- * @param {string} platform
- * @param {string} cwd
  * @returns {string}
  */
-function pickAgentNameForPlatform(obj, platform, cwd) {
+function resolveClaudeCodeAgentName(obj) {
+  const cwdRaw =
+    process.env.PWD !== undefined && String(process.env.PWD).length > 0
+      ? process.env.PWD
+      : process.cwd();
   const agents = obj.agents;
+  const defaultAgentRaw = obj.defaultAgent;
+  const defaultAgentName =
+    typeof defaultAgentRaw === "string" && defaultAgentRaw.length > 0 ? defaultAgentRaw : "";
+
   if (!Array.isArray(agents)) {
     return typeof obj.agentName === "string" ? obj.agentName : "";
   }
+
   const matches = [];
   for (const entry of agents) {
     if (
       entry &&
       typeof entry === "object" &&
       /** @type {{ platform?: string; name?: string; workspacePath?: string }} */ (entry)
-        .platform === platform &&
-      typeof (/** @type {{ platform?: string; name?: string }} */ (entry).name) === "string"
+        .platform === "claude-code" &&
+      typeof (/** @type {{ name?: string }} */ (entry).name) === "string"
     ) {
       matches.push(/** @type {{ name: string; workspacePath?: string }} */ (entry));
     }
   }
+
   if (matches.length === 0) {
     return typeof obj.agentName === "string" ? obj.agentName : "";
   }
+
   const withWs = matches.filter(
     (m) => typeof m.workspacePath === "string" && m.workspacePath.length > 0,
   );
-  if (withWs.length === 0) {
-    return matches[0].name;
-  }
-  const resolvedCwd = path.resolve(cwd);
+  const resolvedCwd = path.resolve(cwdRaw);
   let best = null;
   let bestLen = -1;
   for (const m of withWs) {
-    if (!cwdUnderWorkspacePath(resolvedCwd, m.workspacePath)) continue;
-    const len = path.resolve(m.workspacePath).length;
+    if (!cwdUnderWorkspacePath(resolvedCwd, /** @type {string} */ (m.workspacePath))) continue;
+    const len = path.resolve(/** @type {string} */ (m.workspacePath)).length;
     if (len > bestLen) {
       bestLen = len;
       best = m;
@@ -94,16 +100,11 @@ function pickAgentNameForPlatform(obj, platform, cwd) {
   if (best !== null) {
     return best.name;
   }
+  if (defaultAgentName.length > 0) {
+    const d = matches.find((m) => m.name === defaultAgentName);
+    if (d !== undefined) return d.name;
+  }
   return matches[0].name;
-}
-
-/**
- * Returns the agent name for the Claude Code platform from the agents array, or falls back to the legacy agentName field.
- * @param {Record<string, unknown>} obj
- * @returns {string}
- */
-function resolveClaudeCodeAgentName(obj) {
-  return pickAgentNameForPlatform(obj, "claude-code", process.cwd());
 }
 
 /**

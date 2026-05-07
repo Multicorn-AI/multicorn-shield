@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Release checklist
+
+- Bump `version` in `package.json` before publishing to npm.
+
 ## [1.2.0] - 2026-05-06
 
 ### Added
@@ -15,16 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Default agent names now include the project folder (e.g. `multicorn-dashboard-cursor` instead of `cursor`)
 - Extracted Claude Code tool-to-Shield mapping into dedicated module (`src/hooks/claude-code-tool-map.ts`), exported as CommonJS for hook scripts
 - Updated plugin hook scripts to v1.2.0
+- After API key validation, `init` may warn when the installed `multicorn-shield` is older than the version published on npm (fetch errors are ignored)
 
 ### Changed
 
+- Claude Code path in `init` writes PreToolUse and PostToolUse command hooks to `~/.claude/settings.json` (script paths resolve via the installed `multicorn-shield` package). Marketplace and `claude plugin install` steps were removed from the wizard
+- "Next steps" after setup complete only lists how to start or restart each platform (no repeated paste-into-file instructions)
 - Agent resolution now picks the most specific workspace match when multiple agents share a platform - falls back to the original behaviour for existing setups
-- Native hook scripts (Cline, Claude Code, Windsurf, Gemini CLI) use workspace-aware agent resolution
+- Native hook scripts (Cline, Claude Code, Windsurf, Gemini CLI) use workspace-aware agent resolution. Claude Code hooks use `PWD` when set, then longest matching `workspacePath`, then `defaultAgent`, then the first `claude-code` agent
 - Replacing an agent no longer removes all agents for that platform - only the specific one being replaced
 
 ### Fixed
 
 - Stripe/payment tools incorrectly classified as `execute` instead of `write` in tool mapper
+- If the old Claude Code plugin is still installed, `init` prints a note that hooks now live in `settings.json` and suggests `claude plugin uninstall multicorn-shield@multicorn-shield`
 
 ## [1.1.0] - 2026-05-06
 
