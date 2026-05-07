@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { extractExecCommand, mapClaudeCodeToolToShield } from "./claude-code-tool-map.js";
+import { isDestructiveExecCommand } from "../openclaw/tool-mapper.js";
 
 describe("claude-code-tool-map", () => {
   it("maps bash with safe command to terminal execute", () => {
@@ -52,9 +53,96 @@ describe("claude-code-tool-map", () => {
     });
   });
 
+  it("maps empty string toolName to unknown:execute", () => {
+    expect(mapClaudeCodeToolToShield("")).toEqual({
+      service: "unknown",
+      actionType: "execute",
+    });
+    expect(mapClaudeCodeToolToShield("  ")).toEqual({
+      service: "unknown",
+      actionType: "execute",
+    });
+  });
+
+  it("handles null and undefined toolInput without throwing", () => {
+    expect(mapClaudeCodeToolToShield("bash", null)).toEqual({
+      service: "terminal",
+      actionType: "execute",
+    });
+    expect(mapClaudeCodeToolToShield("bash", undefined)).toEqual({
+      service: "terminal",
+      actionType: "execute",
+    });
+    expect(mapClaudeCodeToolToShield("bash")).toEqual({
+      service: "terminal",
+      actionType: "execute",
+    });
+  });
+
+  it("unknown tool names fall through to default execute", () => {
+    expect(mapClaudeCodeToolToShield("my_custom_mcp_tool")).toEqual({
+      service: "my_custom_mcp_tool",
+      actionType: "execute",
+    });
+    expect(mapClaudeCodeToolToShield("FooBarTool")).toEqual({
+      service: "foobartool",
+      actionType: "execute",
+    });
+  });
+
+  it("maps stripe and payment tools to payments:write", () => {
+    expect(mapClaudeCodeToolToShield("stripe")).toEqual({
+      service: "payments",
+      actionType: "write",
+    });
+    expect(mapClaudeCodeToolToShield("payments")).toEqual({
+      service: "payments",
+      actionType: "write",
+    });
+    expect(mapClaudeCodeToolToShield("payment")).toEqual({
+      service: "payments",
+      actionType: "write",
+    });
+  });
+
+  it("maps google_calendar_delete via prefix to google_calendar:write", () => {
+    expect(mapClaudeCodeToolToShield("google_calendar_delete")).toEqual({
+      service: "google_calendar",
+      actionType: "write",
+    });
+  });
+
+  it("maps calendar_delete via prefix to google_calendar:write", () => {
+    expect(mapClaudeCodeToolToShield("calendar_delete")).toEqual({
+      service: "google_calendar",
+      actionType: "write",
+    });
+  });
+
   it("extractExecCommand handles JSON string input", () => {
     expect(extractExecCommand(JSON.stringify({ command: "sudo apt update" }))).toBe(
       "sudo apt update",
     );
+  });
+
+  it("extractExecCommand returns undefined for null and undefined", () => {
+    expect(extractExecCommand(null)).toBeUndefined();
+    expect(extractExecCommand(undefined)).toBeUndefined();
+  });
+
+  it("extractExecCommand returns raw string for malformed JSON", () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const result = extractExecCommand("{not valid json");
+    expect(result).toBe("{not valid json");
+    expect(stderrSpy).toHaveBeenCalledWith(
+      "Shield: failed to parse tool input as JSON, using raw string\n",
+    );
+    stderrSpy.mockRestore();
+  });
+
+  it("isDestructiveExecCommand detects tab-separated commands", () => {
+    expect(isDestructiveExecCommand("rm\t-rf")).toBe(true);
+    expect(isDestructiveExecCommand("sudo\tapt\tupdate")).toBe(true);
+    expect(isDestructiveExecCommand("echo\thello")).toBe(false);
   });
 });

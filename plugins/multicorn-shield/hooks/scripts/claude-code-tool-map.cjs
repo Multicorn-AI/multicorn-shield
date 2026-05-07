@@ -1,4 +1,6 @@
-'use strict';
+"use strict";
+
+// AUTO-GENERATED from src/hooks/claude-code-tool-map.ts — do not edit manually. Run pnpm build from the package root to regenerate.
 
 // src/openclaw/tool-mapper.ts
 var TOOL_MAP = {
@@ -32,9 +34,9 @@ var TOOL_MAP = {
   slack_read: { service: "slack", permissionLevel: "read" },
   slack_message: { service: "slack", permissionLevel: "write" },
   // Payments
-  payments: { service: "payments", permissionLevel: "execute" },
-  payment: { service: "payments", permissionLevel: "execute" },
-  stripe: { service: "payments", permissionLevel: "execute" }
+  payments: { service: "payments", permissionLevel: "write" },
+  payment: { service: "payments", permissionLevel: "write" },
+  stripe: { service: "payments", permissionLevel: "write" },
 };
 function isDestructiveExecCommand(command) {
   const destructiveCommands = ["rm", "mv", "sudo", "chmod", "chown", "dd", "truncate", "shred"];
@@ -59,14 +61,24 @@ function mapToolToScope(toolName, command) {
     slack: "slack",
     payments: "payments",
     payment: "payments",
-    stripe: "payments"
+    stripe: "payments",
   };
   for (const [prefix, service] of Object.entries(integrationPrefixes)) {
     if (normalized.startsWith(prefix + "_") || normalized === prefix) {
       let permissionLevel = "execute";
-      if (normalized.includes("_read") || normalized.includes("_get") || normalized.includes("_list")) {
+      if (
+        normalized.includes("_read") ||
+        normalized.includes("_get") ||
+        normalized.includes("_list")
+      ) {
         permissionLevel = "read";
-      } else if (normalized.includes("_write") || normalized.includes("_send") || normalized.includes("_create") || normalized.includes("_update") || normalized.includes("_delete")) {
+      } else if (
+        normalized.includes("_write") ||
+        normalized.includes("_send") ||
+        normalized.includes("_create") ||
+        normalized.includes("_update") ||
+        normalized.includes("_delete")
+      ) {
         permissionLevel = "write";
       }
       return { service, permissionLevel };
@@ -84,6 +96,7 @@ function extractExecCommand(toolInput) {
     try {
       return extractExecCommand(JSON.parse(toolInput));
     } catch {
+      process.stderr.write("Shield: failed to parse tool input as JSON, using raw string\n");
       return toolInput;
     }
   }

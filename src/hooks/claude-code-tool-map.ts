@@ -1,7 +1,7 @@
 /**
  * Maps Claude Code hook tool names to Shield `service` + permission-level `actionType`
- * for `/api/v1/actions`. Kept in TypeScript and bundled to
- * `plugins/multicorn-shield/hooks/scripts/claude-code-tool-map.cjs` for use by the CJS hooks.
+ * for `/api/v1/actions`. Exported as CommonJS for use by Claude Code hook scripts
+ * (`plugins/multicorn-shield/hooks/scripts/claude-code-tool-map.cjs`).
  *
  * @module hooks/claude-code-tool-map
  */
@@ -25,6 +25,7 @@ export function extractExecCommand(toolInput: unknown): string | undefined {
     try {
       return extractExecCommand(JSON.parse(toolInput) as unknown);
     } catch {
+      process.stderr.write("Shield: failed to parse tool input as JSON, using raw string\n");
       return toolInput;
     }
   }
