@@ -401,6 +401,17 @@ function writeConsentMarker(agentName) {
 }
 
 /**
+ * @param {string} agentName
+ */
+function removeConsentMarker(agentName) {
+  try {
+    fs.unlinkSync(consentMarkerPath(agentName));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * @param {string} url
  */
 function openBrowser(url) {
@@ -430,34 +441,16 @@ function sleep(ms) {
 }
 
 /**
+ * Polls GET /api/v1/approvals/{id} until the approval is decided or timeout.
+ * Returns true if approved, false on timeout.
+ * Exits the process on denial/expiry.
+ *
  * @param {{ apiKey: string; baseUrl: string; agentName: string }} config
  * @param {string} approvalId
- * @param {string} service
- * @param {string} actionType
  * @param {string} approvalsUrl
- * @returns {Promise<void>}
+ * @returns {Promise<boolean>}
  */
-async function handlePendingWithConsentAndPoll(
-  config,
-  approvalId,
-  service,
-  actionType,
-  approvalsUrl,
-) {
-  if (hasConsentMarker(config.agentName)) {
-    process.stderr.write(
-      `${LOG_PREFIX} Action blocked: this action requires approval before it can run.\n` +
-        `  Grant access in the Shield dashboard and retry.\n` +
-        `  Detail: ${approvalsUrl}\n`,
-    );
-    process.exit(2);
-  }
-
-  const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
-  writeConsentMarker(config.agentName);
-  openBrowser(url);
-  process.stderr.write("Opening Shield consent screen... Waiting for approval (up to 5 min).\n");
-
+async function pollApprovalStatus(config, approvalId, approvalsUrl) {
   for (let i = 0; i < MAX_APPROVAL_POLLS; i++) {
     if (i > 0) {
       await sleep(POLL_INTERVAL_MS);
@@ -482,7 +475,7 @@ async function handlePendingWithConsentAndPoll(
     const d = /** @type {Record<string, unknown>} */ (data);
     const st = String(d.status ?? "").toLowerCase();
     if (st === "approved") {
-      process.exit(0);
+      return true;
     }
     if (st === "blocked" || st === "denied" || st === "rejected") {
       const reason =
@@ -505,6 +498,57 @@ async function handlePendingWithConsentAndPoll(
     if (st === "pending") {
       continue;
     }
+  }
+  return false;
+}
+
+/**
+ * @param {{ apiKey: string; baseUrl: string; agentName: string }} config
+ * @param {string} approvalId
+ * @param {string} service
+ * @param {string} actionType
+ * @param {string} approvalsUrl
+ * @returns {Promise<void>}
+ */
+async function handlePendingWithConsentAndPoll(
+  config,
+  approvalId,
+  service,
+  actionType,
+  approvalsUrl,
+) {
+  if (hasConsentMarker(config.agentName)) {
+    // Consent was previously completed. Poll for the approval decision.
+    process.stderr.write(
+      `${LOG_PREFIX} Waiting for approval (up to 5 min)...\n` +
+        `  Approve in the Shield dashboard: ${approvalsUrl}\n`,
+    );
+
+    const approved = await pollApprovalStatus(config, approvalId, approvalsUrl);
+    if (approved) {
+      process.exit(0);
+    }
+
+    // Timed out. Remove stale consent marker so next call triggers consent flow.
+    removeConsentMarker(config.agentName);
+
+    process.stderr.write(
+      `${LOG_PREFIX} Action blocked: approval timed out after 5 minutes.\n` +
+        `  Approve in the Shield dashboard, then retry.\n` +
+        `  Detail: approvalsUrl=${approvalsUrl}\n`,
+    );
+    process.exit(2);
+  }
+
+  // No consent marker: first-time flow. Open the consent screen.
+  const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
+  writeConsentMarker(config.agentName);
+  openBrowser(url);
+  process.stderr.write("Opening Shield consent screen... Waiting for approval (up to 5 min).\n");
+
+  const approved = await pollApprovalStatus(config, approvalId, approvalsUrl);
+  if (approved) {
+    process.exit(0);
   }
 
   process.stderr.write(
