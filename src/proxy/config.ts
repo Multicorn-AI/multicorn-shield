@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 
-import { fetchRemoteAgentsSummaries } from "./consent.js";
+import { fetchRemoteAgentsSummaries, deriveDashboardUrl } from "./consent.js";
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -2034,6 +2034,17 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     }
   }
 
+  if (apiKey.length === 0) {
+    const signupDashboardUrl = deriveDashboardUrl(resolvedBaseUrl).replace(/\/+$/, "");
+    console.log("");
+    console.log("  Multicorn Shield controls what your AI agents can do.");
+    console.log("  You need a free account to get an API key.");
+    console.log("");
+    console.log(`  1. Sign up or log in → ${signupDashboardUrl}`);
+    console.log("  2. Go to Settings → API Keys to create a key");
+    console.log("");
+  }
+
   while (apiKey.length === 0) {
     const input = await ask("API key (starts with mcs_): ");
     const key = input.trim();
@@ -2875,6 +2886,14 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       process.stderr.write("\n" + style.bold(style.violet("Next steps")) + "\n");
       process.stderr.write(blocks.join("") + "\n");
     }
+
+    const dashboardUrl = deriveDashboardUrl(resolvedBaseUrl).replace(/\/+$/, "");
+    console.log("");
+    console.log("  Your dashboard");
+    console.log(`  → ${dashboardUrl}/agents`);
+    console.log("");
+    console.log("  Use any tool in your agent to see it appear.");
+    console.log("");
   }
 
   return lastConfig;

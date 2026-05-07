@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Pass action cost (USD) to the backend when logging approved and spending-blocked actions via the MCP proxy. Previously cost was computed locally for spending-limit checks but never sent to the API, causing all agent spend totals to show $0.
 - Add optional `cost` field to `ActionLogPayload` in `shield-client.ts` so OpenClaw plugin callers can include cost when it becomes available upstream.
+- Sanitise cost values extracted from tool arguments before logging (reject negative, NaN, Infinity, and values exceeding $1M).
+
+### Added
+
+- Print signup URL and API key instructions before the key prompt in the CLI wizard for new users who don't yet have an account.
+- Print dashboard URL at the end of the CLI wizard setup summary.
+- Log a one-time "First action recorded" message with dashboard link on the first approved action in both the MCP proxy and OpenClaw plugin.
 
 ## [1.3.1] - 2026-05-07
 
