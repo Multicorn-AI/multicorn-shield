@@ -51,17 +51,18 @@ const TOOL_MAP: Readonly<Record<string, ToolScopeMapping>> = {
   slack_read: { service: "slack", permissionLevel: "read" },
   slack_message: { service: "slack", permissionLevel: "write" },
   // Payments
-  payments: { service: "payments", permissionLevel: "execute" },
-  payment: { service: "payments", permissionLevel: "execute" },
-  stripe: { service: "payments", permissionLevel: "execute" },
+  payments: { service: "payments", permissionLevel: "write" },
+  payment: { service: "payments", permissionLevel: "write" },
+  stripe: { service: "payments", permissionLevel: "write" },
 } as const;
 
 /**
  * Check if an exec command is destructive and requires write permission.
  *
+ * This is a classification hint for the consent screen UI, not a security
+ * boundary. Actual permit/deny decisions are enforced server-side by Shield.
+ *
  * Destructive commands include: rm, mv, sudo, chmod, chown, dd, truncate, shred.
- * These commands can modify or delete files, so they require write permission
- * instead of execute permission to ensure separate approval.
  *
  * @param command - The command string to check.
  * @returns `true` if the command is destructive.
@@ -143,7 +144,9 @@ export function mapToolToScope(toolName: string, command?: string): ToolScopeMap
     }
   }
 
-  // Unknown tool - use tool name as service
+  // Unknown tools default to "execute" (most restricted tier). This is
+  // intentionally fail-closed: Shield requires explicit consent for
+  // execute-tier actions.
   return { service: normalized, permissionLevel: "execute" as PermissionLevel };
 }
 

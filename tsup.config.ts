@@ -1,4 +1,5 @@
 import { defineConfig } from "tsup";
+import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync } from "node:fs";
 
 export default defineConfig([
@@ -92,6 +93,35 @@ export default defineConfig([
     minify: false,
     outDir: "dist",
     platform: "node",
+  },
+  /** Claude Code plugin: shared tool mapping for CJS hook scripts (pre/post). */
+  {
+    entry: { "claude-code-tool-map": "src/hooks/claude-code-tool-map.ts" },
+    format: ["cjs"],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: false,
+    outDir: "plugins/multicorn-shield/hooks/scripts",
+    platform: "node",
+    outExtension: () => ({ js: ".cjs" }),
+    banner: {
+      js: "// AUTO-GENERATED from src/hooks/claude-code-tool-map.ts — do not edit manually. Run pnpm build from the package root to regenerate.",
+    },
+    onSuccess: async () => {
+      execFileSync(
+        "pnpm",
+        [
+          "exec",
+          "prettier",
+          "--write",
+          "plugins/multicorn-shield/hooks/scripts/claude-code-tool-map.cjs",
+        ],
+        { cwd: process.cwd(), stdio: "inherit" },
+      );
+    },
   },
   {
     entry: { proxy: "src/proxy/exports.ts" },

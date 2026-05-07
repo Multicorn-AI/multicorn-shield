@@ -11,6 +11,7 @@
  */
 
 import { createHash } from "node:crypto";
+import * as nodeFs from "node:fs";
 import { PassThrough } from "node:stream";
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { createProxyServer, type ProxyServer } from "../index.js";
@@ -815,6 +816,96 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("claude plugin install multicorn-shield@multicorn-shield");
     expect(stderrBuffer).toContain("Step 1");
     expect(stderrBuffer).toContain("claude plugin marketplace add Multicorn-AI/multicorn-shield");
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("Setup complete");
+    expect(plain).toContain("Start Claude Code:");
+    expect(plain).toContain(
+      "Shield will intercept tool calls automatically once the plugin is active.",
+    );
+    expect((plain.match(/claude plugin marketplace add/g) ?? []).length).toBe(1);
+    expect(plain).not.toContain("claude plugin update multicorn-shield@multicorn-shield");
+  });
+
+  it("runInit shows Claude Code plugin update hint when installed_plugins lists multicorn-shield", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    existsSyncMock.mockImplementation((p: string | Buffer | URL) =>
+      String(p).includes("installed_plugins.json") ? true : false,
+    );
+    const originalReadFileSync = nodeFs.readFileSync.bind(nodeFs);
+    const readFileSyncSpy = vi.spyOn(nodeFs, "readFileSync").mockImplementation((filepath, enc) => {
+      if (String(filepath).includes("installed_plugins.json")) {
+        return JSON.stringify({ "multicorn-shield@multicorn-shield": { version: "1.0.0" } });
+      }
+      return originalReadFileSync(filepath, enc as BufferEncoding);
+    });
+
+    try {
+      mockPrompts({
+        "API key": "mcs_valid_key",
+        Select: menuSel("claude-code"),
+        "call this agent": "my-agent",
+        "Connect another": "n",
+      });
+
+      const config = await runInit("https://api.multicorn.ai");
+
+      expect(config).not.toBeNull();
+      expect(stripAnsi(stderrBuffer)).toContain(
+        "claude plugin update multicorn-shield@multicorn-shield",
+      );
+    } finally {
+      readFileSyncSpy.mockRestore();
+    }
+  });
+
+  it("runInit omits Claude Code plugin update hint when installed_plugins has no multicorn-shield", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) =>
+      path.includes(".openclaw")
+        ? Promise.resolve(MINIMAL_OPENCLAW_JSON)
+        : Promise.reject(new Error("ENOENT")),
+    );
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    existsSyncMock.mockImplementation((p: string | Buffer | URL) =>
+      String(p).includes("installed_plugins.json") ? true : false,
+    );
+    const originalReadFileSync = nodeFs.readFileSync.bind(nodeFs);
+    const readFileSyncSpy = vi.spyOn(nodeFs, "readFileSync").mockImplementation((filepath, enc) => {
+      if (String(filepath).includes("installed_plugins.json")) {
+        return JSON.stringify({ "other-plugin@scope": { version: "1.0.0" } });
+      }
+      return originalReadFileSync(filepath, enc as BufferEncoding);
+    });
+
+    try {
+      mockPrompts({
+        "API key": "mcs_valid_key",
+        Select: menuSel("claude-code"),
+        "call this agent": "my-agent",
+        "Connect another": "n",
+      });
+
+      const config = await runInit("https://api.multicorn.ai");
+
+      expect(config).not.toBeNull();
+      expect(stripAnsi(stderrBuffer)).not.toContain(
+        "claude plugin update multicorn-shield@multicorn-shield",
+      );
+    } finally {
+      readFileSyncSpy.mockRestore();
+    }
   });
 
   it("runInit completes Cursor platform with proxy URL and Cursor next steps", async () => {
@@ -1258,47 +1349,9 @@ describe("config file parsing", () => {
     expect(String(preEntries[1]?.["command"])).toContain("pre-action.cjs");
   });
 
-  // --- Platform detection labels ---
+  // --- Platform menu (no local detection labels) ---
 
-  it("runInit shows 'detected locally' with dot icon when a platform is detected", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    // Return OpenClaw config with Shield API key set so isOpenClawConnected() returns true.
-    const openclawWithShield = JSON.stringify({
-      meta: { lastTouchedVersion: "2026.3.1" },
-      hooks: {
-        internal: {
-          entries: {
-            "multicorn-shield": {
-              env: { MULTICORN_API_KEY: "mcs_existing_key" },
-            },
-          },
-        },
-      },
-    });
-    readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw")
-        ? Promise.resolve(openclawWithShield)
-        : Promise.reject(new Error("ENOENT")),
-    );
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("openclaw"),
-      "call this agent": "test-agent",
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    const plain = stripAnsi(stderrBuffer);
-    expect(plain).toContain("detected locally");
-    expect(plain).toContain("\u25CF");
-  });
-
-  it("runInit does not show 'connected' or checkmark in platform list", async () => {
+  it("runInit platform menu lists names without detected-locally markers", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
@@ -1331,39 +1384,13 @@ describe("config file parsing", () => {
     await runInit("https://api.multicorn.ai");
 
     const plain = stripAnsi(stderrBuffer);
-    // The platform list section (before "API key") should not contain "connected" or checkmark.
+    expect(plain).not.toContain("detected locally");
     expect(plain).not.toMatch(/\u2713\s*connected/);
-  });
-
-  it("runInit does not show OpenClaw as detected when Shield key is absent", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    // OpenClaw config exists but has no Shield API key entry.
-    readFileMock.mockImplementation((path: string) =>
-      path.includes(".openclaw")
-        ? Promise.resolve(JSON.stringify({ meta: { lastTouchedVersion: "2026.3.1" } }))
-        : Promise.reject(new Error("ENOENT")),
-    );
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    const plain = stripAnsi(stderrBuffer);
-    // OpenClaw line should not have the detected marker.
     const lines = plain.split("\n");
     const openclawLine = lines.find((l) => l.includes("1.") && l.includes("OpenClaw"));
     expect(openclawLine).toBeDefined();
-    expect(openclawLine).not.toContain("detected locally");
+    expect(openclawLine).not.toContain("\u25CF");
   });
-
-  // --- Local MCP / Other ---
 
   it("runInit Local MCP / Other writes config with apiKey and baseUrl only (no agents, no defaultAgent)", async () => {
     captureStderr();
@@ -1672,7 +1699,7 @@ describe("config file parsing", () => {
     expect(config.defaultAgent).toBe("new-openclaw");
   });
 
-  it("runInit uses tier-1 replace prompt when workspacePath matches cwd", async () => {
+  it("runInit shows arrow-select replace flow when workspacePath matches cwd", async () => {
     const ws = "/tmp/multicorn-tier1-ws";
     const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(ws);
     captureStderr();
@@ -1697,7 +1724,8 @@ describe("config file parsing", () => {
     mockPrompts({
       "Use this key": "y",
       Select: menuSel("openclaw"),
-      "Replace it?": "y",
+      Action: "2",
+      Agent: "1",
       "call this agent": "new-openclaw",
       "Connect another": "n",
     });
@@ -1709,6 +1737,8 @@ describe("config file parsing", () => {
     if (!config) throw new Error("expected config");
     expect(config.agents?.length).toBe(1);
     expect(config.agents?.[0]?.name).toBe("new-openclaw");
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("(this workspace)");
   });
 
   it("runInit appends second agent on same platform when user chooses add", async () => {

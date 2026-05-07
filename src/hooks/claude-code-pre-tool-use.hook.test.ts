@@ -6,7 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-/* Vitest can resolve import.meta.url under .vite; cwd is the package root when tests run. */
+/* Vitest can resolve import.meta.url under .vite; cwd is the package root when tests run.
+ * Hook script: plugins/multicorn-shield/hooks/scripts/pre-tool-use.cjs
+ * Tool map source: src/hooks/claude-code-tool-map.ts → claude-code-tool-map.cjs (pnpm build)
+ */
 const scriptPath = path.resolve(
   process.cwd(),
   "plugins/multicorn-shield/hooks/scripts/pre-tool-use.cjs",
