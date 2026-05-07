@@ -12,6 +12,7 @@ import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { createInterface } from "node:readline";
 
 import { fetchRemoteAgentsSummaries } from "./consent.js";
@@ -633,6 +634,49 @@ function multicornShieldPackageRoot(): string {
   return join(dirname(fileURLToPath(import.meta.url)), "..");
 }
 
+/** Prefer npm package root via `require.resolve` when running from `node_modules`. */
+function multicornShieldInstallRoot(): string {
+  try {
+    const req = createRequire(import.meta.url);
+    return dirname(req.resolve("multicorn-shield/package.json"));
+  } catch {
+    return multicornShieldPackageRoot();
+  }
+}
+
+function shieldInstalledVersionOlderThan(latest: string, installed: string): boolean {
+  return latest.localeCompare(installed, undefined, { numeric: true }) > 0;
+}
+
+async function warnIfInstalledShieldIsOutdated(): Promise<void> {
+  try {
+    const res = await fetch("https://registry.npmjs.org/multicorn-shield/latest");
+    if (!res.ok) return;
+    const data = (await res.json()) as { version?: string };
+    const latest = typeof data.version === "string" ? data.version : "";
+    if (latest.length === 0) return;
+    let installed = "";
+    try {
+      const req = createRequire(import.meta.url);
+      const pkgPath = req.resolve("multicorn-shield/package.json");
+      const raw = readFileSync(pkgPath, "utf8");
+      const pkg = JSON.parse(raw) as { version?: string };
+      installed = typeof pkg.version === "string" ? pkg.version : "";
+    } catch {
+      return;
+    }
+    if (installed.length === 0 || !shieldInstalledVersionOlderThan(latest, installed)) {
+      return;
+    }
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        ` multicorn-shield v${installed} is installed but v${latest} is available. Run npm update multicorn-shield to update.\n\n`,
+    );
+  } catch {
+    /* skip */
+  }
+}
+
 /** Installed copy of hook scripts (written by `init`, referenced from hooks.json). */
 export function getWindsurfHooksInstallDir(): string {
   return join(homedir(), ".multicorn", "windsurf-hooks");
@@ -917,6 +961,169 @@ function geminiStripMulticornHookEntries(hooks: Record<string, unknown>): Record
   out["BeforeTool"] = geminiStripMatcherGroups(out["BeforeTool"]);
   out["AfterTool"] = geminiStripMatcherGroups(out["AfterTool"]);
   return out;
+}
+
+function getClaudeCodeUserSettingsPath(): string {
+  return join(homedir(), ".claude", "settings.json");
+}
+
+function commandLooksLikeMulticornClaudePre(cmd: unknown): boolean {
+  return (
+    typeof cmd === "string" && cmd.includes("pre-tool-use.cjs") && cmd.includes("multicorn-shield")
+  );
+}
+
+function commandLooksLikeMulticornClaudePost(cmd: unknown): boolean {
+  return (
+    typeof cmd === "string" && cmd.includes("post-tool-use.cjs") && cmd.includes("multicorn-shield")
+  );
+}
+
+function claudeSettingsMatcherGroupReferencesShield(
+  group: Record<string, unknown>,
+  kind: "pre" | "post",
+): boolean {
+  const inner = group["hooks"];
+  if (!Array.isArray(inner)) return false;
+  const pred =
+    kind === "pre" ? commandLooksLikeMulticornClaudePre : commandLooksLikeMulticornClaudePost;
+  for (const h of inner) {
+    if (typeof h !== "object" || h === null) continue;
+    const rec = h as Record<string, unknown>;
+    if (pred(rec["command"])) return true;
+  }
+  return false;
+}
+
+function claudeHooksHaveShieldEntries(hooks: Record<string, unknown>): boolean {
+  for (const key of ["PreToolUse", "PostToolUse"] as const) {
+    const arr = hooks[key];
+    if (!Array.isArray(arr)) continue;
+    const kind = key === "PreToolUse" ? ("pre" as const) : ("post" as const);
+    for (const g of arr) {
+      if (typeof g === "object" && g !== null) {
+        if (claudeSettingsMatcherGroupReferencesShield(g as Record<string, unknown>, kind)) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function stripClaudeShieldHookGroups(arr: unknown[], kind: "pre" | "post"): unknown[] {
+  return arr.filter((g) => {
+    if (typeof g !== "object" || g === null) return true;
+    return !claudeSettingsMatcherGroupReferencesShield(g as Record<string, unknown>, kind);
+  });
+}
+
+async function installClaudeCodeUserSettingsHooks(ask: AskFn): Promise<boolean> {
+  const root = multicornShieldInstallRoot();
+  const prePath = join(root, "plugins", "multicorn-shield", "hooks", "scripts", "pre-tool-use.cjs");
+  const postPath = join(
+    root,
+    "plugins",
+    "multicorn-shield",
+    "hooks",
+    "scripts",
+    "post-tool-use.cjs",
+  );
+  if (!existsSync(prePath) || !existsSync(postPath)) {
+    process.stderr.write(
+      style.red(
+        "Could not find Shield Claude Code hook scripts next to the multicorn-shield package.\n",
+      ),
+    );
+    process.stderr.write(style.dim(`  Expected: ${prePath}`) + "\n");
+    return false;
+  }
+
+  const settingsPath = getClaudeCodeUserSettingsPath();
+  await mkdir(dirname(settingsPath), { recursive: true });
+
+  let existing: Record<string, unknown> = {};
+  try {
+    const rawText = await readFile(settingsPath, "utf8");
+    const parsed: unknown = JSON.parse(rawText);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch (err) {
+    if (isErrnoException(err) && err.code === "ENOENT") {
+      existing = {};
+    } else {
+      process.stderr.write(
+        style.yellow("\u26A0") +
+          ` Could not parse ${settingsPath}. Fix or remove the file, then run init again.\n`,
+      );
+      return false;
+    }
+  }
+
+  const hooksRaw = existing["hooks"];
+  const hooksObj: Record<string, unknown> =
+    typeof hooksRaw === "object" && hooksRaw !== null && !Array.isArray(hooksRaw)
+      ? { ...(hooksRaw as Record<string, unknown>) }
+      : {};
+
+  if (claudeHooksHaveShieldEntries(hooksObj)) {
+    const answer = await ask(
+      "Existing Multicorn Shield hooks were found in ~/.claude/settings.json. Overwrite? (Y/n) ",
+    );
+    if (answer.trim().toLowerCase() === "n") {
+      return false;
+    }
+  }
+
+  const preCmd = `node ${JSON.stringify(prePath)}`;
+  const postCmd = `node ${JSON.stringify(postPath)}`;
+
+  const preArr = stripClaudeShieldHookGroups(
+    Array.isArray(hooksObj["PreToolUse"]) ? [...(hooksObj["PreToolUse"] as unknown[])] : [],
+    "pre",
+  );
+  const postArr = stripClaudeShieldHookGroups(
+    Array.isArray(hooksObj["PostToolUse"]) ? [...(hooksObj["PostToolUse"] as unknown[])] : [],
+    "post",
+  );
+
+  preArr.push({
+    matcher: "*",
+    hooks: [
+      {
+        type: "command",
+        name: "multicorn-shield-pre",
+        command: preCmd,
+        timeout: 600,
+      },
+    ],
+  });
+  postArr.push({
+    matcher: "*",
+    hooks: [
+      {
+        type: "command",
+        name: "multicorn-shield-post",
+        command: postCmd,
+        timeout: 120,
+      },
+    ],
+  });
+
+  hooksObj["PreToolUse"] = preArr;
+  hooksObj["PostToolUse"] = postArr;
+
+  const out = { ...existing, hooks: hooksObj };
+  const serialized = JSON.stringify(out, null, 2) + "\n";
+  await writeFile(settingsPath, serialized, "utf8");
+
+  process.stderr.write(
+    "\n" + style.dim("Wrote ") + style.cyan(settingsPath) + style.dim(":") + "\n",
+  );
+  process.stderr.write(style.dim(JSON.stringify({ hooks: hooksObj }, null, 2)) + "\n");
+
+  return true;
 }
 
 export async function installGeminiCliNativeHooks(ask: AskFn): Promise<void> {
@@ -1854,6 +2061,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     apiKey = key;
   }
 
+  await warnIfInstalledShieldIsOutdated();
+
   // Agent configuration loop (append to `agents`, no silent duplicate platforms)
   const configuredAgents: ConfiguredAgent[] = [];
   let currentAgents: AgentEntry[] = collectAgentsFromConfig(existing);
@@ -2100,34 +2309,29 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       });
       setupSucceeded = true;
     } else if (selectedPlatform === "claude-code") {
-      process.stderr.write("\nTo connect Claude Code to Shield:\n\n");
       process.stderr.write(
-        "  " +
-          style.bold("Step 1") +
-          " - Add the Multicorn marketplace:\n" +
-          "    " +
-          style.cyan("claude plugin marketplace add Multicorn-AI/multicorn-shield") +
-          "\n\n",
+        "\n" + style.dim("Configuring Shield hooks in Claude Code user settings...") + "\n",
       );
+      const hooksOk = await installClaudeCodeUserSettingsHooks(ask);
+      if (!hooksOk) {
+        process.stderr.write(style.dim("Skipped Claude Code hook installation.\n"));
+        continue;
+      }
       process.stderr.write(
-        "  " +
-          style.bold("Step 2") +
-          " - Install the plugin:\n" +
-          "    " +
-          style.cyan("claude plugin install multicorn-shield@multicorn-shield") +
-          "\n\n",
+        style.green("\u2713") +
+          " Shield hooks added to " +
+          style.cyan("~/.claude/settings.json") +
+          "\n",
       );
       if (claudeInstalledPluginsListsMulticornShield()) {
         process.stderr.write(
-          "  " +
-            style.dim("Plugin already installed? Update with: ") +
-            style.cyan("claude plugin update multicorn-shield@multicorn-shield") +
-            "\n\n",
+          style.dim(
+            "Note: You have the multicorn-shield Claude Code plugin installed. The plugin is no longer needed - hooks are now written directly to settings.json. You can uninstall it with: ",
+          ) +
+            style.cyan("claude plugin uninstall multicorn-shield@multicorn-shield") +
+            "\n",
         );
       }
-      process.stderr.write(
-        style.dim("Requires Claude Code to be installed. Get it at https://code.claude.com") + "\n",
-      );
       configuredAgents.push({
         selection,
         platform: selectedPlatform,
@@ -2511,7 +2715,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     if (configuredPlatforms.has("openclaw")) {
       blocks.push(
         "\n" +
-          style.bold("To complete your OpenClaw setup:") +
+          style.bold("OpenClaw") +
           "\n" +
           "  \u2192 Restart your gateway: " +
           style.cyan("openclaw gateway restart") +
@@ -2524,19 +2728,18 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     if (configuredPlatforms.has("claude-code")) {
       blocks.push(
         "\n" +
-          style.bold("Claude Code:") +
+          style.bold("Claude Code") +
           "\n" +
           "  \u2192 Start Claude Code: " +
           style.cyan("claude") +
           "\n" +
-          "  \u2192 Shield will intercept tool calls automatically once the plugin is active." +
-          "\n",
+          "  \u2192 Shield will intercept tool calls automatically.\n",
       );
     }
     if (configuredPlatforms.has("claude-desktop")) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Claude Desktop setup:") +
+          style.bold("Claude Desktop") +
           "\n" +
           "  \u2192 Restart Claude Desktop to pick up config changes\n",
       );
@@ -2544,67 +2747,50 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     if (configuredPlatforms.has("cursor")) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Cursor setup:") +
+          style.bold("Cursor") +
           "\n" +
-          "  1. If you don't have Cursor yet, download it from " +
+          "  \u2192 If needed, download Cursor from " +
           style.cyan("https://cursor.com/downloads") +
           "\n" +
-          "  2. Open " +
-          style.cyan("~/.cursor/mcp.json") +
-          " and paste the config snippet shown above\n" +
-          "  3. Restart Cursor (or launch it for the first time) to load the new MCP server\n",
+          "  \u2192 Restart Cursor so it loads the MCP server\n" +
+          "  \u2192 Ask the agent to use your Shield MCP tools by short name\n",
       );
     }
     if (configuredPlatforms.has("kilo-code")) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Kilo Code setup:") +
+          style.bold("Kilo Code") +
           "\n" +
-          "  1. Save the snippet to " +
-          style.cyan(".kilocode/mcp.json") +
-          " in your project root, or under the mcp key in " +
-          style.cyan("kilo.jsonc") +
-          "\n" +
-          "  2. Run your next task in Kilo Code so it picks up the MCP server\n",
+          "  \u2192 Restart the editor or reload the window if the MCP server does not appear\n" +
+          "  \u2192 Run your next task in Kilo Code so it picks up Shield\n",
       );
     }
     if (configuredPlatforms.has("github-copilot")) {
       blocks.push(
         "\n" +
-          style.bold("GitHub Copilot MCP:") +
+          style.bold("GitHub Copilot") +
           "\n" +
-          "  1. Open VS Code Command Palette: Preferences: Open User Settings (JSON)\n" +
-          "  2. Merge the snippet under the " +
-          style.cyan("mcp") +
-          " key and save\n" +
-          "  3. Use Copilot Agent mode and verify the MCP server connects\n",
+          "  \u2192 Reload the editor window if the MCP server does not appear\n" +
+          "  \u2192 Use Copilot Agent mode and verify the MCP server connects\n",
       );
     }
     if (configuredPlatforms.has("continue-dev")) {
       blocks.push(
         "\n" +
-          style.bold("Continue MCP:") +
+          style.bold("Continue") +
           "\n" +
-          "  1. If you don't have Continue yet, install from " +
+          "  \u2192 If needed, install Continue from " +
           style.cyan("https://docs.continue.dev/ide-extensions/install") +
           "\n" +
-          "  2. Save JSON as " +
-          style.cyan(".continue/mcpServers/shield.json") +
-          " in your workspace, or add to " +
-          style.cyan("~/.continue/config.yaml") +
-          "\n" +
-          "  3. Reload VS Code and open Continue agent mode\n",
+          "  \u2192 Reload VS Code and open Continue agent mode\n",
       );
     }
     if (configuredPlatforms.has("goose")) {
       blocks.push(
         "\n" +
-          style.bold("Goose MCP extension:") +
+          style.bold("Goose") +
           "\n" +
-          "  1. Edit " +
-          style.cyan("~/.config/goose/config.yaml") +
-          " (or use goose configure)\n" +
-          "  2. Restart Goose CLI or Desktop\n",
+          "  \u2192 Start a new Goose session after updating config\n",
       );
     }
     const windsurfNativeConfigured = configuredAgents.some(
@@ -2617,29 +2803,20 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     if (windsurfNativeConfigured) {
       blocks.push(
         "\n" +
-          style.bold("To complete native Windsurf (Shield) setup:") +
+          style.bold("Windsurf (native)") +
           "\n" +
-          "  1. Hook scripts: " +
-          style.cyan(getWindsurfHooksInstallDir()) +
-          "\n" +
-          "  2. Hooks config: " +
-          style.cyan(getWindsurfCascadeHooksJsonPath()) +
-          "\n" +
-          "  3. Restart Windsurf (quit fully, then reopen)\n",
+          "  \u2192 Restart Windsurf (quit fully, then reopen)\n",
       );
     }
     if (windsurfHostedConfigured) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Windsurf hosted-proxy setup:") +
+          style.bold("Windsurf (hosted)") +
           "\n" +
-          "  1. If you don't have Windsurf yet, download it from " +
+          "  \u2192 If needed, install from " +
           style.cyan("https://windsurf.com/download") +
           "\n" +
-          "  2. Open " +
-          style.cyan("~/.codeium/windsurf/mcp_config.json") +
-          " and paste the config snippet shown above\n" +
-          "  3. Restart Windsurf (or launch it for the first time) to load the new MCP server\n",
+          "  \u2192 Restart Windsurf so it loads the MCP server\n",
       );
     }
 
@@ -2653,22 +2830,18 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     if (clineNativeConfigured) {
       blocks.push(
         "\n" +
-          style.bold("To complete native Cline (Shield) setup:") +
+          style.bold("Cline (native)") +
           "\n" +
-          "  1. Enable Hooks in Cline: open VS Code, click the Cline sidebar icon, click the gear icon,\n" +
-          "     scroll down to the Advanced section, and toggle Hooks on.\n" +
-          "  2. Reload the VS Code window (Cmd+Shift+P > Reload Window)\n" +
-          "  3. Trigger any tool call to verify Shield is intercepting\n",
+          "  \u2192 Enable Hooks in Cline settings (Advanced), then reload the VS Code window\n" +
+          "  \u2192 Trigger a tool call to verify Shield is intercepting\n",
       );
     }
     if (clineHostedConfigured) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Cline hosted-proxy setup:") +
+          style.bold("Cline (hosted)") +
           "\n" +
-          "  1. If you don't have Cline yet, install it from the VS Code marketplace\n" +
-          "  2. Open your Cline MCP settings file and paste the config snippet shown above\n" +
-          "  3. Restart Cline or reload the VS Code window\n",
+          "  \u2192 Restart Cline or reload the VS Code window\n",
       );
     }
 
@@ -2682,21 +2855,19 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     if (geminiCliNativeConfigured) {
       blocks.push(
         "\n" +
-          style.bold("Gemini CLI native hooks:") +
+          style.bold("Gemini CLI (native)") +
           "\n" +
-          "  Your Gemini CLI hooks are installed. Restart Gemini CLI to activate Shield governance.\n",
+          "  \u2192 Restart Gemini CLI to activate Shield governance\n",
       );
     }
     if (geminiCliHostedConfigured) {
       blocks.push(
         "\n" +
-          style.bold("To complete your Gemini CLI setup:") +
+          style.bold("Gemini CLI (hosted)") +
           "\n" +
-          "  1. Open " +
-          style.cyan("~/.gemini/settings.json") +
-          "\n" +
-          "  2. Paste the config snippet shown above\n" +
-          "  3. Restart Gemini CLI, then run /mcp to verify\n",
+          "  \u2192 Restart Gemini CLI, then run " +
+          style.cyan("/mcp") +
+          " to verify the server\n",
       );
     }
 
