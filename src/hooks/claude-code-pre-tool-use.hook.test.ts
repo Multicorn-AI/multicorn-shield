@@ -333,3 +333,169 @@ describe.skip("claude-code pre-tool-use hook script", () => {
     );
   });
 });
+
+/**
+ * Server helper that handles both POST /api/v1/actions and GET /api/v1/approvals/:id.
+ */
+async function withApprovalServer(
+  onPost: (res: ServerResponse) => void,
+  onGetApproval: (res: ServerResponse, callCount: number) => void,
+  fn: (baseUrl: string) => void | Promise<void>,
+): Promise<void> {
+  let getCallCount = 0;
+  const server = createServer((req, res) => {
+    if (req.method === "POST" && req.url?.startsWith("/api/v1/actions")) {
+      req.resume();
+      onPost(res);
+    } else if (req.method === "GET" && req.url?.startsWith("/api/v1/approvals/")) {
+      req.resume();
+      getCallCount++;
+      onGetApproval(res, getCallCount);
+    } else {
+      res.statusCode = 404;
+      res.end();
+    }
+  });
+  await new Promise<void>((resolve, reject) => {
+    server.listen(0, "127.0.0.1", () => {
+      resolve();
+    });
+    server.on("error", reject);
+  });
+  const addr = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${String(addr.port)}`;
+  try {
+    await Promise.resolve(fn(baseUrl));
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  }
+}
+
+describe.skip("claude-code pre-tool-use hook - approval polling (bug fixes)", () => {
+  let home: string;
+
+  beforeEach(() => {
+    home = mkdtempSync(path.join(tmpdir(), "mshield-pre-poll-"));
+  });
+
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it("polls and exits 0 when approval is granted (one-time access) with existing consent marker", async () => {
+    await withApprovalServer(
+      (res) => {
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true, data: { approval_id: "test-approval-1" } }));
+      },
+      (res) => {
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true, data: { status: "APPROVED" } }));
+      },
+      (baseUrl) => {
+        writeConfig(home, { baseUrl, agentName: "poll-agent" });
+        // Pre-create the consent marker to simulate an agent that already completed consent
+        const markerDir = path.join(home, ".multicorn");
+        mkdirSync(markerDir, { recursive: true });
+        writeFileSync(path.join(markerDir, ".consent-poll-agent"), String(Date.now()), "utf8");
+
+        const { status, stderr } = runPreToolUse(validStdin, { HOME: home });
+        expect(status).toBe(0);
+        expect(stderr).toContain("Waiting for approval");
+      },
+    );
+  });
+
+  it("polls and exits 2 when approval is rejected with existing consent marker", async () => {
+    await withApprovalServer(
+      (res) => {
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true, data: { approval_id: "test-approval-2" } }));
+      },
+      (res) => {
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({ success: true, data: { status: "REJECTED", reason: "Not allowed" } }),
+        );
+      },
+      (baseUrl) => {
+        writeConfig(home, { baseUrl, agentName: "poll-agent" });
+        const markerDir = path.join(home, ".multicorn");
+        mkdirSync(markerDir, { recursive: true });
+        writeFileSync(path.join(markerDir, ".consent-poll-agent"), String(Date.now()), "utf8");
+
+        const { status, stderr } = runPreToolUse(validStdin, { HOME: home });
+        expect(status).toBe(2);
+        expect(stderr).toContain("Shield denied this approval request");
+        expect(stderr).toContain("Not allowed");
+      },
+    );
+  });
+
+  it("removes stale consent marker after polling timeout so next call triggers consent", async () => {
+    await withApprovalServer(
+      (res) => {
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true, data: { approval_id: "test-approval-3" } }));
+      },
+      (res) => {
+        // Always return pending to trigger timeout
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true, data: { status: "PENDING" } }));
+      },
+      (baseUrl) => {
+        writeConfig(home, { baseUrl, agentName: "stale-agent" });
+        const markerDir = path.join(home, ".multicorn");
+        mkdirSync(markerDir, { recursive: true });
+        const markerPath = path.join(markerDir, ".consent-stale-agent");
+        writeFileSync(markerPath, String(Date.now()), "utf8");
+
+        const { status, stderr } = runPreToolUse(validStdin, { HOME: home });
+        expect(status).toBe(2);
+        expect(stderr).toContain("approval timed out");
+
+        // Consent marker should be removed after timeout
+        expect(existsSync(markerPath)).toBe(false);
+      },
+    );
+  });
+
+  it("opens consent screen when no consent marker exists (fresh agent)", async () => {
+    await withApprovalServer(
+      (res) => {
+        res.statusCode = 202;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true, data: { approval_id: "test-approval-4" } }));
+      },
+      (res) => {
+        // Immediately approve to simulate consent flow completion
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ success: true, data: { status: "APPROVED" } }));
+      },
+      (baseUrl) => {
+        writeConfig(home, { baseUrl, agentName: "fresh-agent" });
+        // No consent marker - this should trigger browser open + consent flow
+
+        const { status, stderr } = runPreToolUse(validStdin, { HOME: home });
+        expect(status).toBe(0);
+        expect(stderr).toContain("Opening Shield consent screen");
+
+        // Consent marker should be written
+        const markerPath = path.join(home, ".multicorn", ".consent-fresh-agent");
+        expect(existsSync(markerPath)).toBe(true);
+      },
+    );
+  });
+});

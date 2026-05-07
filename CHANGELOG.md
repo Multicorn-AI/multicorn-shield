@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.3.1] - 2026-05-07
+
+### Fixed
+
+- Consent screen not opening for re-created agents with the same name (stale consent marker now cleared on polling timeout)
+- One-time approvals not working in Claude Code and Windsurf hooks (hook now polls approval status instead of immediately blocking when consent marker exists)
+
 ## [1.2.0] - 2026-05-06
 
 ### Added
