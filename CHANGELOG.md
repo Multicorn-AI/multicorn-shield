@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.3.2] - 2026-05-07
+
+### Fixed
+
+- Pass action cost (USD) to the backend when logging approved and spending-blocked actions via the MCP proxy. Previously cost was computed locally for spending-limit checks but never sent to the API, causing all agent spend totals to show $0.
+- Add optional `cost` field to `ActionLogPayload` in `shield-client.ts` so OpenClaw plugin callers can include cost when it becomes available upstream.
+
 ## [1.3.1] - 2026-05-07
 
 ### Fixed
