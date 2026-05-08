@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.4.0] - 2026-05-08
+
+### Added
+
+- Hosted proxy wizard now prompts for upstream MCP server authentication (header name and value) when the target server requires credentials
+- Helpful examples shown during hosted proxy setup: common MCP server URLs (GitHub, Supabase, Atlassian, Stripe) with links to where to find tokens
+- Upstream auth headers are stored encrypted and forwarded by the proxy to the target MCP server on every request
+
+### Changed
+
+- Target MCP server URL prompt now shows common examples instead of a generic placeholder
+- "govern" replaced with "control" in all user-facing copy
+- "upstream auth" replaced with "server credentials" in all user-facing copy
+
+### Fixed
+
+- Hosted proxy connections to MCP servers requiring authentication (e.g. GitHub, Supabase) now work end-to-end - previously the proxy forwarded requests without credentials
+
 ## [1.3.6] - 2026-05-08
 
 ### Fixed
