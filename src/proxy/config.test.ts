@@ -8,7 +8,10 @@ import {
   getAgentByPlatform,
   getDefaultAgent,
   collectAgentsFromConfig,
+  formatHostedProxyUrlForStderr,
+  hostedProxyUrlWithKeyParam,
   mergeAgentsForPlatform,
+  shouldEmbedKeyInHostedProxyUrl,
   cwdUnderWorkspacePath,
   type ProxyConfig,
 } from "./config.js";
@@ -347,6 +350,70 @@ describe("collectAgentsFromConfig", () => {
       platform: "openclaw",
     };
     expect(collectAgentsFromConfig(cfg)).toEqual([{ name: "old", platform: "openclaw" }]);
+  });
+});
+
+describe("shouldEmbedKeyInHostedProxyUrl", () => {
+  it("is true only for platforms that omit static Authorization headers in practice", () => {
+    expect(shouldEmbedKeyInHostedProxyUrl("cursor")).toBe(true);
+    expect(shouldEmbedKeyInHostedProxyUrl("github-copilot")).toBe(true);
+    expect(shouldEmbedKeyInHostedProxyUrl("windsurf")).toBe(false);
+    expect(shouldEmbedKeyInHostedProxyUrl("cline")).toBe(false);
+    expect(shouldEmbedKeyInHostedProxyUrl("gemini-cli")).toBe(false);
+  });
+});
+
+describe("formatHostedProxyUrlForStderr", () => {
+  it("redacts key to mcs_... plus last four characters for gated platforms", () => {
+    const line = formatHostedProxyUrlForStderr(
+      "cursor",
+      "https://proxy.multicorn.ai/r/rt/ag/name",
+      "mcs_valid_KEY",
+    );
+    expect(line).toContain("mcs_..._KEY");
+    expect(line).toContain("key=");
+    expect(line).not.toContain("mcs_valid_KEY");
+  });
+
+  it("prints base URL without key query for headers-only platforms", () => {
+    expect(
+      formatHostedProxyUrlForStderr("gemini-cli", "https://proxy.example/m", "mcs_valid_KEY"),
+    ).toBe("https://proxy.example/m");
+  });
+});
+
+describe("hostedProxyUrlWithKeyParam", () => {
+  it("appends key as query parameter", () => {
+    const out = hostedProxyUrlWithKeyParam("https://proxy.io/r/tok/agent", "mcs_abc");
+    const u = new URL(out);
+    expect(u.searchParams.get("key")).toBe("mcs_abc");
+  });
+
+  it("preserves existing query and adds key", () => {
+    const out = hostedProxyUrlWithKeyParam("https://proxy.io/r/tok/agent?foo=1", "mcs_x");
+    const u = new URL(out);
+    expect(u.searchParams.get("foo")).toBe("1");
+    expect(u.searchParams.get("key")).toBe("mcs_x");
+  });
+
+  it("returns original URL and warns when apiKey is empty", () => {
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    expect(hostedProxyUrlWithKeyParam("https://p.io/a", "")).toBe("https://p.io/a");
+    expect(warn.mock.calls.length).toBeGreaterThan(0);
+    warn.mockRestore();
+  });
+
+  it("returns original URL and warns on malformed proxyUrl", () => {
+    const warn = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    expect(hostedProxyUrlWithKeyParam("not a valid url", "mcs_x")).toBe("not a valid url");
+    expect(warn.mock.calls.length).toBeGreaterThan(0);
+    warn.mockRestore();
+  });
+
+  it("encodes special characters in key", () => {
+    const out = hostedProxyUrlWithKeyParam("https://p.io/m", "a&b=c");
+    const u = new URL(out);
+    expect(u.searchParams.get("key")).toBe("a&b=c");
   });
 });
 
