@@ -166,7 +166,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
         apiKey = next;
         i++;
       }
-    } else if (arg === "--verbose") {
+    } else if (arg === "--verbose" || arg === "--debug") {
       verbose = true;
     }
   }
@@ -208,7 +208,7 @@ function printHelp(): void {
       "      Shield's permission layer.",
       "",
       "Options:",
-      "  --verbose             Print extra diagnostics during init (menu selection, agent counts)",
+      "  --verbose, --debug   Print extra diagnostics during init (menu selection, agent counts)",
       "  --api-key <key>       Multicorn API key (overrides MULTICORN_API_KEY env var and config file)",
       "  --log-level <level>   Log level: debug | info | warn | error  (default: info)",
       "  --base-url <url>      Multicorn API base URL  (default: https://api.multicorn.ai)",

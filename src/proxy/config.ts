@@ -894,6 +894,58 @@ function getGeminiCliSettingsPath(): string {
   return join(homedir(), ".gemini", "settings.json");
 }
 
+/**
+ * Merges hosted Shield MCP proxy config into ~/.gemini/settings.json (preserves hooks and other keys).
+ */
+async function mergeGeminiHostedMcpServersIntoSettings(
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<void> {
+  const settingsPath = getGeminiCliSettingsPath();
+  let existing: Record<string, unknown> = {};
+  try {
+    const rawText = await readFile(settingsPath, "utf8");
+    const parsed: unknown = JSON.parse(rawText);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch (err) {
+    if (isErrnoException(err) && err.code === "ENOENT") {
+      existing = {};
+    } else {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Could not read or parse Gemini CLI settings at ${settingsPath}: ${detail}`);
+    }
+  }
+
+  const mcpRaw = existing["mcpServers"];
+  const mcpServers: Record<string, unknown> =
+    typeof mcpRaw === "object" && mcpRaw !== null && !Array.isArray(mcpRaw)
+      ? { ...(mcpRaw as Record<string, unknown>) }
+      : {};
+
+  mcpServers[shortName] = {
+    httpUrl: proxyUrl,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  };
+
+  const out = { ...existing, mcpServers };
+  await mkdir(dirname(settingsPath), { recursive: true });
+  const serialized = JSON.stringify(out, null, 2) + "\n";
+  await writeFile(settingsPath, serialized, "utf8");
+
+  process.stderr.write(
+    "\n" +
+      style.green("\u2713") +
+      style.dim(" Merged MCP server into ") +
+      style.cyan(settingsPath) +
+      "\n",
+  );
+}
+
 function geminiInnerHooksReferenceShield(inner: unknown, multicornName: string): boolean {
   if (!Array.isArray(inner)) return false;
   for (const h of inner) {
@@ -1611,13 +1663,22 @@ async function arrowSelect(
   });
 }
 
-async function promptAgentName(ask: AskFn, platform: string): Promise<string> {
+async function promptAgentName(
+  ask: AskFn,
+  platform: string,
+  defaultNameOverride?: string,
+): Promise<string> {
   /** `platform` is the API slug (e.g. cursor, github-copilot), not a human label. */
   const dirPart = normalizeAgentName(basename(process.cwd()));
-  const defaultAgentName =
+  const computedDefault =
     dirPart.length > 0
       ? normalizeAgentName(`${dirPart}-${platform}`) || platform
       : normalizeAgentName(platform) || platform;
+  const fromOverride =
+    defaultNameOverride !== undefined && defaultNameOverride.trim().length > 0
+      ? normalizeAgentName(defaultNameOverride.trim())
+      : "";
+  const defaultAgentName = fromOverride.length > 0 ? fromOverride : computedDefault;
 
   let agentName = "";
   while (agentName.length === 0) {
@@ -1848,7 +1909,7 @@ function printPlatformSnippet(
     process.stderr.write(
       "\n" +
         style.dim(
-          "Add this to ~/.gemini/settings.json (create the file if it does not exist). For project-specific config, use .gemini/settings.json in your project root. Restart Gemini CLI after saving. Run /mcp to verify the server is connected.",
+          "Shield merged the MCP server below into ~/.gemini/settings.json (existing hooks and other keys were kept). For project-specific config, copy the mcpServers block into .gemini/settings.json in your project root. Restart Gemini CLI if it is already running so it reloads the file.",
         ) +
         "\n\n",
     );
@@ -1943,16 +2004,20 @@ function mergeAgentsForPlatform(
   remoteAgents: readonly { name: string; platform: string | null }[],
   selectedPlatform: string,
 ): AgentEntry[] {
-  const localMatches = localAgents.filter((a) => a.platform === selectedPlatform);
-  const seen = new Set(localMatches.map((a) => a.name));
-  const out: AgentEntry[] = localMatches.map((a) => ({ ...a }));
+  const byName = new Map<string, AgentEntry>();
+  for (const a of localAgents) {
+    if (a.platform !== selectedPlatform) continue;
+    if (!byName.has(a.name)) {
+      byName.set(a.name, { ...a });
+    }
+  }
   for (const r of remoteAgents) {
     if (r.platform !== selectedPlatform) continue;
-    if (seen.has(r.name)) continue;
-    seen.add(r.name);
-    out.push({ name: r.name, platform: selectedPlatform });
+    if (!byName.has(r.name)) {
+      byName.set(r.name, { name: r.name, platform: selectedPlatform });
+    }
   }
-  return out;
+  return [...byName.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -1966,7 +2031,7 @@ export const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
  * and configures one or more agents.
  * @param explicitBaseUrl - Optional Shield API base URL from `--base-url`. When omitted, resolution uses
  *   full config, then partial config file, then `MULTICORN_BASE_URL`, then the production default.
- * @param options - When `verbose` is true, prints extra init diagnostics (e.g. menu selection and agent counts).
+ * @param options - When `verbose` is true, prints extra init diagnostics (e.g. menu selection and agent counts). Use `npx multicorn-shield init --verbose` or `init --debug`.
  * @returns The last saved config, or null if the user exited early.
  */
 export async function runInit(
@@ -2239,7 +2304,7 @@ export async function runInit(
       }
     }
 
-    const agentName = await promptAgentName(ask, selectedPlatform);
+    const agentName = await promptAgentName(ask, selectedPlatform, removeAgentNameBeforeSave);
 
     let setupSucceeded = false;
 
@@ -2528,6 +2593,7 @@ export async function runInit(
         if (created && proxyUrl.length > 0) {
           process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
           process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          await mergeGeminiHostedMcpServersIntoSettings(shortName, proxyUrl, apiKey);
           printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
           configuredAgents.push({
             selection,
@@ -2841,7 +2907,7 @@ export async function runInit(
           style.cyan("https://windsurf.com/download") +
           "\n" +
           "  \u2192 Restart Windsurf so it loads the MCP server\n" +
-          "  \u2192 In Windsurf, click the \u22ef menu (top-right of the Cascade panel), find your MCP server at the bottom, and toggle it on\n" +
+          "  \u2192 In Windsurf, click the \u22ef menu (top-right of Cascade panel), find your MCP server at the bottom, and toggle it on\n" +
           "  \u2192 Try it: ask Cascade to do something - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
@@ -2858,7 +2924,7 @@ export async function runInit(
         "\n" +
           style.bold("Cline (native)") +
           "\n" +
-          "  \u2192 Enable Hooks in Cline settings (Advanced), then reload the VS Code window\n" +
+          "  \u2192 In Cline, click the \u2699 settings icon \u2192 Feature Settings \u2192 scroll down to Advanced \u2192 enable Hooks, then reload the VS Code window\n" +
           "  \u2192 Try it: start a task in Cline - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
@@ -2868,7 +2934,7 @@ export async function runInit(
           style.bold("Cline (hosted)") +
           "\n" +
           "  \u2192 Restart Cline or reload the VS Code window\n" +
-          "  \u2192 If the Shield MCP server does not appear, enable it in Cline or VS Code MCP settings\n" +
+          "  \u2192 In Cline, click the 🔌 MCP Servers icon \u2192 Configure tab \u2192 confirm your Shield server is listed and toggled on\n" +
           "  \u2192 Try it: start a task in Cline - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
@@ -2885,10 +2951,9 @@ export async function runInit(
         "\n" +
           style.bold("Gemini CLI (native)") +
           "\n" +
-          "  \u2192 Restart Gemini CLI to activate Shield governance\n" +
-          "  \u2192 Try it: run " +
+          "  \u2192 Start Gemini CLI: run " +
           style.cyan("gemini") +
-          " and trigger a tool call - Shield will intercept and ask for your consent\n",
+          " in your terminal (exit any existing session first). Shield will intercept the first tool call and ask for your consent.\n",
       );
     }
     if (geminiCliHostedConfigured) {
@@ -2896,10 +2961,7 @@ export async function runInit(
         "\n" +
           style.bold("Gemini CLI (hosted)") +
           "\n" +
-          "  \u2192 Restart Gemini CLI, then run " +
-          style.cyan("/mcp") +
-          " to verify the server\n" +
-          "  \u2192 Try it: trigger a tool call in Gemini CLI - Shield will intercept the first tool call and ask for your consent\n",
+          '  \u2192 Ask Gemini to do something (e.g. "list the files in this directory") - Shield will intercept the first tool call and ask for your consent\n',
       );
     }
 

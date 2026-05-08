@@ -94,9 +94,15 @@ describe("parseArgs --api-key", () => {
   });
 });
 
-describe("parseArgs --verbose", () => {
+describe("parseArgs --verbose and --debug", () => {
   it("sets verbose when --verbose appears with init", () => {
     const result = parseArgs(["node", "multicorn-shield", "init", "--verbose"]);
+    expect(result.subcommand).toBe("init");
+    expect(result.verbose).toBe(true);
+  });
+
+  it("sets verbose when --debug appears with init", () => {
+    const result = parseArgs(["node", "multicorn-shield", "init", "--debug"]);
     expect(result.subcommand).toBe("init");
     expect(result.verbose).toBe(true);
   });

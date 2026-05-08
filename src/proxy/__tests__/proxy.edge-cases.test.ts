@@ -1064,6 +1064,69 @@ describe("config file parsing", () => {
     expect(stderrBuffer).not.toContain("paste the config snippet shown above");
   });
 
+  it("runInit Gemini CLI hosted merges mcpServers into ~/.gemini/settings.json", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes(".gemini") && path.includes("settings.json")) {
+        const err = new Error("ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        return Promise.reject(err);
+      }
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockImplementation((input: unknown) => {
+      const url = typeof input === "string" ? input : String(input);
+      if (url.includes("/api/v1/proxy/config")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () =>
+            Promise.resolve({
+              data: { proxy_url: "https://hosted.proxy.example/gemini-mcp" },
+            }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve({}),
+      });
+    });
+
+    mockPrompts({
+      "API key": "mcs_valid_key",
+      Select: menuSel("gemini-cli"),
+      "Choose integration": "2",
+      "call this agent": "my-gem-agent",
+      "URL:": "https://upstream.example/mcp",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    const geminiWrites = writeFileMock.mock.calls.filter(
+      (c: unknown[]) => String(c[0]).includes(".gemini") && String(c[0]).includes("settings.json"),
+    );
+    expect(geminiWrites.length).toBeGreaterThanOrEqual(1);
+    const lastGemini = geminiWrites[geminiWrites.length - 1];
+    const written = JSON.parse(String(lastGemini?.[1])) as Record<string, unknown>;
+    const mcp = written["mcpServers"] as Record<string, unknown>;
+    expect(mcp).toBeDefined();
+    const entry = mcp["my-gem-agent"] as Record<string, unknown>;
+    expect(entry["httpUrl"]).toBe("https://hosted.proxy.example/gemini-mcp");
+    const entryHeaders = entry["headers"] as Record<string, unknown>;
+    expect(String(entryHeaders["Authorization"])).toBe("Bearer mcs_valid_key");
+
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("Merged MCP server into");
+    expect(plain).toContain("Ask Gemini to do something");
+    expect(plain).not.toContain("/mcp to verify");
+  });
+
   it("runInit skips Cursor agent when user declines hosted prereq prompt", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
@@ -1143,7 +1206,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Windsurf (hosted)");
     expect(stderrBuffer).toContain("Restart Windsurf so it loads the MCP server");
     expect(stripAnsi(stderrBuffer)).toContain(
-      "In Windsurf, click the \u22ef menu (top-right of the Cascade panel)",
+      "In Windsurf, click the \u22ef menu (top-right of Cascade panel)",
     );
     expect(stripAnsi(stderrBuffer)).toContain("Try it: ask Cascade");
     expect(stderrBuffer).toContain("windsurf.com/download");
@@ -1192,7 +1255,7 @@ describe("config file parsing", () => {
     expect(stripAnsi(stderrBuffer)).toContain("windsurf.com/download");
     expect(stripAnsi(stderrBuffer)).toContain("Restart Windsurf so it loads the MCP server");
     expect(stripAnsi(stderrBuffer)).toContain(
-      "In Windsurf, click the \u22ef menu (top-right of the Cascade panel)",
+      "In Windsurf, click the \u22ef menu (top-right of Cascade panel)",
     );
     expect(stripAnsi(stderrBuffer)).toContain("Try it: ask Cascade");
   });
@@ -1247,7 +1310,7 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Windsurf (hosted)");
     expect(stderrBuffer).toContain("Restart Windsurf so it loads the MCP server");
     expect(stripAnsi(stderrBuffer)).toContain(
-      "In Windsurf, click the \u22ef menu (top-right of the Cascade panel)",
+      "In Windsurf, click the \u22ef menu (top-right of Cascade panel)",
     );
   });
 
