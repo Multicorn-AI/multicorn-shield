@@ -1757,7 +1757,7 @@ async function promptAgentName(
 async function promptProxyConfig(
   ask: AskFn,
   agentName: string,
-): Promise<{ targetUrl: string; shortName: string }> {
+): Promise<{ targetUrl: string; shortName: string; upstreamHeaders?: Record<string, string> }> {
   let targetUrl = "";
   while (targetUrl.length === 0) {
     process.stderr.write(
@@ -1765,8 +1765,18 @@ async function promptProxyConfig(
         style.bold("Target MCP server URL:") +
         "\n" +
         style.dim(
-          "The URL of the MCP server you want Shield to protect. Example: https://your-server.example.com/mcp",
+          "This is the URL of the MCP server you want Shield to control. Common examples:",
         ) +
+        "\n" +
+        style.dim("  GitHub:     https://api.githubcopilot.com/mcp/") +
+        "\n" +
+        style.dim("  Supabase:   https://mcp.supabase.com/sse") +
+        "\n" +
+        style.dim("  Atlassian:  https://mcp.atlassian.com/v1/sse") +
+        "\n" +
+        style.dim("  Stripe:     https://mcp.stripe.com/v1/sse") +
+        "\n" +
+        style.dim("Check your MCP server's documentation for the correct URL.") +
         "\n",
     );
     const input = await ask("URL: ");
@@ -1789,7 +1799,51 @@ async function promptProxyConfig(
 
   const shortName = normalizeAgentName(agentName) || "shield-mcp";
 
-  return { targetUrl, shortName };
+  process.stderr.write(
+    "\n" +
+      style.bold("Does this MCP server require authentication?") +
+      "\n" +
+      style.dim(
+        "Most MCP servers need a token or API key. Check the server's docs for how to get one:",
+      ) +
+      "\n" +
+      style.dim("  GitHub:     Settings > Developer Settings > Personal Access Tokens") +
+      "\n" +
+      style.dim(
+        "  Supabase:   Project Settings > API > anon or scoped key (service role bypasses RLS; avoid for most MCP)",
+      ) +
+      "\n" +
+      style.dim("  Atlassian:  id.atlassian.com > API Tokens") +
+      "\n" +
+      style.dim("  Stripe:     Dashboard > Developers > API Keys") +
+      "\n",
+  );
+  const authReply = await ask("(y/N): ");
+  const authNorm = authReply.trim().toLowerCase();
+  const wantsAuth = authNorm === "y" || authNorm === "yes";
+  let upstreamHeaders: Record<string, string> | undefined;
+  if (wantsAuth) {
+    process.stderr.write(
+      "\n" +
+        style.bold("Enter the Authorization header value.") +
+        "\n" +
+        style.dim("  For Bearer tokens: Bearer ghp_xxxxxxxxxxxx") +
+        "\n" +
+        style.dim("  For API keys:      Bearer sk-xxxxxxxxxxxx") +
+        "\n",
+    );
+    const headerVal = await ask("Value: ");
+    const trimmed = headerVal.trim();
+    if (trimmed.length > 0) {
+      upstreamHeaders = { Authorization: trimmed };
+    }
+  }
+
+  return {
+    targetUrl,
+    shortName,
+    ...(upstreamHeaders !== undefined ? { upstreamHeaders } : {}),
+  };
 }
 
 async function createProxyConfig(
@@ -1799,8 +1853,18 @@ async function createProxyConfig(
   targetUrl: string,
   serverName: string,
   platform: string,
+  upstreamHeaders?: Record<string, string>,
 ): Promise<string> {
   let response: Response;
+  const body: Record<string, unknown> = {
+    server_name: serverName,
+    target_url: targetUrl,
+    platform,
+    agent_name: agentName,
+  };
+  if (upstreamHeaders !== undefined && Object.keys(upstreamHeaders).length > 0) {
+    body["upstream_headers"] = upstreamHeaders;
+  }
   try {
     response = await fetch(`${baseUrl}/api/v1/proxy/config`, {
       method: "POST",
@@ -1808,12 +1872,7 @@ async function createProxyConfig(
         "Content-Type": "application/json",
         "X-Multicorn-Key": apiKey,
       },
-      body: JSON.stringify({
-        server_name: serverName,
-        target_url: targetUrl,
-        platform,
-        agent_name: agentName,
-      }),
+      body: JSON.stringify(body),
       signal: AbortSignal.timeout(10000),
     });
   } catch (error) {
@@ -2983,7 +3042,7 @@ export async function runInit(
           }
         }
       } else {
-        const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+        const { targetUrl, shortName, upstreamHeaders } = await promptProxyConfig(ask, agentName);
 
         let proxyUrl = "";
         let created = false;
@@ -2997,6 +3056,7 @@ export async function runInit(
               targetUrl,
               shortName,
               selectedPlatform,
+              upstreamHeaders,
             );
             spinner.stop(true, "Proxy config created!");
             created = true;
@@ -3080,7 +3140,7 @@ export async function runInit(
           }
         }
       } else {
-        const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+        const { targetUrl, shortName, upstreamHeaders } = await promptProxyConfig(ask, agentName);
 
         let proxyUrl = "";
         let created = false;
@@ -3094,6 +3154,7 @@ export async function runInit(
               targetUrl,
               shortName,
               selectedPlatform,
+              upstreamHeaders,
             );
             spinner.stop(true, "Proxy config created!");
             created = true;
@@ -3174,7 +3235,7 @@ export async function runInit(
           }
         }
       } else {
-        const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+        const { targetUrl, shortName, upstreamHeaders } = await promptProxyConfig(ask, agentName);
 
         let proxyUrl = "";
         let created = false;
@@ -3188,6 +3249,7 @@ export async function runInit(
               targetUrl,
               shortName,
               selectedPlatform,
+              upstreamHeaders,
             );
             spinner.stop(true, "Proxy config created!");
             created = true;
@@ -3228,7 +3290,7 @@ export async function runInit(
         }
       }
     } else {
-      const { targetUrl, shortName } = await promptProxyConfig(ask, agentName);
+      const { targetUrl, shortName, upstreamHeaders } = await promptProxyConfig(ask, agentName);
 
       let proxyUrl = "";
       let created = false;
@@ -3242,6 +3304,7 @@ export async function runInit(
             targetUrl,
             shortName,
             selectedPlatform,
+            upstreamHeaders,
           );
           spinner.stop(true, "Proxy config created!");
           created = true;
