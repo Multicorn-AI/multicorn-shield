@@ -20,6 +20,9 @@ import { fetchRemoteAgentsSummaries, deriveDashboardUrl } from "./consent.js";
 // Constants
 // ---------------------------------------------------------------------------
 
+/** Options for JSON files we write that may hold API keys or tokens. */
+const SECRET_JSON_FILE_OPTIONS = { encoding: "utf8" as const, mode: 0o600 };
+
 const style = {
   violet: (s: string) => `\x1b[38;2;124;58;237m${s}\x1b[0m`,
   violetLight: (s: string) => `\x1b[38;2;167;139;250m${s}\x1b[0m`,
@@ -579,9 +582,11 @@ export async function updateOpenClawConfigIfPresent(
     }
   }
 
-  await writeFile(OPENCLAW_CONFIG_PATH, JSON.stringify(obj, null, 2) + "\n", {
-    encoding: "utf8",
-  });
+  await writeFile(
+    OPENCLAW_CONFIG_PATH,
+    JSON.stringify(obj, null, 2) + "\n",
+    SECRET_JSON_FILE_OPTIONS,
+  );
   return "updated";
 }
 
@@ -793,7 +798,7 @@ export async function installWindsurfNativeHooks(): Promise<void> {
   base["hooks"] = nextHooks;
   const hooksDir = dirname(hooksPath);
   await mkdir(hooksDir, { recursive: true });
-  await writeFile(hooksPath, JSON.stringify(base, null, 2) + "\n", { encoding: "utf8" });
+  await writeFile(hooksPath, JSON.stringify(base, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
 }
 
 // ---------------------------------------------------------------------------
@@ -892,6 +897,52 @@ export function getGeminiCliHooksInstallDir(): string {
 
 function getGeminiCliSettingsPath(): string {
   return join(homedir(), ".gemini", "settings.json");
+}
+
+/**
+ * Merges hosted Shield MCP proxy config into ~/.gemini/settings.json (preserves hooks and other keys).
+ */
+async function mergeGeminiHostedMcpServersIntoSettings(
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<void> {
+  const settingsPath = getGeminiCliSettingsPath();
+  let existing: Record<string, unknown> = {};
+  try {
+    const rawText = await readFile(settingsPath, "utf8");
+    const parsed: unknown = JSON.parse(rawText);
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      existing = parsed as Record<string, unknown>;
+    }
+  } catch (err) {
+    if (isErrnoException(err) && err.code === "ENOENT") {
+      existing = {};
+    } else {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Could not read or parse Gemini CLI settings at ${settingsPath}: ${detail}`);
+    }
+  }
+
+  const mcpRaw = existing["mcpServers"];
+  const mcpServers: Record<string, unknown> =
+    typeof mcpRaw === "object" && mcpRaw !== null && !Array.isArray(mcpRaw)
+      ? { ...(mcpRaw as Record<string, unknown>) }
+      : {};
+
+  mcpServers[shortName] = {
+    httpUrl: proxyUrl,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  };
+
+  const out = { ...existing, mcpServers };
+  await mkdir(dirname(settingsPath), { recursive: true });
+  const serialized = JSON.stringify(out, null, 2) + "\n";
+  await writeFile(settingsPath, serialized, SECRET_JSON_FILE_OPTIONS);
+
+  writeMcpAddedLine(shortName, settingsPath);
 }
 
 function geminiInnerHooksReferenceShield(inner: unknown, multicornName: string): boolean {
@@ -1116,7 +1167,7 @@ async function installClaudeCodeUserSettingsHooks(ask: AskFn): Promise<boolean> 
 
   const out = { ...existing, hooks: hooksObj };
   const serialized = JSON.stringify(out, null, 2) + "\n";
-  await writeFile(settingsPath, serialized, "utf8");
+  await writeFile(settingsPath, serialized, SECRET_JSON_FILE_OPTIONS);
 
   process.stderr.write(
     "\n" + style.dim("Wrote ") + style.cyan(settingsPath) + style.dim(":") + "\n",
@@ -1239,7 +1290,7 @@ export async function installGeminiCliNativeHooks(ask: AskFn): Promise<void> {
   };
 
   await mkdir(dirname(settingsPath), { recursive: true });
-  await writeFile(settingsPath, JSON.stringify(existing, null, 2) + "\n", "utf8");
+  await writeFile(settingsPath, JSON.stringify(existing, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
 }
 
 async function promptGeminiCliIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
@@ -1287,6 +1338,60 @@ export function getClaudeDesktopConfigPath(): string {
         "claude_desktop_config.json",
       );
   }
+}
+
+/** Cursor MCP config (`mcpServers` object). */
+export function getCursorMcpJsonPath(): string {
+  return join(homedir(), ".cursor", "mcp.json");
+}
+
+/** Windsurf MCP config (`mcpServers` with `serverUrl`). */
+export function getWindsurfMcpConfigPath(): string {
+  return join(homedir(), ".codeium", "windsurf", "mcp_config.json");
+}
+
+/** Cline MCP settings (VS Code globalStorage). */
+export function getClineMcpSettingsPath(): string {
+  switch (process.platform) {
+    case "win32":
+      return join(
+        process.env["APPDATA"] ?? join(homedir(), "AppData", "Roaming"),
+        "Code",
+        "User",
+        "globalStorage",
+        "saoudrizwan.claude-dev",
+        "settings",
+        "cline_mcp_settings.json",
+      );
+    case "linux":
+      return join(
+        homedir(),
+        ".config",
+        "Code",
+        "User",
+        "globalStorage",
+        "saoudrizwan.claude-dev",
+        "settings",
+        "cline_mcp_settings.json",
+      );
+    default:
+      return join(
+        homedir(),
+        "Library",
+        "Application Support",
+        "Code",
+        "User",
+        "globalStorage",
+        "saoudrizwan.claude-dev",
+        "settings",
+        "cline_mcp_settings.json",
+      );
+  }
+}
+
+/** Continue `config.json` in the home directory (when used). */
+export function getContinueConfigJsonPath(): string {
+  return join(homedir(), ".continue", "config.json");
 }
 
 // ---------------------------------------------------------------------------
@@ -1351,7 +1456,7 @@ export async function updateClaudeDesktopConfig(
   if (!fileExists) {
     await mkdir(configDir, { recursive: true });
   }
-  await writeFile(configPath, JSON.stringify(obj, null, 2) + "\n", { encoding: "utf8" });
+  await writeFile(configPath, JSON.stringify(obj, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
   return fileExists ? "updated" : "created";
 }
 
@@ -1611,13 +1716,22 @@ async function arrowSelect(
   });
 }
 
-async function promptAgentName(ask: AskFn, platform: string): Promise<string> {
+async function promptAgentName(
+  ask: AskFn,
+  platform: string,
+  defaultNameOverride?: string,
+): Promise<string> {
   /** `platform` is the API slug (e.g. cursor, github-copilot), not a human label. */
   const dirPart = normalizeAgentName(basename(process.cwd()));
-  const defaultAgentName =
+  const computedDefault =
     dirPart.length > 0
       ? normalizeAgentName(`${dirPart}-${platform}`) || platform
       : normalizeAgentName(platform) || platform;
+  const fromOverride =
+    defaultNameOverride !== undefined && defaultNameOverride.trim().length > 0
+      ? normalizeAgentName(defaultNameOverride.trim())
+      : "";
+  const defaultAgentName = fromOverride.length > 0 ? fromOverride : computedDefault;
 
   let agentName = "";
   while (agentName.length === 0) {
@@ -1730,6 +1844,317 @@ async function createProxyConfig(
   return typeof data?.["proxy_url"] === "string" ? data["proxy_url"] : "";
 }
 
+function writeMcpAddedLine(shortName: string, filePath: string): void {
+  process.stderr.write(
+    style.green("\u2713") +
+      ' MCP server "' +
+      shortName +
+      '" added to ' +
+      style.cyan(filePath) +
+      "\n",
+  );
+}
+
+/**
+ * Merge `{ mcpServers: { [shortName]: entry } }` into a JSON object root file.
+ */
+async function mergeMcpServersObjectStyle(
+  filePath: string,
+  shortName: string,
+  entry: Record<string, unknown>,
+): Promise<"ok" | "parse-error"> {
+  let root: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(filePath, "utf8");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return "parse-error";
+    }
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      root = parsed as Record<string, unknown>;
+    } else {
+      return "parse-error";
+    }
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      root = {};
+    } else {
+      throw e;
+    }
+  }
+
+  const mcpRaw = root["mcpServers"];
+  const mcpServers: Record<string, unknown> =
+    typeof mcpRaw === "object" && mcpRaw !== null && !Array.isArray(mcpRaw)
+      ? { ...(mcpRaw as Record<string, unknown>) }
+      : {};
+
+  mcpServers[shortName] = entry;
+  root["mcpServers"] = mcpServers;
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify(root, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
+  writeMcpAddedLine(shortName, filePath);
+  return "ok";
+}
+
+/**
+ * Claude Desktop hosted proxy: `mcp-remote` bridge (no url+headers in desktop config).
+ */
+async function mergeClaudeDesktopHostedMcpRemote(
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<"ok" | "parse-error"> {
+  const entry: Record<string, unknown> = {
+    command: "npx",
+    args: ["-y", "mcp-remote", proxyUrl, "--header", `Authorization: Bearer ${apiKey}`],
+  };
+  return mergeMcpServersObjectStyle(getClaudeDesktopConfigPath(), shortName, entry);
+}
+
+/**
+ * Continue `~/.continue/config.json`: `mcpServers` is an array of server objects.
+ */
+async function mergeContinueHostedMcp(
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<"ok" | "parse-error"> {
+  const filePath = getContinueConfigJsonPath();
+  let root: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(filePath, "utf8");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return "parse-error";
+    }
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      root = parsed as Record<string, unknown>;
+    } else {
+      return "parse-error";
+    }
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      root = {};
+    } else {
+      throw e;
+    }
+  }
+
+  const rawServers = root["mcpServers"];
+  if (rawServers !== undefined) {
+    if (Array.isArray(rawServers)) {
+      // ok
+    } else if (typeof rawServers === "object" && rawServers !== null) {
+      return "parse-error";
+    } else {
+      return "parse-error";
+    }
+  }
+
+  const servers: Record<string, unknown>[] = Array.isArray(rawServers)
+    ? (rawServers as Record<string, unknown>[]).map((s) => ({ ...s }))
+    : [];
+
+  const entry: Record<string, unknown> = {
+    name: shortName,
+    type: "streamable-http",
+    url: proxyUrl,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  };
+
+  const idx = servers.findIndex((s) => s["name"] === shortName);
+  if (idx >= 0) {
+    servers[idx] = entry;
+  } else {
+    servers.push(entry);
+  }
+
+  root["mcpServers"] = servers;
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify(root, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
+  writeMcpAddedLine(shortName, filePath);
+  return "ok";
+}
+
+async function mergeKiloCodeProjectMcp(
+  workspacePath: string,
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<"ok" | "parse-error"> {
+  const filePath = join(workspacePath, ".kilocode", "mcp.json");
+  return mergeMcpServersObjectStyle(filePath, shortName, {
+    url: proxyUrl,
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+}
+
+function printHostedProxyJsonParseWarning(filePath: string): void {
+  process.stderr.write(
+    style.yellow("\u26A0") +
+      " Could not parse JSON at " +
+      style.cyan(filePath) +
+      style.dim(" - showing paste snippet instead.") +
+      "\n",
+  );
+}
+
+/** After a successful MCP file write, print restart / verification hints (no snippet). */
+function printHostedProxyPostWriteHints(platform: string, shortName: string): void {
+  if (platform === "cursor") {
+    process.stderr.write(
+      style.dim("Restart Cursor and check Settings > Tools & MCPs for a green status indicator. ") +
+        style.dim(`Ask Cursor to use your MCP server by its short name (e.g. ${shortName}).`) +
+        "\n",
+    );
+  }
+  if (platform === "claude-desktop") {
+    process.stderr.write(style.dim("Restart Claude Desktop to load the MCP server.") + "\n");
+  }
+  if (platform === "cline") {
+    process.stderr.write(
+      style.dim(
+        "Restart Cline or reload the VS Code window. Cline will discover the Shield tools automatically.",
+      ) + "\n",
+    );
+  }
+  if (platform === "windsurf") {
+    process.stderr.write(style.dim("Restart Windsurf (Cmd/Ctrl+Q, then reopen).") + "\n");
+    process.stderr.write(
+      style.dim(
+        "Open the Cascade panel and verify the server appears with a green status indicator.",
+      ) + "\n",
+    );
+  }
+  if (platform === "github-copilot" || platform === "continue-dev") {
+    process.stderr.write(
+      style.dim("Reload the editor window if the MCP server does not appear immediately.") + "\n",
+    );
+  }
+  if (platform === "goose") {
+    process.stderr.write(style.dim("Start a new Goose session after updating config.") + "\n");
+  }
+  if (platform === "kilo-code") {
+    process.stderr.write(
+      style.dim("Restart Kilo Code or reload the window so it picks up .kilocode/mcp.json.") + "\n",
+    );
+  }
+}
+
+/**
+ * Writes hosted MCP config to the platform file when possible; otherwise prints the snippet.
+ */
+async function applyHostedProxyMcpConfig(
+  platform: string,
+  proxyUrl: string,
+  shortName: string,
+  apiKey: string,
+  workspacePath: string,
+): Promise<void> {
+  const authHeader = `Bearer ${apiKey}`;
+
+  if (platform === "gemini-cli") {
+    await mergeGeminiHostedMcpServersIntoSettings(shortName, proxyUrl, apiKey);
+    process.stderr.write(
+      style.dim(
+        "For project-specific config, copy the mcpServers entry into .gemini/settings.json in your project root. Restart Gemini CLI if it is already running.",
+      ) + "\n",
+    );
+    return;
+  }
+
+  if (platform === "github-copilot") {
+    process.stderr.write(
+      "\n" +
+        style.dim(
+          "GitHub Copilot uses VS Code settings - paste the snippet below into your VS Code Settings (JSON).",
+        ) +
+        "\n",
+    );
+    printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
+    return;
+  }
+
+  if (platform === "goose") {
+    printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
+    return;
+  }
+
+  try {
+    let result: "ok" | "parse-error" = "parse-error";
+    if (platform === "cursor") {
+      result = await mergeMcpServersObjectStyle(getCursorMcpJsonPath(), shortName, {
+        url: proxyUrl,
+        headers: { Authorization: authHeader },
+      });
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(getCursorMcpJsonPath());
+      }
+    } else if (platform === "claude-desktop") {
+      result = await mergeClaudeDesktopHostedMcpRemote(shortName, proxyUrl, apiKey);
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(getClaudeDesktopConfigPath());
+      }
+    } else if (platform === "windsurf") {
+      result = await mergeMcpServersObjectStyle(getWindsurfMcpConfigPath(), shortName, {
+        serverUrl: proxyUrl,
+        headers: { Authorization: authHeader },
+      });
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(getWindsurfMcpConfigPath());
+      }
+    } else if (platform === "cline") {
+      result = await mergeMcpServersObjectStyle(getClineMcpSettingsPath(), shortName, {
+        url: proxyUrl,
+        headers: { Authorization: authHeader },
+      });
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(getClineMcpSettingsPath());
+      }
+    } else if (platform === "kilo-code") {
+      result = await mergeKiloCodeProjectMcp(workspacePath, shortName, proxyUrl, apiKey);
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(join(workspacePath, ".kilocode", "mcp.json"));
+      }
+    } else if (platform === "continue-dev") {
+      result = await mergeContinueHostedMcp(shortName, proxyUrl, apiKey);
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(getContinueConfigJsonPath());
+      }
+    } else {
+      result = await mergeMcpServersObjectStyle(getCursorMcpJsonPath(), shortName, {
+        url: proxyUrl,
+        headers: { Authorization: authHeader },
+      });
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(getCursorMcpJsonPath());
+      }
+    }
+
+    if (result === "ok") {
+      printHostedProxyPostWriteHints(platform, shortName);
+      return;
+    }
+  } catch (e) {
+    const detail = e instanceof Error ? e.message : String(e);
+    process.stderr.write(
+      style.yellow("\u26A0") + ` Could not write MCP config automatically (${detail}).` + "\n",
+    );
+  }
+
+  printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
+}
+
 function gooseHostedProxyYaml(shortName: string, proxyUrl: string, bearerHeader: string): string {
   return (
     `extensions:\n` +
@@ -1799,6 +2224,36 @@ function printPlatformSnippet(
       null,
       2,
     );
+  } else if (platform === "claude-desktop") {
+    snippetText = JSON.stringify(
+      {
+        mcpServers: {
+          [shortName]: {
+            command: "npx",
+            args: ["-y", "mcp-remote", routingToken, "--header", `Authorization: ${authHeader}`],
+          },
+        },
+      },
+      null,
+      2,
+    );
+  } else if (platform === "continue-dev") {
+    snippetText = JSON.stringify(
+      {
+        mcpServers: [
+          {
+            name: shortName,
+            type: "streamable-http",
+            url: routingToken,
+            headers: {
+              Authorization: authHeader,
+            },
+          },
+        ],
+      },
+      null,
+      2,
+    );
   } else {
     const urlKey = platform === "windsurf" ? "serverUrl" : "url";
     snippetText = JSON.stringify(
@@ -1824,52 +2279,33 @@ function printPlatformSnippet(
   } else if (platform === "claude-desktop") {
     process.stderr.write("\n" + style.dim(`Add this to ${getClaudeDesktopConfigPath()}:`) + "\n\n");
   } else if (platform === "windsurf") {
-    process.stderr.write(
-      "\n" + style.dim("Add this to ~/.codeium/windsurf/mcp_config.json:") + "\n\n",
-    );
+    process.stderr.write("\n" + style.dim(`Add this to ${getWindsurfMcpConfigPath()}:`) + "\n\n");
   } else if (platform === "cline") {
-    process.stderr.write("\n" + style.dim("Add this to your Cline MCP settings file:") + "\n");
-    process.stderr.write(
-      style.dim(
-        "  macOS: ~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
-      ) + "\n",
-    );
-    process.stderr.write(
-      style.dim(
-        "  Windows: %APPDATA%\\Code\\User\\globalStorage\\saoudrizwan.claude-dev\\settings\\cline_mcp_settings.json",
-      ) + "\n",
-    );
-    process.stderr.write(
-      style.dim(
-        "  Linux: ~/.config/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json",
-      ) + "\n\n",
-    );
+    process.stderr.write("\n" + style.dim(`Add this to ${getClineMcpSettingsPath()}:`) + "\n\n");
   } else if (platform === "gemini-cli") {
     process.stderr.write(
       "\n" +
         style.dim(
-          "Add this to ~/.gemini/settings.json (create the file if it does not exist). For project-specific config, use .gemini/settings.json in your project root. Restart Gemini CLI after saving. Run /mcp to verify the server is connected.",
+          `Merge the snippet below into ${getGeminiCliSettingsPath()} (keep existing hooks and other keys). Restart Gemini CLI if it is already running.`,
         ) +
         "\n\n",
     );
   } else if (platform === "kilo-code") {
     process.stderr.write(
-      "\n" + style.dim("Add this to .kilocode/mcp.json in your project root.") + "\n\n",
+      "\n" +
+        style.dim(`Add this to ${join(resolve(process.cwd()), ".kilocode", "mcp.json")}:`) +
+        "\n\n",
     );
   } else if (platform === "github-copilot") {
     process.stderr.write(
       "\n" +
         style.dim(
-          "Open VS Code Settings (JSON) and merge this under the mcp key. If you do not have an mcp section yet, add one. Copilot picks up MCP servers when you use Agent mode.",
+          "Merge this snippet under the mcp key in your VS Code Settings (JSON). If you do not have an mcp section yet, add one. Copilot picks up MCP servers when you use Agent mode.",
         ) +
         "\n\n",
     );
   } else if (platform === "continue-dev") {
-    process.stderr.write(
-      "\n" +
-        style.dim("Save this as .continue/mcpServers/shield.json in your workspace root.") +
-        "\n\n",
-    );
+    process.stderr.write("\n" + style.dim(`Add this to ${getContinueConfigJsonPath()}:`) + "\n\n");
   } else if (platform === "goose") {
     process.stderr.write(
       "\n" +
@@ -1877,7 +2313,7 @@ function printPlatformSnippet(
         "\n\n",
     );
   } else {
-    process.stderr.write("\n" + style.dim("Add this to ~/.cursor/mcp.json:") + "\n\n");
+    process.stderr.write("\n" + style.dim(`Add this to ${getCursorMcpJsonPath()}:`) + "\n\n");
   }
 
   process.stderr.write(style.cyan(snippetText) + "\n\n");
@@ -1935,24 +2371,38 @@ function printPlatformSnippet(
 }
 
 /**
- * Merges `~/.multicorn/config.json` entries with GET /api/v1/agents so the wizard sees
- * dashboard-registered agents that were never written to disk.
+ * One agent entry per name (local + remote merge can otherwise duplicate labels in the UI).
  */
+function dedupeAgentsByName(agents: readonly AgentEntry[]): AgentEntry[] {
+  const seen = new Set<string>();
+  const out: AgentEntry[] = [];
+  for (const a of agents) {
+    if (seen.has(a.name)) continue;
+    seen.add(a.name);
+    out.push(a);
+  }
+  return out;
+}
+
 function mergeAgentsForPlatform(
   localAgents: readonly AgentEntry[],
   remoteAgents: readonly { name: string; platform: string | null }[],
   selectedPlatform: string,
 ): AgentEntry[] {
-  const localMatches = localAgents.filter((a) => a.platform === selectedPlatform);
-  const seen = new Set(localMatches.map((a) => a.name));
-  const out: AgentEntry[] = localMatches.map((a) => ({ ...a }));
+  const byName = new Map<string, AgentEntry>();
+  for (const a of localAgents) {
+    if (a.platform !== selectedPlatform) continue;
+    if (!byName.has(a.name)) {
+      byName.set(a.name, { ...a });
+    }
+  }
   for (const r of remoteAgents) {
     if (r.platform !== selectedPlatform) continue;
-    if (seen.has(r.name)) continue;
-    seen.add(r.name);
-    out.push({ name: r.name, platform: selectedPlatform });
+    if (!byName.has(r.name)) {
+      byName.set(r.name, { name: r.name, platform: selectedPlatform });
+    }
   }
-  return out;
+  return [...byName.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -1966,9 +2416,15 @@ export const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
  * and configures one or more agents.
  * @param explicitBaseUrl - Optional Shield API base URL from `--base-url`. When omitted, resolution uses
  *   full config, then partial config file, then `MULTICORN_BASE_URL`, then the production default.
+ * @param options - When `verbose` is true, prints extra init diagnostics (e.g. menu selection and agent counts). Use `npx multicorn-shield init --verbose` or `init --debug`.
  * @returns The last saved config, or null if the user exited early.
  */
-export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | null> {
+export async function runInit(
+  explicitBaseUrl?: string,
+  options?: { readonly verbose?: boolean },
+): Promise<ProxyConfig | null> {
+  const verbose = options?.verbose === true;
+
   if (!process.stdin.isTTY) {
     process.stderr.write(
       style.red("Error: interactive terminal required. Cannot run init with piped input.") + "\n",
@@ -2121,7 +2577,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         process.stderr.write(
           "\n" +
             style.bold("Try it:") +
-            " " +
+            " make a request in your coding agent - Shield will intercept the first tool call and ask for your consent.\n" +
+            style.dim("Example wrap command: ") +
             style.cyan(
               "npx multicorn-shield --wrap npx @modelcontextprotocol/server-filesystem /tmp",
             ) +
@@ -2146,10 +2603,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
 
     const remoteAccountAgents = await fetchRemoteAgentsSummaries(apiKey, resolvedBaseUrl);
 
-    const agentsForPlatform = mergeAgentsForPlatform(
-      currentAgents,
-      remoteAccountAgents,
-      selectedPlatform,
+    const agentsForPlatform = dedupeAgentsByName(
+      mergeAgentsForPlatform(currentAgents, remoteAccountAgents, selectedPlatform),
     );
 
     const localForPlatformCount = currentAgents.filter(
@@ -2162,14 +2617,16 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       currentAgents.length === 0
         ? "none on disk"
         : currentAgents.map((a) => `${a.name} (${a.platform})`).join(", ");
-    process.stderr.write(
-      style.dim(
-        `[shield init] Menu option ${String(selection)} -> platform slug "${selectedPlatform}". ` +
-          `${String(agentsForPlatform.length)} agent(s) for this platform ` +
-          `(local file: ${String(localForPlatformCount)}, account API: ${String(accountForPlatformCount)}). ` +
-          `On-disk entries: ${savedSummary}.`,
-      ) + "\n",
-    );
+    if (verbose) {
+      process.stderr.write(
+        style.dim(
+          `[shield init] Menu option ${String(selection)} -> platform slug "${selectedPlatform}". ` +
+            `${String(agentsForPlatform.length)} agent(s) for this platform ` +
+            `(local file: ${String(localForPlatformCount)}, account API: ${String(accountForPlatformCount)}). ` +
+            `On-disk entries: ${savedSummary}.`,
+        ) + "\n",
+      );
+    }
 
     if (agentsForPlatform.length > 0) {
       process.stderr.write(
@@ -2215,6 +2672,17 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       }
     }
 
+    if (selectedPlatform === "cursor" || selectedPlatform === "github-copilot") {
+      const where = selectedPlatform === "cursor" ? "Cursor" : "GitHub Copilot";
+      process.stderr.write(
+        "\n" +
+          style.dim(
+            `Using Claude models (Sonnet, Opus, Haiku) in ${where}? The Claude Code native plugin is recommended - it governs all tool calls, not just MCP traffic. Run init again and select Claude Code.`,
+          ) +
+          "\n\n",
+      );
+    }
+
     const prereqEntry = INIT_WIZARD_PLATFORM_REGISTRY.find((e) => e.slug === selectedPlatform);
     if (prereqEntry?.prereqUrl !== undefined) {
       const proceed = await promptHostedProxyInstallPrereq(
@@ -2231,7 +2699,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       }
     }
 
-    const agentName = await promptAgentName(ask, selectedPlatform);
+    const agentName = await promptAgentName(ask, selectedPlatform, removeAgentNameBeforeSave);
 
     let setupSucceeded = false;
 
@@ -2372,7 +2840,9 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
               "\n\n",
           );
           process.stderr.write(
-            style.dim("Restart Windsurf (quit fully, then reopen) so hooks load.") + "\n",
+            style.dim(
+              "Try it: make a request in Windsurf - Shield will intercept the first tool call and ask for your consent.",
+            ) + "\n",
           );
           configuredAgents.push({
             selection,
@@ -2431,7 +2901,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         if (created && proxyUrl.length > 0) {
           process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
           process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
-          printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+          await applyHostedProxyMcpConfig(
+            selectedPlatform,
+            proxyUrl,
+            shortName,
+            apiKey,
+            initWorkspacePath,
+          );
           configuredAgents.push({
             selection,
             platform: selectedPlatform,
@@ -2518,7 +2994,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         if (created && proxyUrl.length > 0) {
           process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
           process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
-          printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+          await applyHostedProxyMcpConfig(
+            selectedPlatform,
+            proxyUrl,
+            shortName,
+            apiKey,
+            initWorkspacePath,
+          );
           configuredAgents.push({
             selection,
             platform: selectedPlatform,
@@ -2602,7 +3084,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         if (created && proxyUrl.length > 0) {
           process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
           process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
-          printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+          await applyHostedProxyMcpConfig(
+            selectedPlatform,
+            proxyUrl,
+            shortName,
+            apiKey,
+            initWorkspacePath,
+          );
           configuredAgents.push({
             selection,
             platform: selectedPlatform,
@@ -2646,7 +3134,13 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
       if (created && proxyUrl.length > 0) {
         process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
         process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
-        printPlatformSnippet(selectedPlatform, proxyUrl, shortName, apiKey);
+        await applyHostedProxyMcpConfig(
+          selectedPlatform,
+          proxyUrl,
+          shortName,
+          apiKey,
+          initWorkspacePath,
+        );
         configuredAgents.push({
           selection,
           platform: selectedPlatform,
@@ -2719,8 +3213,6 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
     // Next steps grouped by platform.
-    // No block for other-mcp: the Local MCP / Other branch already prints a "Try it"
-    // message with the correct --wrap command inside the configuring loop.
     const blocks: string[] = [];
 
     if (configuredPlatforms.has("openclaw")) {
@@ -2733,7 +3225,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "\n" +
           "  \u2192 Start a session: " +
           style.cyan("openclaw tui") +
-          "\n",
+          "\n" +
+          "  \u2192 Try it: make a request in OpenClaw - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("claude-code")) {
@@ -2741,10 +3234,10 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Claude Code") +
           "\n" +
-          "  \u2192 Start Claude Code: " +
+          "  \u2192 Start coding: run " +
           style.cyan("claude") +
-          "\n" +
-          "  \u2192 Shield will intercept tool calls automatically.\n",
+          " in the terminal, or use Cursor with a Claude model - Shield hooks apply to both\n" +
+          "  \u2192 Try it: make a request in Claude Code - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("claude-desktop")) {
@@ -2752,7 +3245,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Claude Desktop") +
           "\n" +
-          "  \u2192 Restart Claude Desktop to pick up config changes\n",
+          "  \u2192 Restart Claude Desktop to pick up config changes\n" +
+          "  \u2192 Try it: make a request in Claude Desktop - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("cursor")) {
@@ -2761,10 +3255,10 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("Cursor") +
           "\n" +
           "  \u2192 If needed, download Cursor from " +
-          style.cyan("https://cursor.com/downloads") +
+          style.cyan("https://www.cursor.com/downloads") +
           "\n" +
           "  \u2192 Restart Cursor so it loads the MCP server\n" +
-          "  \u2192 Ask the agent to use your Shield MCP tools by short name\n",
+          "  \u2192 Try it: make a request in Cursor - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("kilo-code")) {
@@ -2773,7 +3267,7 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("Kilo Code") +
           "\n" +
           "  \u2192 Restart the editor or reload the window if the MCP server does not appear\n" +
-          "  \u2192 Run your next task in Kilo Code so it picks up Shield\n",
+          "  \u2192 Try it: make a request in Kilo Code - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("github-copilot")) {
@@ -2782,7 +3276,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           style.bold("GitHub Copilot") +
           "\n" +
           "  \u2192 Reload the editor window if the MCP server does not appear\n" +
-          "  \u2192 Use Copilot Agent mode and verify the MCP server connects\n",
+          "  \u2192 Open Copilot Agent mode and confirm the MCP server connects\n" +
+          "  \u2192 Try it: make a request in GitHub Copilot - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("continue-dev")) {
@@ -2793,7 +3288,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "  \u2192 If needed, install Continue from " +
           style.cyan("https://docs.continue.dev/ide-extensions/install") +
           "\n" +
-          "  \u2192 Reload VS Code and open Continue agent mode\n",
+          "  \u2192 Reload VS Code and open Continue agent mode\n" +
+          "  \u2192 Try it: make a request in Continue - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (configuredPlatforms.has("goose")) {
@@ -2801,7 +3297,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Goose") +
           "\n" +
-          "  \u2192 Start a new Goose session after updating config\n",
+          "  \u2192 Start a new Goose session after updating config\n" +
+          "  \u2192 Try it: make a request in Goose - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     const windsurfNativeConfigured = configuredAgents.some(
@@ -2816,7 +3313,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Windsurf (native)") +
           "\n" +
-          "  \u2192 Restart Windsurf (quit fully, then reopen)\n",
+          "  \u2192 Open Windsurf (or restart if it is already running)\n" +
+          "  \u2192 Try it: make a request in Windsurf - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (windsurfHostedConfigured) {
@@ -2827,7 +3325,9 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
           "  \u2192 If needed, install from " +
           style.cyan("https://windsurf.com/download") +
           "\n" +
-          "  \u2192 Restart Windsurf so it loads the MCP server\n",
+          "  \u2192 Restart Windsurf so it loads the MCP server\n" +
+          "  \u2192 In Windsurf, open the three-dot menu (top-right of Cascade panel), find your Shield server at the bottom of the list, and toggle it on\n" +
+          "  \u2192 Try it: make a request in Windsurf - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
 
@@ -2843,8 +3343,8 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Cline (native)") +
           "\n" +
-          "  \u2192 Enable Hooks in Cline settings (Advanced), then reload the VS Code window\n" +
-          "  \u2192 Trigger a tool call to verify Shield is intercepting\n",
+          "  \u2192 In Cline, click the settings icon \u2192 Feature Settings \u2192 scroll down to Advanced \u2192 enable Hooks, then reload the VS Code window\n" +
+          "  \u2192 Try it: make a request in Cline - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (clineHostedConfigured) {
@@ -2852,7 +3352,9 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Cline (hosted)") +
           "\n" +
-          "  \u2192 Restart Cline or reload the VS Code window\n",
+          "  \u2192 Restart Cline or reload the VS Code window\n" +
+          "  \u2192 In Cline, open server settings using the plug icon, open the Configure tab, and confirm your Shield server is listed and toggled on\n" +
+          "  \u2192 Try it: make a request in Cline - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
 
@@ -2868,7 +3370,10 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Gemini CLI (native)") +
           "\n" +
-          "  \u2192 Restart Gemini CLI to activate Shield governance\n",
+          "  \u2192 Start Gemini CLI: run " +
+          style.cyan("gemini") +
+          " in your terminal (exit any existing session first)\n" +
+          "  \u2192 Try it: make a request in Gemini CLI - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
     if (geminiCliHostedConfigured) {
@@ -2876,9 +3381,19 @@ export async function runInit(explicitBaseUrl?: string): Promise<ProxyConfig | n
         "\n" +
           style.bold("Gemini CLI (hosted)") +
           "\n" +
-          "  \u2192 Restart Gemini CLI, then run " +
-          style.cyan("/mcp") +
-          " to verify the server\n",
+          "  \u2192 Try it: make a request in Gemini CLI - Shield will intercept the first tool call and ask for your consent\n",
+      );
+    }
+
+    if (configuredPlatforms.has("other-mcp")) {
+      blocks.push(
+        "\n" +
+          style.bold("Local MCP / Other") +
+          "\n" +
+          "  \u2192 Run your configured wrap command (for example " +
+          style.cyan("npx multicorn-shield --wrap ...") +
+          ")\n" +
+          "  \u2192 Try it: make a request in your coding agent - Shield will intercept the first tool call and ask for your consent\n",
       );
     }
 

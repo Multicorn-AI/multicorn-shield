@@ -94,6 +94,25 @@ describe("parseArgs --api-key", () => {
   });
 });
 
+describe("parseArgs --verbose and --debug", () => {
+  it("sets verbose when --verbose appears with init", () => {
+    const result = parseArgs(["node", "multicorn-shield", "init", "--verbose"]);
+    expect(result.subcommand).toBe("init");
+    expect(result.verbose).toBe(true);
+  });
+
+  it("sets verbose when --debug appears with init", () => {
+    const result = parseArgs(["node", "multicorn-shield", "init", "--debug"]);
+    expect(result.subcommand).toBe("init");
+    expect(result.verbose).toBe(true);
+  });
+
+  it("defaults verbose to false for init", () => {
+    const result = parseArgs(["node", "multicorn-shield", "init"]);
+    expect(result.verbose).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // parseArgs: --wrap flag/command ordering
 // ---------------------------------------------------------------------------
@@ -263,6 +282,7 @@ describe("resolveWrapConfig", () => {
       agentName: "",
       deleteAgentName: "",
       apiKey: undefined,
+      verbose: false,
       ...overrides,
     };
   }

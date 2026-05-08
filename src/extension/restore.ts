@@ -48,5 +48,8 @@ export async function restoreClaudeDesktopMcpFromBackup(): Promise<void> {
   root["mcpServers"] = backup.mcpServers;
 
   await mkdir(dirname(configPath), { recursive: true });
-  await writeFile(configPath, JSON.stringify(root, null, 2) + "\n", { encoding: "utf8" });
+  await writeFile(configPath, JSON.stringify(root, null, 2) + "\n", {
+    encoding: "utf8",
+    mode: 0o600,
+  });
 }
