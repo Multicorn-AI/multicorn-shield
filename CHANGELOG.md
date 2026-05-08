@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.3.3] - 2026-05-08
+
+### Fixed
+
+- Hosted proxy wizard now auto-writes MCP server config to platform config files instead of showing paste-only snippets (Cursor, Claude Desktop, Windsurf, Cline, Gemini CLI)
+- Claude Desktop config snippet now uses mcp-remote bridge format (url + headers format not supported by Claude Desktop)
+- Replace flow no longer shows duplicate agent names when agent exists in both local config and account API
+- Replace flow name prompt now defaults to the selected agent's name instead of the generic platform default
+
+### Added
+
+- Claude model recommendation note shown when selecting Cursor or GitHub Copilot in the wizard
+
 ## [1.3.2] - 2026-05-07
 
 ### Fixed
