@@ -8,6 +8,7 @@ import {
   getAgentByPlatform,
   getDefaultAgent,
   collectAgentsFromConfig,
+  mergeAgentsForPlatform,
   cwdUnderWorkspacePath,
   type ProxyConfig,
 } from "./config.js";
@@ -346,6 +347,60 @@ describe("collectAgentsFromConfig", () => {
       platform: "openclaw",
     };
     expect(collectAgentsFromConfig(cfg)).toEqual([{ name: "old", platform: "openclaw" }]);
+  });
+});
+
+describe("mergeAgentsForPlatform (init replace prompt list)", () => {
+  it("does not duplicate the same agent when it appears both on disk and in the account API", () => {
+    const rows = mergeAgentsForPlatform(
+      [{ name: "cursor-proxy", platform: "cursor" }],
+      [{ name: "cursor-proxy", platform: "cursor" }],
+      "cursor",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe("cursor-proxy");
+  });
+
+  it("dedupes when API name casing differs from local config", () => {
+    const rows = mergeAgentsForPlatform(
+      [{ name: "cursor-proxy", platform: "cursor" }],
+      [{ name: "Cursor-Proxy", platform: "cursor" }],
+      "cursor",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe("cursor-proxy");
+  });
+
+  it("dedupes when only spacing differs between local and API", () => {
+    const rows = mergeAgentsForPlatform(
+      [{ name: "cursor-proxy ", platform: "cursor" }],
+      [{ name: "cursor-proxy", platform: "cursor" }],
+      "cursor",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.name).toBe("cursor-proxy");
+  });
+
+  it("keeps workspacePath when merging overlapping rows", () => {
+    const rows = mergeAgentsForPlatform(
+      [{ name: "cursor-proxy", platform: "cursor", workspacePath: "/tmp/ws" }],
+      [{ name: "cursor-proxy", platform: "cursor" }],
+      "cursor",
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.workspacePath).toBe("/tmp/ws");
+  });
+
+  it("collapses duplicate local rows that only differ by case", () => {
+    const rows = mergeAgentsForPlatform(
+      [
+        { name: "cursor-proxy", platform: "cursor" },
+        { name: "Cursor-Proxy", platform: "cursor" },
+      ],
+      [],
+      "cursor",
+    );
+    expect(rows).toHaveLength(1);
   });
 });
 
