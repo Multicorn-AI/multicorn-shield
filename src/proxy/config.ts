@@ -2397,7 +2397,7 @@ function mergeAgentEntryDupPair(first: AgentEntry, second: AgentEntry): AgentEnt
 
 /**
  * Combines overlapping agent rows with the same logical name (trim + case-insensitive match).
- * The first row keeps its display casing (locals are merged before API rows).
+ * The first row retains its original name capitalization (local agents are processed before API agents).
  */
 function mergeAgentsForUniqueNames(agents: readonly AgentEntry[]): AgentEntry[] {
   const byKey = new Map<string, AgentEntry>();
