@@ -2370,39 +2370,65 @@ function printPlatformSnippet(
   }
 }
 
-/**
- * One agent entry per name (local + remote merge can otherwise duplicate labels in the UI).
- */
-function dedupeAgentsByName(agents: readonly AgentEntry[]): AgentEntry[] {
-  const seen = new Set<string>();
-  const out: AgentEntry[] = [];
-  for (const a of agents) {
-    if (seen.has(a.name)) continue;
-    seen.add(a.name);
-    out.push(a);
-  }
-  return out;
+function agentDisplayNameDedupeKey(name: string): string {
+  return name.trim().toLowerCase();
 }
 
-function mergeAgentsForPlatform(
+function normalizeAgentEntryForMerge(a: AgentEntry): AgentEntry {
+  const name = a.name.trim();
+  const ws =
+    typeof a.workspacePath === "string" && a.workspacePath.length > 0 ? a.workspacePath : undefined;
+  return ws !== undefined
+    ? { name, platform: a.platform, workspacePath: ws }
+    : { name, platform: a.platform };
+}
+
+function mergeAgentEntryDupPair(first: AgentEntry, second: AgentEntry): AgentEntry {
+  const name = first.name.trim();
+  const platform = first.platform;
+  const ws =
+    typeof first.workspacePath === "string" && first.workspacePath.length > 0
+      ? first.workspacePath
+      : typeof second.workspacePath === "string" && second.workspacePath.length > 0
+        ? second.workspacePath
+        : undefined;
+  return ws !== undefined ? { name, platform, workspacePath: ws } : { name, platform };
+}
+
+/**
+ * Combines overlapping agent rows with the same logical name (trim + case-insensitive match).
+ * The first row retains its original name capitalization (local agents are processed before API agents).
+ */
+function mergeAgentsForUniqueNames(agents: readonly AgentEntry[]): AgentEntry[] {
+  const byKey = new Map<string, AgentEntry>();
+  for (const raw of agents) {
+    const key = agentDisplayNameDedupeKey(raw.name);
+    const candidate = normalizeAgentEntryForMerge(raw);
+    const prev = byKey.get(key);
+    byKey.set(key, prev === undefined ? candidate : mergeAgentEntryDupPair(prev, candidate));
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Merges on-disk agents with account API rows for one platform into one row per logical name
+ * (trim + case-insensitive). Exported for unit tests covering the replace prompt behaviour.
+ */
+export function mergeAgentsForPlatform(
   localAgents: readonly AgentEntry[],
   remoteAgents: readonly { name: string; platform: string | null }[],
   selectedPlatform: string,
 ): AgentEntry[] {
-  const byName = new Map<string, AgentEntry>();
+  const merged: AgentEntry[] = [];
   for (const a of localAgents) {
     if (a.platform !== selectedPlatform) continue;
-    if (!byName.has(a.name)) {
-      byName.set(a.name, { ...a });
-    }
+    merged.push(a);
   }
   for (const r of remoteAgents) {
     if (r.platform !== selectedPlatform) continue;
-    if (!byName.has(r.name)) {
-      byName.set(r.name, { name: r.name, platform: selectedPlatform });
-    }
+    merged.push({ name: r.name, platform: selectedPlatform });
   }
-  return [...byName.values()];
+  return mergeAgentsForUniqueNames(merged);
 }
 
 // ---------------------------------------------------------------------------
@@ -2603,8 +2629,10 @@ export async function runInit(
 
     const remoteAccountAgents = await fetchRemoteAgentsSummaries(apiKey, resolvedBaseUrl);
 
-    const agentsForPlatform = dedupeAgentsByName(
-      mergeAgentsForPlatform(currentAgents, remoteAccountAgents, selectedPlatform),
+    const agentsForPlatform = mergeAgentsForPlatform(
+      currentAgents,
+      remoteAccountAgents,
+      selectedPlatform,
     );
 
     const localForPlatformCount = currentAgents.filter(
@@ -3155,7 +3183,10 @@ export async function runInit(
 
     if (setupSucceeded) {
       if (removeAgentNameBeforeSave !== undefined) {
-        currentAgents = currentAgents.filter((a) => a.name !== removeAgentNameBeforeSave);
+        const removeKey = agentDisplayNameDedupeKey(removeAgentNameBeforeSave);
+        currentAgents = currentAgents.filter(
+          (a) => agentDisplayNameDedupeKey(a.name) !== removeKey,
+        );
       }
       currentAgents.push({
         name: agentName,
