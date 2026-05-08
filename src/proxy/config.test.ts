@@ -8,6 +8,7 @@ import {
   getAgentByPlatform,
   getDefaultAgent,
   collectAgentsFromConfig,
+  hostedProxyUrlWithKeyParam,
   mergeAgentsForPlatform,
   cwdUnderWorkspacePath,
   type ProxyConfig,
@@ -347,6 +348,21 @@ describe("collectAgentsFromConfig", () => {
       platform: "openclaw",
     };
     expect(collectAgentsFromConfig(cfg)).toEqual([{ name: "old", platform: "openclaw" }]);
+  });
+});
+
+describe("hostedProxyUrlWithKeyParam", () => {
+  it("appends key as query parameter", () => {
+    const out = hostedProxyUrlWithKeyParam("https://proxy.io/r/tok/agent", "mcs_abc");
+    const u = new URL(out);
+    expect(u.searchParams.get("key")).toBe("mcs_abc");
+  });
+
+  it("preserves existing query and adds key", () => {
+    const out = hostedProxyUrlWithKeyParam("https://proxy.io/r/tok/agent?foo=1", "mcs_x");
+    const u = new URL(out);
+    expect(u.searchParams.get("foo")).toBe("1");
+    expect(u.searchParams.get("key")).toBe("mcs_x");
   });
 });
 

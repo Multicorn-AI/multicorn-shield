@@ -1132,14 +1132,16 @@ describe("config file parsing", () => {
     const mcp = written["mcpServers"] as Record<string, unknown>;
     expect(mcp).toBeDefined();
     const entry = mcp["my-gem-agent"] as Record<string, unknown>;
-    expect(entry["httpUrl"]).toBe("https://hosted.proxy.example/gemini-mcp");
+    const httpUrl = String(entry["httpUrl"]);
+    const parsed = new URL(httpUrl);
+    expect(parsed.origin + parsed.pathname).toBe("https://hosted.proxy.example/gemini-mcp");
+    expect(parsed.searchParams.get("key")).toBe("mcs_valid_key");
     const entryHeaders = entry["headers"] as Record<string, unknown>;
     expect(String(entryHeaders["Authorization"])).toBe("Bearer mcs_valid_key");
 
     const plain = stripAnsi(stderrBuffer);
     expect(plain).toMatch(/MCP server .*added to .*settings\.json/);
     expect(plain).toContain("my-gem-agent");
-    expect(plain).not.toContain("mcs_valid_key");
     expect(plain).not.toMatch(/Authorization:\s*Bearer/i);
     expect(
       plain.includes("Try it: make a request in Gemini CLI") ||

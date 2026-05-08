@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.3.6] - 2026-05-08
+
+### Fixed
+
+- Hosted proxy URLs now embed the API key as a query parameter fallback for MCP clients that don't send static Authorization headers (fixes Cursor, Claude Desktop, and other clients that ignore the headers config during discovery)
+
 ## [1.3.5] - 2026-05-08
 
 ### Fixed

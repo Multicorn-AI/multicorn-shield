@@ -1844,6 +1844,19 @@ async function createProxyConfig(
   return typeof data?.["proxy_url"] === "string" ? data["proxy_url"] : "";
 }
 
+/**
+ * Appends `key=<apiKey>` to the hosted proxy URL so MCP clients that omit `Authorization` can still authenticate (e.g. Cursor with OAuth). Keep headers in platform config too.
+ */
+export function hostedProxyUrlWithKeyParam(proxyUrl: string, apiKey: string): string {
+  try {
+    const u = new URL(proxyUrl);
+    u.searchParams.set("key", apiKey);
+    return u.toString();
+  } catch {
+    return proxyUrl;
+  }
+}
+
 function writeMcpAddedLine(shortName: string, filePath: string): void {
   process.stderr.write(
     style.green("\u2713") +
@@ -2062,9 +2075,10 @@ async function applyHostedProxyMcpConfig(
   workspacePath: string,
 ): Promise<void> {
   const authHeader = `Bearer ${apiKey}`;
+  const proxyUrlWithKey = hostedProxyUrlWithKeyParam(proxyUrl, apiKey);
 
   if (platform === "gemini-cli") {
-    await mergeGeminiHostedMcpServersIntoSettings(shortName, proxyUrl, apiKey);
+    await mergeGeminiHostedMcpServersIntoSettings(shortName, proxyUrlWithKey, apiKey);
     process.stderr.write(
       style.dim(
         "For project-specific config, copy the mcpServers entry into .gemini/settings.json in your project root. Restart Gemini CLI if it is already running.",
@@ -2094,20 +2108,20 @@ async function applyHostedProxyMcpConfig(
     let result: "ok" | "parse-error" = "parse-error";
     if (platform === "cursor") {
       result = await mergeMcpServersObjectStyle(getCursorMcpJsonPath(), shortName, {
-        url: proxyUrl,
+        url: proxyUrlWithKey,
         headers: { Authorization: authHeader },
       });
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(getCursorMcpJsonPath());
       }
     } else if (platform === "claude-desktop") {
-      result = await mergeClaudeDesktopHostedMcpRemote(shortName, proxyUrl, apiKey);
+      result = await mergeClaudeDesktopHostedMcpRemote(shortName, proxyUrlWithKey, apiKey);
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(getClaudeDesktopConfigPath());
       }
     } else if (platform === "windsurf") {
       result = await mergeMcpServersObjectStyle(getWindsurfMcpConfigPath(), shortName, {
-        serverUrl: proxyUrl,
+        serverUrl: proxyUrlWithKey,
         headers: { Authorization: authHeader },
       });
       if (result === "parse-error") {
@@ -2115,25 +2129,25 @@ async function applyHostedProxyMcpConfig(
       }
     } else if (platform === "cline") {
       result = await mergeMcpServersObjectStyle(getClineMcpSettingsPath(), shortName, {
-        url: proxyUrl,
+        url: proxyUrlWithKey,
         headers: { Authorization: authHeader },
       });
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(getClineMcpSettingsPath());
       }
     } else if (platform === "kilo-code") {
-      result = await mergeKiloCodeProjectMcp(workspacePath, shortName, proxyUrl, apiKey);
+      result = await mergeKiloCodeProjectMcp(workspacePath, shortName, proxyUrlWithKey, apiKey);
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(join(workspacePath, ".kilocode", "mcp.json"));
       }
     } else if (platform === "continue-dev") {
-      result = await mergeContinueHostedMcp(shortName, proxyUrl, apiKey);
+      result = await mergeContinueHostedMcp(shortName, proxyUrlWithKey, apiKey);
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(getContinueConfigJsonPath());
       }
     } else {
       result = await mergeMcpServersObjectStyle(getCursorMcpJsonPath(), shortName, {
-        url: proxyUrl,
+        url: proxyUrlWithKey,
         headers: { Authorization: authHeader },
       });
       if (result === "parse-error") {
@@ -2188,6 +2202,10 @@ function printPlatformSnippet(
   const usesInlineKey = hostedInlinePlatforms.has(platform);
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
 
+  const urlInSnippet = usesInlineKey
+    ? hostedProxyUrlWithKeyParam(routingToken, apiKey)
+    : routingToken;
+
   let snippetText: string;
   if (platform === "github-copilot") {
     snippetText = JSON.stringify(
@@ -2196,7 +2214,7 @@ function printPlatformSnippet(
           servers: {
             [shortName]: {
               type: "http",
-              url: routingToken,
+              url: urlInSnippet,
               headers: {
                 Authorization: authHeader,
               },
@@ -2208,13 +2226,13 @@ function printPlatformSnippet(
       2,
     );
   } else if (platform === "goose") {
-    snippetText = gooseHostedProxyYaml(shortName, routingToken, authHeader);
+    snippetText = gooseHostedProxyYaml(shortName, urlInSnippet, authHeader);
   } else if (platform === "gemini-cli") {
     snippetText = JSON.stringify(
       {
         mcpServers: {
           [shortName]: {
-            httpUrl: routingToken,
+            httpUrl: urlInSnippet,
             headers: {
               Authorization: authHeader,
             },
@@ -2230,7 +2248,7 @@ function printPlatformSnippet(
         mcpServers: {
           [shortName]: {
             command: "npx",
-            args: ["-y", "mcp-remote", routingToken, "--header", `Authorization: ${authHeader}`],
+            args: ["-y", "mcp-remote", urlInSnippet, "--header", `Authorization: ${authHeader}`],
           },
         },
       },
@@ -2244,7 +2262,7 @@ function printPlatformSnippet(
           {
             name: shortName,
             type: "streamable-http",
-            url: routingToken,
+            url: urlInSnippet,
             headers: {
               Authorization: authHeader,
             },
@@ -2260,7 +2278,7 @@ function printPlatformSnippet(
       {
         mcpServers: {
           [shortName]: {
-            [urlKey]: routingToken,
+            [urlKey]: urlInSnippet,
             headers: {
               Authorization: authHeader,
             },
@@ -2928,7 +2946,9 @@ export async function runInit(
 
         if (created && proxyUrl.length > 0) {
           process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
-          process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          process.stderr.write(
+            "  " + style.cyan(hostedProxyUrlWithKeyParam(proxyUrl, apiKey)) + "\n",
+          );
           await applyHostedProxyMcpConfig(
             selectedPlatform,
             proxyUrl,
@@ -3021,7 +3041,9 @@ export async function runInit(
 
         if (created && proxyUrl.length > 0) {
           process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
-          process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          process.stderr.write(
+            "  " + style.cyan(hostedProxyUrlWithKeyParam(proxyUrl, apiKey)) + "\n",
+          );
           await applyHostedProxyMcpConfig(
             selectedPlatform,
             proxyUrl,
@@ -3111,7 +3133,9 @@ export async function runInit(
 
         if (created && proxyUrl.length > 0) {
           process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
-          process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+          process.stderr.write(
+            "  " + style.cyan(hostedProxyUrlWithKeyParam(proxyUrl, apiKey)) + "\n",
+          );
           await applyHostedProxyMcpConfig(
             selectedPlatform,
             proxyUrl,
@@ -3161,7 +3185,9 @@ export async function runInit(
 
       if (created && proxyUrl.length > 0) {
         process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
-        process.stderr.write("  " + style.cyan(proxyUrl) + "\n");
+        process.stderr.write(
+          "  " + style.cyan(hostedProxyUrlWithKeyParam(proxyUrl, apiKey)) + "\n",
+        );
         await applyHostedProxyMcpConfig(
           selectedPlatform,
           proxyUrl,
