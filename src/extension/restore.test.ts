@@ -61,7 +61,7 @@ describe("restoreClaudeDesktopMcpFromBackup", () => {
     expect(writeFileMock).toHaveBeenCalledWith(
       "/tmp/claude_desktop_config.json",
       expect.stringContaining('"mcpServers"'),
-      { encoding: "utf8" },
+      { encoding: "utf8", mode: 0o600 },
     );
   });
 
