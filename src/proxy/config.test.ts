@@ -428,14 +428,27 @@ describe("formatUpstreamAuthorizationBearerHeader", () => {
     expect(formatUpstreamAuthorizationBearerHeader("ghp_abc")).toBe("Bearer ghp_abc");
   });
 
-  it("strips an existing Bearer prefix and normalizes to a single Bearer", () => {
+  it("passes Bearer values through verbatim when Bearer + payload is detected", () => {
     expect(formatUpstreamAuthorizationBearerHeader("Bearer ghp_abc")).toBe("Bearer ghp_abc");
-    expect(formatUpstreamAuthorizationBearerHeader("bearer sk_test")).toBe("Bearer sk_test");
+    expect(formatUpstreamAuthorizationBearerHeader("bearer sk_test")).toBe("bearer sk_test");
   });
 
-  it("returns undefined when only Bearer is provided", () => {
+  it("passes Basic, Token, and ApiKey header values without prepending Bearer", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("Basic dXNlcjpwYXNz")).toBe(
+      "Basic dXNlcjpwYXNz",
+    );
+    expect(formatUpstreamAuthorizationBearerHeader("Token secret-token")).toBe(
+      "Token secret-token",
+    );
+    expect(formatUpstreamAuthorizationBearerHeader("ApiKey my-key-id")).toBe("ApiKey my-key-id");
+  });
+
+  it("returns undefined when only a scheme keyword is provided", () => {
     expect(formatUpstreamAuthorizationBearerHeader("Bearer")).toBeUndefined();
     expect(formatUpstreamAuthorizationBearerHeader("Bearer  ")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("Basic")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("Token")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("ApiKey")).toBeUndefined();
   });
 });
 

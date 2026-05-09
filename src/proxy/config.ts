@@ -197,19 +197,30 @@ function normalizeAgentName(raw: string): string {
     .slice(0, 50);
 }
 
+/** Known `Authorization` scheme prefixes forwarded unchanged when followed by credential data. */
+const UPSTREAM_AUTH_KNOWN_SCHEME_WITH_PAYLOAD = /^(Bearer|Basic|Token|ApiKey)(\s+)(.+)$/is;
+
 /**
- * Builds `Authorization` for upstream MCP from init/dashboard token entry.
- * Strips an existing `Bearer` prefix then stores `Bearer <token>`.
+ * Builds the upstream MCP `Authorization` header value from init/dashboard input.
+ *
+ * - Empty or whitespace-only input returns `undefined` (omit header).
+ * - If the trimmed value starts with Bearer, Basic, Token, or ApiKey, followed by
+ *   whitespace and a non-empty credential payload, it is forwarded unchanged (only
+ *   outer whitespace is trimmed). Use this for Token, Basic, ApiKey schemes or when
+ *   pasting a full `Bearer <token>` value.
+ * - A trimmed value that is only one of those scheme keywords (with no credential)
+ *   returns `undefined`.
+ * - Any other trimmed value gets `Bearer ` prepended (common token-only paste).
  */
 export function formatUpstreamAuthorizationBearerHeader(raw: string): string | undefined {
-  let t = raw.trim();
+  const t = raw.trim();
   if (t.length === 0) return undefined;
-  if (/^bearer\s+/i.test(t)) {
-    t = t.replace(/^bearer\s+/i, "").trim();
-  } else if (/^bearer$/i.test(t)) {
+  if (UPSTREAM_AUTH_KNOWN_SCHEME_WITH_PAYLOAD.test(t)) {
+    return t;
+  }
+  if (/^(Bearer|Basic|Token|ApiKey)$/i.test(t)) {
     return undefined;
   }
-  if (t.length === 0) return undefined;
   return `Bearer ${t}`;
 }
 
@@ -1841,16 +1852,14 @@ async function promptProxyConfig(
   if (wantsAuth) {
     process.stderr.write(
       "\n" +
-        style.bold('Enter your API token (without the "Bearer" prefix).') +
+        style.bold("Enter your API token or full Authorization header value.") +
         "\n" +
-        style.dim("  GitHub:  ghp_xxxxxxxxxxxx") +
+        style.dim("  Bearer tokens: ghp_xxxxxxxxxxxx (Bearer is added automatically)") +
         "\n" +
-        style.dim("  Stripe:  sk_xxxxxxxxxxxx") +
-        "\n" +
-        style.dim("  OpenAI:  sk-xxxxxxxxxxxx") +
+        style.dim("  Other schemes:  Basic dXNlcjpwYXNz (passed as-is)") +
         "\n",
     );
-    const headerVal = await ask("Token: ");
+    const headerVal = await ask("Value: ");
     const authHeader = formatUpstreamAuthorizationBearerHeader(headerVal);
     if (authHeader !== undefined) {
       upstreamHeaders = { Authorization: authHeader };

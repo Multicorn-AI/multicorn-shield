@@ -13,12 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Upstream auth prompt accepts token without `Bearer` prefix and auto-prepends it
+- Upstream auth prompt accepts a raw API token (`Bearer` added automatically) or a full Authorization-style value (`Bearer`, `Basic`, `Token`, `ApiKey` prefixes are passed through unchanged)
 
 ### Fixed
 
 - CLI replace flow no longer shows duplicate agent entries
-- Removed temporary debug logging from hosted proxy
 
 ## [1.4.0] - 2026-05-08
 
