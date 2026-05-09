@@ -9,6 +9,7 @@ import {
   getDefaultAgent,
   collectAgentsFromConfig,
   formatHostedProxyUrlForStderr,
+  formatUpstreamAuthorizationBearerHeader,
   hostedProxyUrlWithKeyParam,
   mergeAgentsForPlatform,
   shouldEmbedKeyInHostedProxyUrl,
@@ -414,6 +415,27 @@ describe("hostedProxyUrlWithKeyParam", () => {
     const out = hostedProxyUrlWithKeyParam("https://p.io/m", "a&b=c");
     const u = new URL(out);
     expect(u.searchParams.get("key")).toBe("a&b=c");
+  });
+});
+
+describe("formatUpstreamAuthorizationBearerHeader", () => {
+  it("returns undefined for empty or whitespace", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("   ")).toBeUndefined();
+  });
+
+  it("prepends Bearer to a raw token", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("ghp_abc")).toBe("Bearer ghp_abc");
+  });
+
+  it("strips an existing Bearer prefix and normalizes to a single Bearer", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("Bearer ghp_abc")).toBe("Bearer ghp_abc");
+    expect(formatUpstreamAuthorizationBearerHeader("bearer sk_test")).toBe("Bearer sk_test");
+  });
+
+  it("returns undefined when only Bearer is provided", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("Bearer")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("Bearer  ")).toBeUndefined();
   });
 });
 
