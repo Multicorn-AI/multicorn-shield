@@ -197,6 +197,33 @@ function normalizeAgentName(raw: string): string {
     .slice(0, 50);
 }
 
+/** Known `Authorization` scheme prefixes forwarded unchanged when followed by credential data. */
+const UPSTREAM_AUTH_KNOWN_SCHEME_WITH_PAYLOAD = /^(Bearer|Basic|Token|ApiKey)(\s+)(.+)$/is;
+
+/**
+ * Builds the upstream MCP `Authorization` header value from init/dashboard input.
+ *
+ * - Empty or whitespace-only input returns `undefined` (omit header).
+ * - If the trimmed value starts with Bearer, Basic, Token, or ApiKey, followed by
+ *   whitespace and a non-empty credential payload, it is forwarded unchanged (only
+ *   outer whitespace is trimmed). Use this for Token, Basic, ApiKey schemes or when
+ *   pasting a full `Bearer <token>` value.
+ * - A trimmed value that is only one of those scheme keywords (with no credential)
+ *   returns `undefined`.
+ * - Any other trimmed value gets `Bearer ` prepended (common token-only paste).
+ */
+export function formatUpstreamAuthorizationBearerHeader(raw: string): string | undefined {
+  const t = raw.trim();
+  if (t.length === 0) return undefined;
+  if (UPSTREAM_AUTH_KNOWN_SCHEME_WITH_PAYLOAD.test(t)) {
+    return t;
+  }
+  if (/^(Bearer|Basic|Token|ApiKey)$/i.test(t)) {
+    return undefined;
+  }
+  return `Bearer ${t}`;
+}
+
 function isErrnoException(e: unknown): e is NodeJS.ErrnoException {
   return typeof e === "object" && e !== null && "code" in e;
 }
@@ -1825,17 +1852,17 @@ async function promptProxyConfig(
   if (wantsAuth) {
     process.stderr.write(
       "\n" +
-        style.bold("Enter the Authorization header value.") +
+        style.bold("Enter your API token or full Authorization header value.") +
         "\n" +
-        style.dim("  For Bearer tokens: Bearer ghp_xxxxxxxxxxxx") +
+        style.dim("  Bearer tokens: ghp_xxxxxxxxxxxx (Bearer is added automatically)") +
         "\n" +
-        style.dim("  For API keys:      Bearer sk-xxxxxxxxxxxx") +
+        style.dim("  Other schemes:  Basic dXNlcjpwYXNz (passed as-is)") +
         "\n",
     );
     const headerVal = await ask("Value: ");
-    const trimmed = headerVal.trim();
-    if (trimmed.length > 0) {
-      upstreamHeaders = { Authorization: trimmed };
+    const authHeader = formatUpstreamAuthorizationBearerHeader(headerVal);
+    if (authHeader !== undefined) {
+      upstreamHeaders = { Authorization: authHeader };
     }
   }
 
@@ -2514,7 +2541,7 @@ function printPlatformSnippet(
 }
 
 function agentDisplayNameDedupeKey(name: string): string {
-  return name.trim().toLowerCase();
+  return name.trim().normalize("NFKC").toLowerCase();
 }
 
 function normalizeAgentEntryForMerge(a: AgentEntry): AgentEntry {
@@ -2839,6 +2866,13 @@ export async function runInit(
         const victim = agentsForPlatform[replaceIdx];
         if (victim !== undefined) {
           removeAgentNameBeforeSave = victim.name;
+          process.stderr.write(
+            "\n" +
+              style.dim("Replacing agent ") +
+              style.cyan(victim.name) +
+              style.dim("...") +
+              "\n",
+          );
         }
       }
     }
@@ -3406,6 +3440,15 @@ export async function runInit(
 
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
+    const cursorMcpPromptLabel = ((): string => {
+      const rows = configuredAgents.filter((a) => a.platform === "cursor");
+      const last = rows[rows.length - 1];
+      if (last === undefined) return "shield-mcp";
+      const s = typeof last.shortName === "string" ? last.shortName.trim() : "";
+      if (s.length > 0) return s;
+      return last.agentName.trim().length > 0 ? last.agentName.trim() : "shield-mcp";
+    })();
+
     // Next steps grouped by platform.
     const blocks: string[] = [];
 
@@ -3452,7 +3495,11 @@ export async function runInit(
           style.cyan("https://www.cursor.com/downloads") +
           "\n" +
           "  \u2192 Restart Cursor so it loads the MCP server\n" +
-          "  \u2192 Try it: make a request in Cursor - Shield will intercept the first tool call and ask for your consent\n",
+          "  \u2192 Try it: make a request in Cursor - Shield will intercept the first tool call and ask for your consent\n" +
+          '  \u2192 Example: "' +
+          "Use the " +
+          cursorMcpPromptLabel +
+          ' MCP server to list my GitHub repositories"\n',
       );
     }
     if (configuredPlatforms.has("kilo-code")) {

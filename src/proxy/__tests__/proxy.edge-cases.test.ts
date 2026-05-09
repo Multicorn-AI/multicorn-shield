@@ -1069,6 +1069,9 @@ describe("config file parsing", () => {
     expect(stripAnsi(stderrBuffer)).toContain(
       "Try it: make a request in Cursor - Shield will intercept the first tool call and ask for your consent",
     );
+    expect(stripAnsi(stderrBuffer)).toContain(
+      'Example: "Use the cursor-agent MCP server to list my GitHub repositories"',
+    );
     expect(stderrBuffer).not.toContain("paste the config snippet shown above");
     const cursorWrite = writeFileMock.mock.calls.find(
       (c: unknown[]) => String(c[0]).includes(".cursor") && String(c[0]).includes("mcp.json"),
@@ -1870,6 +1873,7 @@ describe("config file parsing", () => {
     expect(config.agents?.[0]?.name).toBe("new-openclaw");
     expect(config.agents?.[0]?.platform).toBe("openclaw");
     expect(config.defaultAgent).toBe("new-openclaw");
+    expect(stripAnsi(stderrBuffer)).toContain("Replacing agent old-openclaw...");
   });
 
   it("runInit shows arrow-select replace flow when workspacePath matches cwd", async () => {

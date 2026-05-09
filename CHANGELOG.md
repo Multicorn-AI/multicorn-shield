@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.4.1] - 2026-05-09
+
+### Changed
+
+- Upstream auth prompt accepts a raw API token (`Bearer` added automatically) or a full Authorization-style value (`Bearer`, `Basic`, `Token`, `ApiKey` prefixes are passed through unchanged)
+
+### Fixed
+
+- CLI replace flow no longer shows duplicate agent entries
+
 ## [1.4.0] - 2026-05-08
 
 ### Added

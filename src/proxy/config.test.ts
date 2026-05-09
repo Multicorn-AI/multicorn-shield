@@ -9,6 +9,7 @@ import {
   getDefaultAgent,
   collectAgentsFromConfig,
   formatHostedProxyUrlForStderr,
+  formatUpstreamAuthorizationBearerHeader,
   hostedProxyUrlWithKeyParam,
   mergeAgentsForPlatform,
   shouldEmbedKeyInHostedProxyUrl,
@@ -414,6 +415,40 @@ describe("hostedProxyUrlWithKeyParam", () => {
     const out = hostedProxyUrlWithKeyParam("https://p.io/m", "a&b=c");
     const u = new URL(out);
     expect(u.searchParams.get("key")).toBe("a&b=c");
+  });
+});
+
+describe("formatUpstreamAuthorizationBearerHeader", () => {
+  it("returns undefined for empty or whitespace", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("   ")).toBeUndefined();
+  });
+
+  it("prepends Bearer to a raw token", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("ghp_abc")).toBe("Bearer ghp_abc");
+  });
+
+  it("passes Bearer values through verbatim when Bearer + payload is detected", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("Bearer ghp_abc")).toBe("Bearer ghp_abc");
+    expect(formatUpstreamAuthorizationBearerHeader("bearer sk_test")).toBe("bearer sk_test");
+  });
+
+  it("passes Basic, Token, and ApiKey header values without prepending Bearer", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("Basic dXNlcjpwYXNz")).toBe(
+      "Basic dXNlcjpwYXNz",
+    );
+    expect(formatUpstreamAuthorizationBearerHeader("Token secret-token")).toBe(
+      "Token secret-token",
+    );
+    expect(formatUpstreamAuthorizationBearerHeader("ApiKey my-key-id")).toBe("ApiKey my-key-id");
+  });
+
+  it("returns undefined when only a scheme keyword is provided", () => {
+    expect(formatUpstreamAuthorizationBearerHeader("Bearer")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("Bearer  ")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("Basic")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("Token")).toBeUndefined();
+    expect(formatUpstreamAuthorizationBearerHeader("ApiKey")).toBeUndefined();
   });
 });
 
