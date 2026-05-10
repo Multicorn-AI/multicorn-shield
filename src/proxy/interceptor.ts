@@ -75,8 +75,9 @@ export function buildBlockedResponse(
 ): JsonRpcResponse {
   const displayService = capitalize(service);
   const message =
-    `Action blocked by Multicorn Shield: agent does not have ${permissionLevel} access to ` +
-    `${displayService}. Configure permissions at ${dashboardUrl}`;
+    `Action blocked by Shield\n\n` +
+    `This agent does not have ${permissionLevel} access to ${displayService}.\n\n` +
+    `Configure permissions: ${dashboardUrl}`;
 
   return {
     jsonrpc: "2.0",

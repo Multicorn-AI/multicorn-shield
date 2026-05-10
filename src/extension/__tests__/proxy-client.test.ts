@@ -176,7 +176,7 @@ describe("resultSuggestsConsentNeeded", () => {
         content: [
           {
             type: "text",
-            text: "Action blocked by Multicorn Shield: agent does not have write access to Gmail. Configure permissions at https://app.example",
+            text: "Action blocked by Shield\n\nThis agent does not have write access to Gmail.\n\nConfigure permissions: https://app.example",
           },
         ],
       }),
@@ -276,7 +276,7 @@ describe("ProxySession", () => {
         JSON.stringify({
           jsonrpc: "2.0",
           id: 2,
-          error: { code: -32000, message: "Action blocked by Multicorn Shield: no access" },
+          error: { code: -32000, message: "Action blocked by Shield\n\nNo access" },
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),

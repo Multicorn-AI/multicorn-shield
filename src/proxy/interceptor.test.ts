@@ -128,7 +128,7 @@ describe("buildBlockedResponse", () => {
     expect(response.jsonrpc).toBe("2.0");
     expect(response.id).toBe(1);
     expect(response.error).toBeDefined();
-    expect(response.error?.message).toContain("Action blocked by Multicorn Shield");
+    expect(response.error?.message).toContain("Action blocked by Shield");
     expect(response.error?.message).toContain("Gmail");
     expect(response.error?.message).toContain(testDashboardUrl);
   });

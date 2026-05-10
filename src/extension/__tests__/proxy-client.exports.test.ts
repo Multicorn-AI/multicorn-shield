@@ -122,7 +122,7 @@ describe("resultSuggestsConsentNeeded", () => {
   it("returns true when error text mentions Shield block", () => {
     const r: CallToolResult = {
       isError: true,
-      content: [{ type: "text", text: "Action blocked by Multicorn Shield" }],
+      content: [{ type: "text", text: "Action blocked by Shield" }],
     };
     expect(resultSuggestsConsentNeeded(r)).toBe(true);
   });
