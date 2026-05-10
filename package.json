@@ -1,6 +1,6 @@
 {
   "name": "multicorn-shield",
-  "version": "1.4.1",
+  "version": "1.6.0",
   "description": "The control layer for AI agents: permissions, consent, spending limits, and audit logging.",
   "license": "MIT",
   "author": "Multicorn AI Pty Ltd",
