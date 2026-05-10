@@ -9,6 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.5.0] - 2026-05-10
+
+### Added
+
+- Claude Code promotion note when selecting Cursor in the CLI
+- Example usage prompt in CLI "Next steps" output
+- `--version` flag prints version number and exits
+- Consent-required errors now display a clear multi-line message with the approval URL on its own line
+
+### Changed
+
+- Auth prompt detects token pasted at the y/N confirmation and treats it as the token value directly
+- Single-item arrow select skips the interactive picker and selects immediately
+- Blocked response message reformatted for clarity
+
+### Fixed
+
+- Hosted proxy blocks `.well-known` OAuth discovery probes to prevent `mcp-remote` entering OAuth mode
+
 ## [1.4.1] - 2026-05-09
 
 ### Changed

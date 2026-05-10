@@ -138,9 +138,10 @@ describe("buildBlockedResponse", () => {
     expect(response.id).toBe("req-42");
   });
 
-  it("includes the permission level in the message", () => {
+  it("states the agent cannot use the service", () => {
     const response = buildBlockedResponse(1, "gmail", "write", testDashboardUrl);
-    expect(response.error?.message).toContain("write access");
+    expect(response.error?.message).toContain("cannot use");
+    expect(response.error?.message).toContain("Gmail");
   });
 
   it("capitalises the service name in the message", () => {

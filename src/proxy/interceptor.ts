@@ -70,13 +70,13 @@ export function extractToolCallParams(request: JsonRpcRequest): ToolCallParams |
 export function buildBlockedResponse(
   id: string | number | null,
   service: string,
-  permissionLevel: string,
+  _permissionLevel: string,
   dashboardUrl: string,
 ): JsonRpcResponse {
   const displayService = capitalize(service);
   const message =
     `Action blocked by Shield\n\n` +
-    `This agent does not have ${permissionLevel} access to ${displayService}.\n\n` +
+    `This agent cannot use ${displayService}.\n\n` +
     `Configure permissions: ${dashboardUrl}`;
 
   return {

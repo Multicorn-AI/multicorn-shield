@@ -176,7 +176,7 @@ describe("resultSuggestsConsentNeeded", () => {
         content: [
           {
             type: "text",
-            text: "Action blocked by Shield\n\nThis agent does not have write access to Gmail.\n\nConfigure permissions: https://app.example",
+            text: "Action blocked by Shield\n\nThis agent cannot use Gmail.\n\nConfigure permissions: https://app.example",
           },
         ],
       }),

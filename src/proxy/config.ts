@@ -3489,7 +3489,7 @@ export async function runInit(
         "\n" +
           style.bold("Claude Desktop") +
           "\n" +
-          "  \u2192 Restart Claude Desktop to pick up config changes\n" +
+          "  \u2192 Restart Claude Desktop to load the updated configuration\n" +
           "  \u2192 Confirm connection: click your profile (bottom-left) \u2192 Settings \u2192 Developer\n" +
           '    Check that "' +
           cdLabel +

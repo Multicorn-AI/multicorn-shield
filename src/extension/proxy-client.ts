@@ -589,6 +589,7 @@ export function resultSuggestsConsentNeeded(result: CallToolResult): boolean {
   return (
     t.includes("Action blocked by Shield") ||
     t.includes("Permission required") ||
+    t.includes("This agent cannot use") ||
     (t.includes("does not have") && t.includes("access to")) ||
     t.includes("Configure permissions:")
   );
