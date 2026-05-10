@@ -1066,11 +1066,13 @@ describe("config file parsing", () => {
     expect(stderrBuffer).toContain("Restart Cursor");
     expect(stderrBuffer).toContain("hosted.proxy.example");
     expect(stderrBuffer).toContain("cursor.com/downloads");
+    expect(stripAnsi(stderrBuffer)).toContain("Confirm connection: open Settings → Tools & MCPs");
     expect(stripAnsi(stderrBuffer)).toContain(
-      "Try it: make a request in Cursor - Shield will intercept the first tool call and ask for your consent",
+      'Check that "cursor-agent" shows a green status indicator',
     );
+    expect(stripAnsi(stderrBuffer)).toContain("Try it: paste this into Cursor:");
     expect(stripAnsi(stderrBuffer)).toContain(
-      'Example: "Use the cursor-agent MCP server to list my GitHub repositories"',
+      '"Use the cursor-agent MCP server to list my GitHub repositories"',
     );
     expect(stderrBuffer).not.toContain("paste the config snippet shown above");
     const cursorWrite = writeFileMock.mock.calls.find(

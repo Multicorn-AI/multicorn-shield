@@ -30,6 +30,7 @@ import {
 } from "../src/proxy/logger.js";
 import { deriveDashboardUrl } from "../src/proxy/consent.js";
 import { restoreClaudeDesktopMcpFromBackup } from "../src/extension/restore.js";
+import { PACKAGE_VERSION } from "../src/package-meta.js";
 
 export interface CliArgs {
   readonly subcommand: "init" | "wrap" | "help" | "agents" | "delete-agent";
@@ -208,6 +209,7 @@ function printHelp(): void {
       "      Shield's permission layer.",
       "",
       "Options:",
+      "  --version, -v        Print version and exit",
       "  --verbose, --debug   Print extra diagnostics during init (menu selection, agent counts)",
       "  --api-key <key>       Multicorn API key (overrides MULTICORN_API_KEY env var and config file)",
       "  --log-level <level>   Log level: debug | info | warn | error  (default: info)",
@@ -233,6 +235,11 @@ export async function runCli(): Promise<void> {
         "Restart Claude Desktop to apply changes.\n",
     );
     return;
+  }
+
+  if (first === "--version" || first === "-v") {
+    process.stdout.write(`${PACKAGE_VERSION}\n`);
+    process.exit(0);
   }
 
   const cli = parseArgs(process.argv);

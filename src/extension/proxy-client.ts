@@ -587,8 +587,10 @@ export function resultSuggestsConsentNeeded(result: CallToolResult): boolean {
   }
   const t = first.text;
   return (
-    t.includes("Action blocked by Multicorn Shield") ||
+    t.includes("Action blocked by Shield") ||
+    t.includes("Permission required") ||
+    t.includes("This agent cannot use") ||
     (t.includes("does not have") && t.includes("access to")) ||
-    t.includes("Configure permissions at")
+    t.includes("Configure permissions:")
   );
 }
