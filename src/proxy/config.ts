@@ -1668,6 +1668,12 @@ async function arrowSelect(
   ask: AskFn,
   fallbackLabel?: string,
 ): Promise<number> {
+  if (options.length === 1) {
+    const only = options[0] ?? "";
+    process.stderr.write(`${style.violet("❯")} ${style.cyan(only)}\n`);
+    return 0;
+  }
+
   const canRaw = process.stdin.isTTY && typeof process.stdin.setRawMode === "function";
   if (!canRaw) {
     for (let i = 0; i < options.length; i++) {
@@ -1724,7 +1730,7 @@ async function arrowSelect(
         cleanup();
         clearLines();
         const chosen = options.at(idx);
-        if (chosen !== undefined) {
+        if (chosen !== undefined && options.length > 1) {
           process.stderr.write(`${style.violet("❯")} ${style.cyan(chosen)}\n`);
         }
         resolvePromise(idx);
@@ -3440,14 +3446,14 @@ export async function runInit(
 
     const configuredPlatforms = new Set(configuredAgents.map((a) => a.platform));
 
-    const cursorMcpPromptLabel = ((): string => {
-      const rows = configuredAgents.filter((a) => a.platform === "cursor");
+    function mcpPromptLabel(platformSlug: string): string {
+      const rows = configuredAgents.filter((a) => a.platform === platformSlug);
       const last = rows[rows.length - 1];
       if (last === undefined) return "shield-mcp";
       const s = typeof last.shortName === "string" ? last.shortName.trim() : "";
       if (s.length > 0) return s;
       return last.agentName.trim().length > 0 ? last.agentName.trim() : "shield-mcp";
-    })();
+    }
 
     // Next steps grouped by platform.
     const blocks: string[] = [];
@@ -3478,15 +3484,24 @@ export async function runInit(
       );
     }
     if (configuredPlatforms.has("claude-desktop")) {
+      const cdLabel = mcpPromptLabel("claude-desktop");
       blocks.push(
         "\n" +
           style.bold("Claude Desktop") +
           "\n" +
           "  \u2192 Restart Claude Desktop to pick up config changes\n" +
-          "  \u2192 Try it: make a request in Claude Desktop - Shield will intercept the first tool call and ask for your consent\n",
+          "  \u2192 Confirm connection: click your profile (bottom-left) \u2192 Settings \u2192 Developer\n" +
+          '    Check that "' +
+          cdLabel +
+          '" shows a green "running" status\n' +
+          "  \u2192 Try it: paste this into Claude Desktop:\n" +
+          '    "Use the ' +
+          cdLabel +
+          ' MCP server to list my GitHub repositories"\n',
       );
     }
     if (configuredPlatforms.has("cursor")) {
+      const cursorLabel = mcpPromptLabel("cursor");
       blocks.push(
         "\n" +
           style.bold("Cursor") +
@@ -3495,10 +3510,13 @@ export async function runInit(
           style.cyan("https://www.cursor.com/downloads") +
           "\n" +
           "  \u2192 Restart Cursor so it loads the MCP server\n" +
-          "  \u2192 Try it: make a request in Cursor - Shield will intercept the first tool call and ask for your consent\n" +
-          '  \u2192 Example: "' +
-          "Use the " +
-          cursorMcpPromptLabel +
+          "  \u2192 Confirm connection: open Settings \u2192 Tools & MCPs\n" +
+          '    Check that "' +
+          cursorLabel +
+          '" shows a green status indicator\n' +
+          "  \u2192 Try it: paste this into Cursor:\n" +
+          '    "Use the ' +
+          cursorLabel +
           ' MCP server to list my GitHub repositories"\n',
       );
     }
