@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.8.0] - 2026-05-11
+
+### Added
+
+- OpenCode as a supported platform (native plugin + hosted proxy paths)
+- Native Shield plugin for OpenCode (`plugins/opencode/multicorn-shield.ts`) using `tool.execute.before`/`tool.execute.after` hooks for permission checks and audit logging
+- OpenCode in CLI init wizard with native plugin and hosted proxy integration modes
+- Tool name mapping for OpenCode built-in tools (`bash`, `read`, `write`, `edit`, `apply_patch`, `glob`, `grep`, `list`, `webfetch`, `websearch`)
+- Shell reload hint in CLI native plugin output for freshly installed tools
+- `'opencode'` to `AGENT_PLATFORM_SLUGS`
+
 ## [1.7.0] - 2026-05-11
 
 ### Fixed

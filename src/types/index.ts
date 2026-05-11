@@ -22,6 +22,7 @@ export const AGENT_PLATFORM_SLUGS = [
   "github-copilot",
   "goose",
   "kilo-code",
+  "opencode",
   "other-mcp",
   "github-actions",
   "unknown",
