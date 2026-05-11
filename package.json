@@ -40,6 +40,7 @@
     "plugins/windsurf",
     "plugins/cline",
     "plugins/gemini-cli",
+    "plugins/opencode",
     "LICENSE",
     "README.md",
     "CHANGELOG.md"
@@ -98,6 +99,7 @@
     "@anthropic-ai/mcpb": "^2.1.2",
     "@eslint/js": "^9.19.0",
     "@open-wc/testing-helpers": "^3.0.1",
+    "@opencode-ai/plugin": "^1.14.48",
     "@size-limit/file": "^11.1.6",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^3.0.5",

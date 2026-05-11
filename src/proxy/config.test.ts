@@ -361,6 +361,7 @@ describe("shouldEmbedKeyInHostedProxyUrl", () => {
     expect(shouldEmbedKeyInHostedProxyUrl("windsurf")).toBe(false);
     expect(shouldEmbedKeyInHostedProxyUrl("cline")).toBe(false);
     expect(shouldEmbedKeyInHostedProxyUrl("gemini-cli")).toBe(false);
+    expect(shouldEmbedKeyInHostedProxyUrl("opencode")).toBe(false);
   });
 });
 

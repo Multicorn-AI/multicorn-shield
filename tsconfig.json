@@ -30,6 +30,6 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["src", "bin", "vitest.config.ts"],
+  "include": ["src", "bin", "vitest.config.ts", "plugins/opencode"],
   "exclude": ["node_modules", "dist", "coverage"]
 }

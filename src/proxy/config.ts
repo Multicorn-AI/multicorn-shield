@@ -173,6 +173,8 @@ interface ConfiguredAgent {
   readonly clineIntegration?: "native" | "hosted";
   /** Set when `platform` is `gemini-cli` to drive Next steps copy. */
   readonly geminiCliIntegration?: "native" | "hosted";
+  /** Set when `platform` is `opencode` to drive Next steps copy. */
+  readonly opencodeCliIntegration?: "native" | "hosted";
   readonly shortName?: string;
   readonly proxyUrl?: string;
 }
@@ -898,6 +900,30 @@ export async function installClineNativeHooks(): Promise<void> {
   await writeFile(postWrapper, postContent, { encoding: "utf8", mode: 0o755 });
 }
 
+// ---------------------------------------------------------------------------
+// OpenCode plugin (native)
+// ---------------------------------------------------------------------------
+
+/** Global OpenCode plugin directory (loads `*.ts` at startup). */
+export function getOpenCodeGlobalPluginsDir(): string {
+  return join(homedir(), ".config", "opencode", "plugins");
+}
+
+export async function installOpenCodeNativePlugin(): Promise<void> {
+  const root = multicornShieldPackageRoot();
+  const src = join(root, "plugins", "opencode", "multicorn-shield.ts");
+  if (!existsSync(src)) {
+    throw new Error(
+      `Could not find Shield OpenCode plugin at ${src}. If you use npm, install the latest multicorn-shield package.`,
+    );
+  }
+
+  const destDir = getOpenCodeGlobalPluginsDir();
+  await mkdir(destDir, { recursive: true });
+  const dest = join(destDir, "multicorn-shield.ts");
+  await copyFile(src, dest);
+}
+
 async function promptClineIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
   process.stderr.write("\n" + style.bold("Cline integration") + "\n");
   process.stderr.write(
@@ -1344,6 +1370,28 @@ async function promptGeminiCliIntegrationMode(ask: AskFn): Promise<"native" | "h
   return choice === 1 ? "native" : "hosted";
 }
 
+async function promptOpencodeIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
+  process.stderr.write("\n" + style.bold("OpenCode integration") + "\n");
+  process.stderr.write(
+    "  " +
+      style.violet("1") +
+      ". Native plugin (recommended) - Shield checks primary-agent tool execution via OpenCode Hooks\n",
+  );
+  process.stderr.write(
+    "  " +
+      style.violet("2") +
+      ". Hosted proxy - govern MCP server traffic via opencode.json (full subagent coverage when tools use MCP through Shield)\n",
+  );
+  let choice = 0;
+  while (choice === 0) {
+    const input = await ask("Choose integration (1-2): ");
+    const num = parseInt(input.trim(), 10);
+    if (num === 1) choice = 1;
+    if (num === 2) choice = 2;
+  }
+  return choice === 1 ? "native" : "hosted";
+}
+
 /**
  * Returns the platform-specific path to the Claude Desktop config file.
  * @returns Absolute path to claude_desktop_config.json.
@@ -1510,6 +1558,12 @@ export const INIT_WIZARD_PLATFORM_REGISTRY: readonly InitWizardPlatformEntry[] =
   { slug: "windsurf", displayName: "Windsurf", section: "native" },
   { slug: "cline", displayName: "Cline", section: "native" },
   { slug: "gemini-cli", displayName: "Gemini CLI", section: "native" },
+  {
+    slug: "opencode",
+    displayName: "OpenCode",
+    section: "native",
+    prereqUrl: "https://opencode.ai",
+  },
   {
     slug: "cursor",
     displayName: "Cursor",
@@ -2291,6 +2345,59 @@ async function mergeKiloCodeProjectMcp(
   return "ok";
 }
 
+const OPENCODE_CONFIG_SCHEMA_URL = "https://opencode.ai/config.json";
+
+async function injectOpencodeSchemaIntoConfigIfMissing(filePath: string): Promise<void> {
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const stripped = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stripped);
+    } catch {
+      return;
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return;
+    const root = parsed as Record<string, unknown>;
+    const existingSchema = root["$schema"];
+    if (typeof existingSchema === "string" && existingSchema.length > 0) return;
+    root["$schema"] = OPENCODE_CONFIG_SCHEMA_URL;
+    await writeFile(filePath, JSON.stringify(root, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
+  } catch {
+    /* ignore non-fatal */
+  }
+}
+
+async function mergeOpenCodeProjectMcp(
+  workspacePath: string,
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<"ok" | "parse-error"> {
+  const filePath = join(workspacePath, "opencode.json");
+  const result = await mergeTopLevelKeyedJsonFile(
+    filePath,
+    "mcp",
+    shortName,
+    {
+      type: "remote",
+      url: proxyUrl,
+      headers: { Authorization: `Bearer ${apiKey}` },
+      enabled: true,
+    },
+    {
+      stripJsonComments: true,
+      onExisting: "skip",
+    },
+  );
+  if (result === "parse-error") return "parse-error";
+  await injectOpencodeSchemaIntoConfigIfMissing(filePath);
+  if (result === "ok") {
+    await warnIfApiKeyFileNotGitignored(workspacePath, "opencode.json");
+  }
+  return "ok";
+}
+
 function printHostedProxyJsonParseWarning(filePath: string): void {
   process.stderr.write(
     style.yellow("\u26A0") +
@@ -2339,6 +2446,13 @@ function printHostedProxyPostWriteHints(platform: string, shortName: string): vo
   if (platform === "kilo-code") {
     process.stderr.write(
       style.dim("Restart Kilo Code or reload the window so it picks up .kilo/kilo.jsonc.") + "\n",
+    );
+  }
+  if (platform === "opencode") {
+    process.stderr.write(
+      style.dim(
+        "Restart OpenCode or start a new session so it picks up opencode.json. For global MCP, merge the same snippet into ~/.config/opencode/opencode.json.",
+      ) + "\n",
     );
   }
 }
@@ -2450,6 +2564,16 @@ async function applyHostedProxyMcpConfig(
       );
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(join(workspacePath, ".kilo", "kilo.jsonc"));
+      }
+    } else if (platform === "opencode") {
+      result = await mergeOpenCodeProjectMcp(
+        workspacePath,
+        shortName,
+        proxyUrlWithKeyWhenNeeded,
+        apiKey,
+      );
+      if (result === "parse-error") {
+        printHostedProxyJsonParseWarning(join(workspacePath, "opencode.json"));
       }
     } else if (platform === "continue-dev") {
       result = await mergeContinueHostedMcp(
@@ -2608,6 +2732,7 @@ function printPlatformSnippet(
     "github-copilot",
     "continue-dev",
     "goose",
+    "opencode",
   ]);
   const usesInlineKey = hostedInlinePlatforms.has(platform);
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
@@ -2695,6 +2820,24 @@ function printPlatformSnippet(
       null,
       2,
     );
+  } else if (platform === "opencode") {
+    snippetText = JSON.stringify(
+      {
+        $schema: OPENCODE_CONFIG_SCHEMA_URL,
+        mcp: {
+          [shortName]: {
+            type: "remote",
+            url: urlInSnippet,
+            headers: {
+              Authorization: authHeader,
+            },
+            enabled: true,
+          },
+        },
+      },
+      null,
+      2,
+    );
   } else {
     const urlKey = platform === "windsurf" ? "serverUrl" : "url";
     snippetText = JSON.stringify(
@@ -2735,6 +2878,14 @@ function printPlatformSnippet(
     process.stderr.write(
       "\n" +
         style.dim(`Add this to ${join(resolve(process.cwd()), ".kilo", "kilo.jsonc")}:`) +
+        "\n\n",
+    );
+  } else if (platform === "opencode") {
+    process.stderr.write(
+      "\n" +
+        style.dim(
+          "Add this to opencode.json in your project root (or ~/.config/opencode/opencode.json for global config). OpenCode detects configured MCP servers on the next session start.",
+        ) +
         "\n\n",
     );
   } else if (platform === "github-copilot") {
@@ -2812,6 +2963,12 @@ function printPlatformSnippet(
 
   if (platform === "goose") {
     process.stderr.write(style.dim("Start a new Goose session after updating config.") + "\n");
+  }
+
+  if (platform === "opencode") {
+    process.stderr.write(
+      style.dim("Restart OpenCode or start a new session after saving opencode.json.") + "\n",
+    );
   }
 }
 
@@ -3503,6 +3660,101 @@ export async function runInit(
           setupSucceeded = true;
         }
       }
+    } else if (selectedPlatform === "opencode") {
+      const opencodeMode = await promptOpencodeIntegrationMode(ask);
+      if (opencodeMode === "native") {
+        try {
+          await installOpenCodeNativePlugin();
+          process.stderr.write("\n" + style.bold("Shield OpenCode plugin installed") + "\n\n");
+          process.stderr.write(
+            style.dim("Plugin file: ") + style.cyan(getOpenCodeGlobalPluginsDir()) + "\n",
+          );
+          process.stderr.write("\n");
+          process.stderr.write(
+            style.dim(
+              "Shield plugin saved under ~/.config/opencode/plugins/. Restart OpenCode. Every tool call from the primary agent will be checked by Shield.",
+            ) + "\n",
+          );
+          process.stderr.write("\n");
+          process.stderr.write(
+            style.dim(
+              "Note: Tool calls delegated to subagents via the task tool are not intercepted by this plugin (OpenCode limitation). Use the hosted proxy path for MCP traffic you route through Shield for broader coverage.",
+            ) + "\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            opencodeCliIntegration: "native",
+          });
+          setupSucceeded = true;
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+        }
+      } else {
+        const { targetUrl, shortName, upstreamHeaders } = await promptProxyConfig(ask, agentName);
+
+        let proxyUrl = "";
+        let created = false;
+        while (!created) {
+          const spinner = withSpinner("Creating proxy config...");
+          try {
+            proxyUrl = await createProxyConfig(
+              resolvedBaseUrl,
+              apiKey,
+              agentName,
+              targetUrl,
+              shortName,
+              selectedPlatform,
+              upstreamHeaders,
+            );
+            spinner.stop(true, "Proxy config created!");
+            created = true;
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            spinner.stop(false, detail);
+            const retry = await ask("Try again? (Y/n) ");
+            if (retry.trim().toLowerCase() === "n") {
+              break;
+            }
+          }
+        }
+
+        if (created && proxyUrl.length > 0) {
+          process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
+          process.stderr.write(
+            "  " +
+              style.cyan(formatHostedProxyUrlForStderr(selectedPlatform, proxyUrl, apiKey)) +
+              "\n",
+          );
+          await applyHostedProxyMcpConfig(
+            selectedPlatform,
+            proxyUrl,
+            shortName,
+            apiKey,
+            initWorkspacePath,
+          );
+          process.stderr.write(
+            "\n" +
+              style.dim(
+                "Add this to opencode.json in your project root (or ~/.config/opencode/opencode.json for global config). OpenCode detects configured MCP servers on the next session start.",
+              ) +
+              "\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            shortName,
+            proxyUrl,
+            opencodeCliIntegration: "hosted",
+          });
+          setupSucceeded = true;
+        }
+      }
     } else if (selectedPlatform === "cline") {
       const clineMode = await promptClineIntegrationMode(ask);
       if (clineMode === "native") {
@@ -3929,6 +4181,37 @@ export async function runInit(
           style.bold("Gemini CLI (hosted)") +
           "\n" +
           "  \u2192 Try it: make a request in Gemini CLI - Shield will intercept the first tool call and ask for your consent\n",
+      );
+    }
+
+    const opencodeNativeConfigured = configuredAgents.some(
+      (a) => a.platform === "opencode" && a.opencodeCliIntegration === "native",
+    );
+    const opencodeHostedConfigured = configuredAgents.some(
+      (a) => a.platform === "opencode" && a.opencodeCliIntegration === "hosted",
+    );
+
+    if (opencodeNativeConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("OpenCode (native)") +
+          "\n" +
+          "  \u2192 If you just installed OpenCode, open a new terminal tab (or run: source ~/.zshrc)\n" +
+          "  \u2192 Restart OpenCode so it loads ~/.config/opencode/plugins/multicorn-shield.ts\n" +
+          "  \u2192 Try it: trigger a primary-agent tool call - Shield will intercept the first actionable tool and ask for your consent\n",
+      );
+    }
+    if (opencodeHostedConfigured) {
+      const ocLabel = mcpPromptLabel("opencode");
+      blocks.push(
+        "\n" +
+          style.bold("OpenCode (hosted)") +
+          "\n" +
+          "  \u2192 Restart OpenCode or start a new session after saving opencode.json\n" +
+          "  \u2192 Try it: paste this into OpenCode:\n" +
+          '    "Use the ' +
+          ocLabel +
+          ' MCP server to list allowed directories"\n',
       );
     }
 
