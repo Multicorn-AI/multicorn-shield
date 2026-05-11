@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Add runtime dependency on [`yaml`](https://www.npmjs.com/package/yaml) (ISC) for safe Goose `config.yaml` read/write in the hosted-proxy CLI path
 - GitHub Copilot: CLI auto-writes config to `.vscode/mcp.json`
 - Kilo Code: CLI writes to `.kilo/kilo.jsonc` with correct format (`mcp` key, `type: remote`)
 - Continue: CLI writes YAML to `.continue/mcpServers/<name>.yaml` in workspace root
