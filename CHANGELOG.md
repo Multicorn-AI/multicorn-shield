@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.7.0] - 2026-05-11
+
+### Fixed
+
+- Agent name now uses user-provided short name instead of auto-generated default
+- Goose config snippet uses `uri` instead of incorrect `url`
+- Replace flow deduplicates agent list loaded from config on startup
+
+### Changed
+
+- Add runtime dependency on [`yaml`](https://www.npmjs.com/package/yaml) (ISC) for safe Goose `config.yaml` read/write in the hosted-proxy CLI path
+- GitHub Copilot: CLI auto-writes config to `.vscode/mcp.json`
+- Kilo Code: CLI writes to `.kilo/kilo.jsonc` with correct format (`mcp` key, `type: remote`)
+- Continue: CLI writes YAML to `.continue/mcpServers/<name>.yaml` in workspace root
+- Goose: CLI auto-writes to `~/.config/goose/config.yaml`
+- All hosted proxy platforms: Next Steps includes where to verify connection and example prompt
+- Claude Desktop removed from hosted proxy platform list (consent URL not clickable)
+
 ## [1.6.0] - 2026-05-10
 
 ### Added
