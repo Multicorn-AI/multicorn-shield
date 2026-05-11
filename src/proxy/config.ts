@@ -1882,7 +1882,7 @@ async function promptProxyConfig(
 async function createProxyConfig(
   baseUrl: string,
   apiKey: string,
-  agentName: string,
+  _agentName: string,
   targetUrl: string,
   serverName: string,
   platform: string,
@@ -1893,7 +1893,7 @@ async function createProxyConfig(
     server_name: serverName,
     target_url: targetUrl,
     platform,
-    agent_name: agentName,
+    agent_name: serverName,
   };
   if (upstreamHeaders !== undefined && Object.keys(upstreamHeaders).length > 0) {
     body["upstream_headers"] = upstreamHeaders;
@@ -2075,14 +2075,43 @@ async function mergeClaudeDesktopHostedMcpRemote(
 }
 
 /**
- * Continue `~/.continue/config.json`: `mcpServers` is an array of server objects.
+ * Continue: `.continue/mcpServers/<name>.yaml` in the workspace root.
  */
 async function mergeContinueHostedMcp(
+  workspacePath: string,
   shortName: string,
   proxyUrl: string,
   apiKey: string,
 ): Promise<"ok" | "parse-error"> {
-  const filePath = getContinueConfigJsonPath();
+  const dir = join(workspacePath, ".continue", "mcpServers");
+  const filePath = join(dir, `${shortName}.yaml`);
+  const yaml =
+    `name: ${shortName}\n` +
+    `version: 0.0.1\n` +
+    `schema: v1\n` +
+    `mcpServers:\n` +
+    `  - name: ${shortName}\n` +
+    `    type: streamable-http\n` +
+    `    url: ${proxyUrl}\n` +
+    `    headers:\n` +
+    `      Authorization: Bearer ${apiKey}\n`;
+
+  await mkdir(dir, { recursive: true });
+  await writeFile(filePath, yaml, SECRET_JSON_FILE_OPTIONS);
+  writeMcpAddedLine(shortName, filePath);
+  return "ok";
+}
+
+/**
+ * GitHub Copilot: `.vscode/mcp.json` uses `servers` (not `mcpServers`) as the top-level key.
+ */
+async function mergeCopilotVscodeMcp(
+  workspacePath: string,
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<"ok" | "parse-error"> {
+  const filePath = join(workspacePath, ".vscode", "mcp.json");
   let root: Record<string, unknown> = {};
   try {
     const raw = await readFile(filePath, "utf8");
@@ -2105,38 +2134,23 @@ async function mergeContinueHostedMcp(
     }
   }
 
-  const rawServers = root["mcpServers"];
-  if (rawServers !== undefined) {
-    if (Array.isArray(rawServers)) {
-      // ok
-    } else if (typeof rawServers === "object" && rawServers !== null) {
-      return "parse-error";
-    } else {
-      return "parse-error";
-    }
+  const serversRaw = root["servers"];
+  const servers: Record<string, unknown> =
+    typeof serversRaw === "object" && serversRaw !== null && !Array.isArray(serversRaw)
+      ? { ...(serversRaw as Record<string, unknown>) }
+      : {};
+
+  if (servers[shortName] !== undefined) {
+    return "ok";
   }
 
-  const servers: Record<string, unknown>[] = Array.isArray(rawServers)
-    ? (rawServers as Record<string, unknown>[]).map((s) => ({ ...s }))
-    : [];
-
-  const entry: Record<string, unknown> = {
-    name: shortName,
-    type: "streamable-http",
+  servers[shortName] = {
+    type: "http",
     url: proxyUrl,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
+    headers: { Authorization: `Bearer ${apiKey}` },
   };
+  root["servers"] = servers;
 
-  const idx = servers.findIndex((s) => s["name"] === shortName);
-  if (idx >= 0) {
-    servers[idx] = entry;
-  } else {
-    servers.push(entry);
-  }
-
-  root["mcpServers"] = servers;
   await mkdir(dirname(filePath), { recursive: true });
   await writeFile(filePath, JSON.stringify(root, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
   writeMcpAddedLine(shortName, filePath);
@@ -2149,13 +2163,52 @@ async function mergeKiloCodeProjectMcp(
   proxyUrl: string,
   apiKey: string,
 ): Promise<"ok" | "parse-error"> {
-  const filePath = join(workspacePath, ".kilocode", "mcp.json");
-  return mergeMcpServersObjectStyle(filePath, shortName, {
+  const filePath = join(workspacePath, ".kilo", "kilo.jsonc");
+  let root: Record<string, unknown> = {};
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const stripped = raw.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stripped);
+    } catch {
+      return "parse-error";
+    }
+    if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+      root = parsed as Record<string, unknown>;
+    } else {
+      return "parse-error";
+    }
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      root = {};
+    } else {
+      throw e;
+    }
+  }
+
+  const mcpRaw = root["mcp"];
+  const mcp: Record<string, unknown> =
+    typeof mcpRaw === "object" && mcpRaw !== null && !Array.isArray(mcpRaw)
+      ? { ...(mcpRaw as Record<string, unknown>) }
+      : {};
+
+  if (mcp[shortName] !== undefined) {
+    return "ok";
+  }
+
+  mcp[shortName] = {
+    type: "remote",
     url: proxyUrl,
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  });
+    headers: { Authorization: `Bearer ${apiKey}` },
+    enabled: true,
+  };
+  root["mcp"] = mcp;
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, JSON.stringify(root, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
+  writeMcpAddedLine(shortName, filePath);
+  return "ok";
 }
 
 function printHostedProxyJsonParseWarning(filePath: string): void {
@@ -2236,18 +2289,35 @@ async function applyHostedProxyMcpConfig(
   }
 
   if (platform === "github-copilot") {
-    process.stderr.write(
-      "\n" +
-        style.dim(
-          "GitHub Copilot uses VS Code settings - paste the snippet below into your VS Code Settings (JSON).",
-        ) +
-        "\n",
-    );
+    try {
+      const result = await mergeCopilotVscodeMcp(
+        workspacePath,
+        shortName,
+        proxyUrlWithKeyWhenNeeded,
+        apiKey,
+      );
+      if (result === "ok") {
+        printHostedProxyPostWriteHints(platform, shortName);
+        return;
+      }
+      printHostedProxyJsonParseWarning(join(workspacePath, ".vscode", "mcp.json"));
+    } catch {
+      // fall through to snippet
+    }
     printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
     return;
   }
 
   if (platform === "goose") {
+    try {
+      const result = await mergeGooseConfig(shortName, proxyUrlWithKeyWhenNeeded, apiKey);
+      if (result === "ok") {
+        printHostedProxyPostWriteHints(platform, shortName);
+        return;
+      }
+    } catch {
+      // fall through to snippet
+    }
     printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
     return;
   }
@@ -2295,12 +2365,19 @@ async function applyHostedProxyMcpConfig(
         apiKey,
       );
       if (result === "parse-error") {
-        printHostedProxyJsonParseWarning(join(workspacePath, ".kilocode", "mcp.json"));
+        printHostedProxyJsonParseWarning(join(workspacePath, ".kilo", "kilo.jsonc"));
       }
     } else if (platform === "continue-dev") {
-      result = await mergeContinueHostedMcp(shortName, proxyUrlWithKeyWhenNeeded, apiKey);
+      result = await mergeContinueHostedMcp(
+        workspacePath,
+        shortName,
+        proxyUrlWithKeyWhenNeeded,
+        apiKey,
+      );
       if (result === "parse-error") {
-        printHostedProxyJsonParseWarning(getContinueConfigJsonPath());
+        printHostedProxyJsonParseWarning(
+          join(workspacePath, ".continue", "mcpServers", `${shortName}.yaml`),
+        );
       }
     } else {
       result = await mergeMcpServersObjectStyle(getCursorMcpJsonPath(), shortName, {
@@ -2326,17 +2403,71 @@ async function applyHostedProxyMcpConfig(
   printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
 }
 
-function gooseHostedProxyYaml(shortName: string, proxyUrl: string, bearerHeader: string): string {
+function gooseExtensionYaml(shortName: string, proxyUrl: string, bearerHeader: string): string {
   return (
-    `extensions:\n` +
     `  ${shortName}:\n` +
+    `    enabled: true\n` +
     `    type: streamable_http\n` +
-    `    url: ${proxyUrl}\n` +
+    `    name: ${shortName}\n` +
+    `    description: ''\n` +
+    `    uri: ${proxyUrl}\n` +
+    `    envs: {}\n` +
+    `    env_keys: []\n` +
     `    headers:\n` +
     `      Authorization: ${bearerHeader}\n` +
-    `    enabled: true\n` +
-    `    timeout: 300\n`
+    `    timeout: 300\n` +
+    `    socket: null\n` +
+    `    bundled: null\n` +
+    `    available_tools: []\n`
   );
+}
+
+function gooseHostedProxyYaml(shortName: string, proxyUrl: string, bearerHeader: string): string {
+  return `extensions:\n` + gooseExtensionYaml(shortName, proxyUrl, bearerHeader);
+}
+
+async function mergeGooseConfig(
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<"ok" | "parse-error"> {
+  const filePath = join(homedir(), ".config", "goose", "config.yaml");
+  const bearerHeader = `Bearer ${apiKey}`;
+  let content = "";
+  try {
+    content = await readFile(filePath, "utf8");
+  } catch (e) {
+    if (isErrnoException(e) && e.code === "ENOENT") {
+      content = "";
+    } else {
+      throw e;
+    }
+  }
+
+  const extensionBlock = gooseExtensionYaml(shortName, proxyUrl, bearerHeader);
+
+  if (content.includes(`  ${shortName}:`)) {
+    return "ok";
+  }
+
+  let updated: string;
+  if (content.includes("extensions:")) {
+    const idx = content.indexOf("extensions:");
+    const afterExtensions = idx + "extensions:".length;
+    updated =
+      content.slice(0, afterExtensions) + "\n" + extensionBlock + content.slice(afterExtensions);
+  } else {
+    updated =
+      content +
+      (content.length > 0 && !content.endsWith("\n") ? "\n" : "") +
+      "extensions:\n" +
+      extensionBlock;
+  }
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(filePath, updated, SECRET_JSON_FILE_OPTIONS);
+  writeMcpAddedLine(shortName, filePath);
+  return "ok";
 }
 
 function printPlatformSnippet(
@@ -2368,14 +2499,12 @@ function printPlatformSnippet(
   if (platform === "github-copilot") {
     snippetText = JSON.stringify(
       {
-        mcp: {
-          servers: {
-            [shortName]: {
-              type: "http",
-              url: urlInSnippet,
-              headers: {
-                Authorization: authHeader,
-              },
+        servers: {
+          [shortName]: {
+            type: "http",
+            url: urlInSnippet,
+            headers: {
+              Authorization: authHeader,
             },
           },
         },
@@ -2414,18 +2543,29 @@ function printPlatformSnippet(
       2,
     );
   } else if (platform === "continue-dev") {
+    snippetText =
+      `name: ${shortName}\n` +
+      `version: 0.0.1\n` +
+      `schema: v1\n` +
+      `mcpServers:\n` +
+      `  - name: ${shortName}\n` +
+      `    type: streamable-http\n` +
+      `    url: ${urlInSnippet}\n` +
+      `    headers:\n` +
+      `      Authorization: ${authHeader}\n`;
+  } else if (platform === "kilo-code") {
     snippetText = JSON.stringify(
       {
-        mcpServers: [
-          {
-            name: shortName,
-            type: "streamable-http",
+        mcp: {
+          [shortName]: {
+            type: "remote",
             url: urlInSnippet,
             headers: {
               Authorization: authHeader,
             },
+            enabled: true,
           },
-        ],
+        },
       },
       null,
       2,
@@ -2469,19 +2609,23 @@ function printPlatformSnippet(
   } else if (platform === "kilo-code") {
     process.stderr.write(
       "\n" +
-        style.dim(`Add this to ${join(resolve(process.cwd()), ".kilocode", "mcp.json")}:`) +
+        style.dim(`Add this to ${join(resolve(process.cwd()), ".kilo", "kilo.jsonc")}:`) +
         "\n\n",
     );
   } else if (platform === "github-copilot") {
     process.stderr.write(
       "\n" +
         style.dim(
-          "Merge this snippet under the mcp key in your VS Code Settings (JSON). If you do not have an mcp section yet, add one. Copilot picks up MCP servers when you use Agent mode.",
+          "Create .vscode/mcp.json in your workspace root (create the .vscode folder if it does not exist). After saving, reload VS Code and confirm the server appears in Copilot Agent mode under Tools.",
         ) +
         "\n\n",
     );
   } else if (platform === "continue-dev") {
-    process.stderr.write("\n" + style.dim(`Add this to ${getContinueConfigJsonPath()}:`) + "\n\n");
+    process.stderr.write(
+      "\n" +
+        style.dim(`Save this as .continue/mcpServers/${shortName}.yaml in your workspace root.`) +
+        "\n\n",
+    );
   } else if (platform === "goose") {
     process.stderr.write(
       "\n" +
@@ -2734,7 +2878,7 @@ export async function runInit(
 
   // Agent configuration loop (append to `agents`, no silent duplicate platforms)
   const configuredAgents: ConfiguredAgent[] = [];
-  let currentAgents: AgentEntry[] = collectAgentsFromConfig(existing);
+  let currentAgents: AgentEntry[] = mergeAgentsForUniqueNames(collectAgentsFromConfig(existing));
   let lastConfig: ProxyConfig = {
     apiKey,
     baseUrl: resolvedBaseUrl,
@@ -3521,25 +3665,35 @@ export async function runInit(
       );
     }
     if (configuredPlatforms.has("kilo-code")) {
+      const kiloLabel = mcpPromptLabel("kilo-code");
       blocks.push(
         "\n" +
           style.bold("Kilo Code") +
           "\n" +
           "  \u2192 Restart the editor or reload the window if the MCP server does not appear\n" +
-          "  \u2192 Try it: make a request in Kilo Code - Shield will intercept the first tool call and ask for your consent\n",
+          "  \u2192 Confirm connection: Settings \u2192 Agent Behaviour \u2192 MCP Servers\n" +
+          "  \u2192 Try it: paste this into Kilo Code:\n" +
+          '    "Use the ' +
+          kiloLabel +
+          ' MCP server to list my GitHub repositories"\n',
       );
     }
     if (configuredPlatforms.has("github-copilot")) {
+      const copilotLabel = mcpPromptLabel("github-copilot");
       blocks.push(
         "\n" +
           style.bold("GitHub Copilot") +
           "\n" +
           "  \u2192 Reload the editor window if the MCP server does not appear\n" +
-          "  \u2192 Open Copilot Agent mode and confirm the MCP server connects\n" +
-          "  \u2192 Try it: make a request in GitHub Copilot - Shield will intercept the first tool call and ask for your consent\n",
+          "  \u2192 Confirm connection: open Copilot chat in Agent mode and confirm the server appears under Tools\n" +
+          "  \u2192 Try it: paste this into GitHub Copilot:\n" +
+          '    "Use the ' +
+          copilotLabel +
+          ' MCP server to list my GitHub repositories"\n',
       );
     }
     if (configuredPlatforms.has("continue-dev")) {
+      const continueLabel = mcpPromptLabel("continue-dev");
       blocks.push(
         "\n" +
           style.bold("Continue") +
@@ -3548,16 +3702,25 @@ export async function runInit(
           style.cyan("https://docs.continue.dev/ide-extensions/install") +
           "\n" +
           "  \u2192 Reload VS Code and open Continue agent mode\n" +
-          "  \u2192 Try it: make a request in Continue - Shield will intercept the first tool call and ask for your consent\n",
+          "  \u2192 Confirm connection: Settings \u2192 Tools \u2192 MCP Servers\n" +
+          "  \u2192 Try it: paste this into Continue:\n" +
+          '    "Use the ' +
+          continueLabel +
+          ' MCP server to list my GitHub repositories"\n',
       );
     }
     if (configuredPlatforms.has("goose")) {
+      const gooseLabel = mcpPromptLabel("goose");
       blocks.push(
         "\n" +
           style.bold("Goose") +
           "\n" +
           "  \u2192 Start a new Goose session after updating config\n" +
-          "  \u2192 Try it: make a request in Goose - Shield will intercept the first tool call and ask for your consent\n",
+          "  \u2192 Confirm connection: check the Extensions page in the sidebar\n" +
+          "  \u2192 Try it: paste this into Goose:\n" +
+          '    "Use the ' +
+          gooseLabel +
+          ' MCP server to list my GitHub repositories"\n',
       );
     }
     const windsurfNativeConfigured = configuredAgents.some(
