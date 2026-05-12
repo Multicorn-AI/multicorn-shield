@@ -3984,8 +3984,12 @@ export async function runInit(
           process.stderr.write(
             "\n" +
               style.dim(
-                "Add the TOML snippet above to ~/.codex/config.toml. Set the MULTICORN_API_KEY environment variable to your Shield API key. Restart Codex CLI after saving.",
+                "Add the TOML snippet above to ~/.codex/config.toml. Then set the environment variable:",
               ) +
+              "\n\n  " +
+              style.cyan(`export MULTICORN_API_KEY="${apiKey}"`) +
+              "\n\n" +
+              style.dim("Restart Codex CLI after saving config.toml.") +
               "\n",
           );
           configuredAgents.push({
@@ -4485,6 +4489,7 @@ export async function runInit(
           "\n" +
           "  \u2192 Set the MULTICORN_API_KEY environment variable to your Shield API key\n" +
           "  \u2192 Restart Codex CLI after saving config.toml\n" +
+          "  \u2192 Verify it's connected: run /mcp in Codex CLI to see your active MCP servers\n" +
           "  \u2192 Try it: make a request that uses an MCP tool through Shield\n",
       );
     }
