@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.9.2] - 2026-05-12
+
+### Fixed
+
+- Codex CLI hosted proxy next-steps now includes /mcp verification step
+
 ## [1.9.1] - 2026-05-12
 
 ### Fixed
