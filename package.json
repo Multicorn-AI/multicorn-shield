@@ -41,6 +41,7 @@
     "plugins/cline",
     "plugins/gemini-cli",
     "plugins/opencode",
+    "plugins/codex-cli",
     "LICENSE",
     "README.md",
     "CHANGELOG.md"
