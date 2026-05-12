@@ -1,6 +1,6 @@
 import { defineConfig } from "tsup";
-import { execFileSync } from "node:child_process";
-import { copyFileSync, mkdirSync } from "node:fs";
+import { execFileSync, execSync } from "node:child_process";
+import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 export default defineConfig([
   {
@@ -121,6 +121,49 @@ export default defineConfig([
         ],
         { cwd: process.cwd(), stdio: "inherit" },
       );
+    },
+  },
+  /** Codex CLI plugin: native hook scripts (CommonJS). */
+  {
+    entry: {
+      "codex-cli-hooks-shared": "src/hooks/codex-cli-hooks-shared.ts",
+      "codex-cli-tool-map": "src/hooks/codex-cli-tool-map.ts",
+      "pre-tool-use": "src/hooks/codex-cli-pre-tool-use.ts",
+      "post-tool-use": "src/hooks/codex-cli-post-tool-use.ts",
+    },
+    format: ["cjs"],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: false,
+    outDir: "plugins/codex-cli/hooks/scripts",
+    platform: "node",
+    outExtension: () => ({ js: ".cjs" }),
+    banner: {
+      js: "// AUTO-GENERATED from src/hooks/codex-cli-*.ts — do not edit manually. Run pnpm build from the package root to regenerate.\n",
+    },
+    esbuildOptions(options) {
+      options.external ??= [];
+      if (Array.isArray(options.external)) {
+        options.external.push("./codex-cli-hooks-shared.js", "./codex-cli-tool-map.js");
+      }
+    },
+    onSuccess: async () => {
+      const hookDir = "plugins/codex-cli/hooks/scripts";
+      for (const name of ["pre-tool-use.cjs", "post-tool-use.cjs"]) {
+        const p = `${hookDir}/${name}`;
+        let src = readFileSync(p, "utf8");
+        src = src.replaceAll("./codex-cli-hooks-shared.js", "./codex-cli-hooks-shared.cjs");
+        src = src.replaceAll("./codex-cli-tool-map.js", "./codex-cli-tool-map.cjs");
+        writeFileSync(p, src);
+      }
+      execSync(`pnpm exec prettier --write ${hookDir}/*.cjs`, {
+        cwd: process.cwd(),
+        stdio: "inherit",
+        shell: true,
+      });
     },
   },
   {

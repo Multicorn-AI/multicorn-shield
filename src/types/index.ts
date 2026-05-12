@@ -23,6 +23,7 @@ export const AGENT_PLATFORM_SLUGS = [
   "goose",
   "kilo-code",
   "opencode",
+  "codex-cli",
   "other-mcp",
   "github-actions",
   "unknown",
