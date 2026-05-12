@@ -175,6 +175,8 @@ interface ConfiguredAgent {
   readonly geminiCliIntegration?: "native" | "hosted";
   /** Set when `platform` is `opencode` to drive Next steps copy. */
   readonly opencodeCliIntegration?: "native" | "hosted";
+  /** Set when `platform` is `codex-cli` to drive Next steps copy. */
+  readonly codexCliIntegration?: "native" | "hosted";
   readonly shortName?: string;
   readonly proxyUrl?: string;
 }
@@ -924,6 +926,119 @@ export async function installOpenCodeNativePlugin(): Promise<void> {
   await copyFile(src, dest);
 }
 
+// ---------------------------------------------------------------------------
+// Codex CLI hooks (native)
+// ---------------------------------------------------------------------------
+
+export function getCodexCliHooksInstallDir(): string {
+  return join(homedir(), ".multicorn", "codex-cli-hooks");
+}
+
+function getCodexConfigTomlPath(): string {
+  return join(homedir(), ".codex", "config.toml");
+}
+
+function getCodexHooksJsonPath(): string {
+  return join(homedir(), ".codex", "hooks.json");
+}
+
+export async function installCodexCliNativeHooks(): Promise<void> {
+  const root = multicornShieldPackageRoot();
+  const scriptsDir = join(root, "plugins", "codex-cli", "hooks", "scripts");
+  const preHook = join(scriptsDir, "pre-tool-use.cjs");
+  const postHook = join(scriptsDir, "post-tool-use.cjs");
+  const toolMap = join(scriptsDir, "codex-cli-tool-map.cjs");
+  if (!existsSync(preHook) || !existsSync(postHook) || !existsSync(toolMap)) {
+    throw new Error(
+      `Could not find Shield Codex CLI hook scripts at ${scriptsDir}. If you use npm, install the latest multicorn-shield package.`,
+    );
+  }
+
+  const destDir = getCodexCliHooksInstallDir();
+  await mkdir(destDir, { recursive: true });
+  await copyFile(preHook, join(destDir, "pre-tool-use.cjs"));
+  await copyFile(postHook, join(destDir, "post-tool-use.cjs"));
+  await copyFile(toolMap, join(destDir, "codex-cli-tool-map.cjs"));
+
+  // Ensure ~/.codex/config.toml has [features] hooks = true
+  const configTomlPath = getCodexConfigTomlPath();
+  await mkdir(join(homedir(), ".codex"), { recursive: true });
+  let tomlContent = "";
+  try {
+    tomlContent = await readFile(configTomlPath, "utf8");
+  } catch (err) {
+    if (!isErrnoException(err) || err.code !== "ENOENT") {
+      throw err;
+    }
+  }
+  // Migrate deprecated codex_hooks -> hooks
+  if (tomlContent.includes("codex_hooks")) {
+    tomlContent = tomlContent.replace(/codex_hooks/g, "hooks");
+    await writeFile(configTomlPath, tomlContent, "utf8");
+  }
+
+  if (!/\bhooks\s*=\s*true/.test(tomlContent)) {
+    tomlContent = tomlContent.includes("[features]")
+      ? tomlContent.replace("[features]", "[features]\nhooks = true")
+      : tomlContent.trimEnd() +
+        (tomlContent.length > 0 ? "\n\n" : "") +
+        "[features]\nhooks = true\n";
+    await writeFile(configTomlPath, tomlContent, "utf8");
+  }
+
+  // Write ~/.codex/hooks.json
+  const hooksConfig = {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: "",
+          hooks: [
+            {
+              type: "command",
+              command: `node ${join(destDir, "pre-tool-use.cjs")}`,
+              statusMessage: "Checking Shield permissions",
+            },
+          ],
+        },
+      ],
+      PostToolUse: [
+        {
+          matcher: "",
+          hooks: [
+            {
+              type: "command",
+              command: `node ${join(destDir, "post-tool-use.cjs")}`,
+              timeout: 30,
+              statusMessage: "Logging to Shield",
+            },
+          ],
+        },
+      ],
+    },
+  };
+  await writeFile(getCodexHooksJsonPath(), JSON.stringify(hooksConfig, null, 2) + "\n", "utf8");
+}
+
+async function promptCodexCliIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
+  process.stderr.write("\n" + style.bold("Codex CLI integration") + "\n");
+  process.stderr.write(
+    "  " +
+      style.violet("1") +
+      ". Native plugin - Shield checks terminal (Bash) commands via Codex Hooks\n",
+  );
+  process.stderr.write(
+    "  " + style.violet("2") + ". Hosted proxy - govern MCP server traffic via config.toml\n",
+  );
+  let choice = 0;
+  while (choice === 0) {
+    const input = await ask("Choose integration (1-2): ");
+    const num = parseInt(input.trim(), 10);
+    if (num === 1) choice = 1;
+    if (num === 2) choice = 2;
+  }
+  return choice === 1 ? "native" : "hosted";
+}
+
 async function promptClineIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
   process.stderr.write("\n" + style.bold("Cline integration") + "\n");
   process.stderr.write(
@@ -1563,6 +1678,12 @@ export const INIT_WIZARD_PLATFORM_REGISTRY: readonly InitWizardPlatformEntry[] =
     displayName: "OpenCode",
     section: "native",
     prereqUrl: "https://opencode.ai",
+  },
+  {
+    slug: "codex-cli",
+    displayName: "Codex CLI",
+    section: "native",
+    prereqUrl: "https://github.com/openai/codex",
   },
   {
     slug: "cursor",
@@ -2575,6 +2696,9 @@ async function applyHostedProxyMcpConfig(
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(join(workspacePath, "opencode.json"));
       }
+    } else if (platform === "codex-cli") {
+      printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
+      return;
     } else if (platform === "continue-dev") {
       result = await mergeContinueHostedMcp(
         workspacePath,
@@ -2733,6 +2857,7 @@ function printPlatformSnippet(
     "continue-dev",
     "goose",
     "opencode",
+    "codex-cli",
   ]);
   const usesInlineKey = hostedInlinePlatforms.has(platform);
   const authHeader = usesInlineKey ? `Bearer ${apiKey}` : "Bearer YOUR_SHIELD_API_KEY";
@@ -2838,6 +2963,11 @@ function printPlatformSnippet(
       null,
       2,
     );
+  } else if (platform === "codex-cli") {
+    snippetText =
+      `[mcp_servers.${shortName}]\n` +
+      `url = "${urlInSnippet}"\n` +
+      `bearer_token_env_var = "MULTICORN_API_KEY"\n`;
   } else {
     const urlKey = platform === "windsurf" ? "serverUrl" : "url";
     snippetText = JSON.stringify(
@@ -2885,6 +3015,14 @@ function printPlatformSnippet(
       "\n" +
         style.dim(
           "Add this to opencode.json in your project root (or ~/.config/opencode/opencode.json for global config). OpenCode detects configured MCP servers on the next session start.",
+        ) +
+        "\n\n",
+    );
+  } else if (platform === "codex-cli") {
+    process.stderr.write(
+      "\n" +
+        style.dim(
+          "Add this to ~/.codex/config.toml (create the file if it does not exist). Set the MULTICORN_API_KEY environment variable to your Shield API key. Restart Codex CLI after saving.",
         ) +
         "\n\n",
     );
@@ -3755,6 +3893,106 @@ export async function runInit(
           setupSucceeded = true;
         }
       }
+    } else if (selectedPlatform === "codex-cli") {
+      const codexMode = await promptCodexCliIntegrationMode(ask);
+      if (codexMode === "native") {
+        try {
+          await installCodexCliNativeHooks();
+          process.stderr.write("\n" + style.bold("Shield Codex CLI hooks installed") + "\n\n");
+          process.stderr.write(
+            style.dim("Hook scripts: ") + style.cyan(getCodexCliHooksInstallDir()) + "\n",
+          );
+          process.stderr.write(
+            style.dim("Hooks config: ") + style.cyan(getCodexHooksJsonPath()) + "\n",
+          );
+          process.stderr.write(
+            style.dim("Feature flag: ") + style.cyan(getCodexConfigTomlPath()) + "\n",
+          );
+          process.stderr.write("\n");
+          process.stderr.write(
+            style.dim(
+              "Codex hooks currently intercept terminal (Bash) commands only. File edits and MCP tool calls are not yet covered by hooks.",
+            ) + "\n\n",
+          );
+          process.stderr.write(
+            style.dim(
+              "Start Codex CLI, then type /hooks to review the Shield hooks. Press 't' to trust each one before they can run.",
+            ) + "\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            codexCliIntegration: "native",
+          });
+          setupSucceeded = true;
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : String(error);
+          process.stderr.write(style.red("\u2717 ") + detail + "\n");
+        }
+      } else {
+        const { targetUrl, shortName, upstreamHeaders } = await promptProxyConfig(ask, agentName);
+
+        let proxyUrl = "";
+        let created = false;
+        while (!created) {
+          const spinner = withSpinner("Creating proxy config...");
+          try {
+            proxyUrl = await createProxyConfig(
+              resolvedBaseUrl,
+              apiKey,
+              agentName,
+              targetUrl,
+              shortName,
+              selectedPlatform,
+              upstreamHeaders,
+            );
+            spinner.stop(true, "Proxy config created!");
+            created = true;
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            spinner.stop(false, detail);
+            const retry = await ask("Try again? (Y/n) ");
+            if (retry.trim().toLowerCase() === "n") {
+              break;
+            }
+          }
+        }
+
+        if (created && proxyUrl.length > 0) {
+          process.stderr.write("\n" + style.bold("Your Shield proxy URL:") + "\n");
+          process.stderr.write(
+            "  " +
+              style.cyan(formatHostedProxyUrlForStderr(selectedPlatform, proxyUrl, apiKey)) +
+              "\n",
+          );
+          await applyHostedProxyMcpConfig(
+            selectedPlatform,
+            proxyUrl,
+            shortName,
+            apiKey,
+            initWorkspacePath,
+          );
+          process.stderr.write(
+            "\n" +
+              style.dim(
+                "Add the TOML snippet above to ~/.codex/config.toml. Set the MULTICORN_API_KEY environment variable to your Shield API key. Restart Codex CLI after saving.",
+              ) +
+              "\n",
+          );
+          configuredAgents.push({
+            selection,
+            platform: selectedPlatform,
+            platformLabel: selectedLabel,
+            agentName,
+            shortName,
+            proxyUrl,
+            codexCliIntegration: "hosted",
+          });
+          setupSucceeded = true;
+        }
+      }
     } else if (selectedPlatform === "cline") {
       const clineMode = await promptClineIntegrationMode(ask);
       if (clineMode === "native") {
@@ -4212,6 +4450,35 @@ export async function runInit(
           '    "Use the ' +
           ocLabel +
           ' MCP server to list allowed directories"\n',
+      );
+    }
+
+    const codexNativeConfigured = configuredAgents.some(
+      (a) => a.platform === "codex-cli" && a.codexCliIntegration === "native",
+    );
+    const codexHostedConfigured = configuredAgents.some(
+      (a) => a.platform === "codex-cli" && a.codexCliIntegration === "hosted",
+    );
+
+    if (codexNativeConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("Codex CLI (native)") +
+          "\n" +
+          "  \u2192 Start Codex CLI (run 'codex' in your terminal)\n" +
+          "  \u2192 Type /hooks to review the Shield hooks - press 't' to trust each one\n" +
+          "  \u2192 Once both hooks are trusted, try a Bash command - Shield will intercept and check permissions\n" +
+          "  \u2192 Note: hooks currently cover terminal (Bash) commands only\n",
+      );
+    }
+    if (codexHostedConfigured) {
+      blocks.push(
+        "\n" +
+          style.bold("Codex CLI (hosted)") +
+          "\n" +
+          "  \u2192 Set the MULTICORN_API_KEY environment variable to your Shield API key\n" +
+          "  \u2192 Restart Codex CLI after saving config.toml\n" +
+          "  \u2192 Try it: make a request that uses an MCP tool through Shield\n",
       );
     }
 
