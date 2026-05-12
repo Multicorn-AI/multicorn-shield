@@ -938,6 +938,85 @@ function getCodexConfigTomlPath(): string {
   return join(homedir(), ".codex", "config.toml");
 }
 
+function escapeTomlDoubleQuotedScalar(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * Removes an existing Codex MCP server table and its optional `http_headers` sub-table for `serverKey`.
+ */
+function stripCodexMcpServerTomlBlocks(content: string, serverKey: string): string {
+  const lines = content.split(/\r?\n/);
+  const mainHeader = `[mcp_servers.${serverKey}]`;
+  const headersHeader = `[mcp_servers.${serverKey}.http_headers]`;
+  const out: string[] = [];
+  let state: "idle" | "skip_main" | "skip_headers" = "idle";
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (state === "idle") {
+      if (t === mainHeader || t === headersHeader) {
+        state = t === headersHeader ? "skip_headers" : "skip_main";
+        continue;
+      }
+      out.push(line);
+    } else if (state === "skip_main") {
+      if (t.startsWith("[") && t.endsWith("]")) {
+        if (t === headersHeader) {
+          state = "skip_headers";
+        } else {
+          state = "idle";
+          out.push(line);
+        }
+      }
+    } else {
+      // state === "skip_headers" (only remaining union member after idle / skip_main)
+      if (t.startsWith("[") && t.endsWith("]")) {
+        state = "idle";
+        out.push(line);
+      }
+    }
+  }
+  return out.join("\n").trimEnd();
+}
+
+/**
+ * Merges hosted Shield MCP proxy config into ~/.codex/config.toml (replaces same server key if present).
+ */
+async function mergeCodexHostedMcpIntoToml(
+  shortName: string,
+  proxyUrl: string,
+  apiKey: string,
+): Promise<void> {
+  const configPath = getCodexConfigTomlPath();
+  let existing = "";
+  try {
+    existing = await readFile(configPath, "utf8");
+  } catch (err) {
+    if (!(isErrnoException(err) && err.code === "ENOENT")) {
+      const detail = err instanceof Error ? err.message : String(err);
+      throw new Error(`Could not read Codex CLI config at ${configPath}: ${detail}`);
+    }
+  }
+
+  const stripped = stripCodexMcpServerTomlBlocks(existing, shortName);
+  const urlEsc = escapeTomlDoubleQuotedScalar(proxyUrl);
+  const tokenEsc = escapeTomlDoubleQuotedScalar(apiKey);
+
+  const block =
+    `[mcp_servers.${shortName}]\n` +
+    `url = "${urlEsc}"\n` +
+    `\n` +
+    `[mcp_servers.${shortName}.http_headers]\n` +
+    `Authorization = "Bearer ${tokenEsc}"\n`;
+
+  const trimmedBase = stripped.trimEnd();
+  const full = (trimmedBase.length > 0 ? `${trimmedBase}\n\n` : "") + block;
+
+  await mkdir(dirname(configPath), { recursive: true });
+  await writeFile(configPath, full, SECRET_JSON_FILE_OPTIONS);
+}
+
 function getCodexHooksJsonPath(): string {
   return join(homedir(), ".codex", "hooks.json");
 }
@@ -2704,7 +2783,22 @@ async function applyHostedProxyMcpConfig(
         printHostedProxyJsonParseWarning(join(workspacePath, "opencode.json"));
       }
     } else if (platform === "codex-cli") {
-      printPlatformSnippet(platform, proxyUrl, shortName, apiKey);
+      let codexTomlWritten = false;
+      try {
+        await mergeCodexHostedMcpIntoToml(shortName, proxyUrlWithKeyWhenNeeded, apiKey);
+        codexTomlWritten = true;
+        process.stderr.write(
+          style.green("\u2713 ") +
+            "MCP server config written to " +
+            style.cyan(getCodexConfigTomlPath()) +
+            "\n",
+        );
+      } catch (err) {
+        process.stderr.write(
+          `${style.yellow("!")} Could not auto-write config: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+      printPlatformSnippet(platform, proxyUrl, shortName, apiKey, codexTomlWritten);
       return;
     } else if (platform === "continue-dev") {
       result = await mergeContinueHostedMcp(
@@ -2852,6 +2946,7 @@ function printPlatformSnippet(
   routingToken: string,
   shortName: string,
   apiKey: string,
+  codexCliTomlWritten?: boolean,
 ): void {
   const hostedInlinePlatforms = new Set([
     "cursor",
@@ -2971,12 +3066,15 @@ function printPlatformSnippet(
       2,
     );
   } else if (platform === "codex-cli") {
+    const bearerToken = authHeader.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : authHeader;
     snippetText =
       `[mcp_servers.${shortName}]\n` +
       `url = "${urlInSnippet}"\n` +
       `\n` +
       `[mcp_servers.${shortName}.http_headers]\n` +
-      `Authorization = "Bearer ${authHeader}"\n`;
+      `Authorization = "Bearer ${bearerToken}"\n`;
   } else {
     const urlKey = platform === "windsurf" ? "serverUrl" : "url";
     snippetText = JSON.stringify(
@@ -3028,13 +3126,17 @@ function printPlatformSnippet(
         "\n\n",
     );
   } else if (platform === "codex-cli") {
-    process.stderr.write(
-      "\n" +
-        style.dim(
-          "Add this to ~/.codex/config.toml (create the file if it does not exist). Restart Codex CLI after saving.",
-        ) +
-        "\n\n",
-    );
+    if (codexCliTomlWritten === true) {
+      process.stderr.write("\n" + style.dim("Added to ~/.codex/config.toml:") + "\n\n");
+    } else {
+      process.stderr.write(
+        "\n" +
+          style.dim(
+            "Add this to ~/.codex/config.toml (create the file if it does not exist). Restart Codex CLI after saving.",
+          ) +
+          "\n\n",
+      );
+    }
   } else if (platform === "github-copilot") {
     process.stderr.write(
       "\n" +
@@ -3983,13 +4085,6 @@ export async function runInit(
             apiKey,
             initWorkspacePath,
           );
-          process.stderr.write(
-            "\n" +
-              style.dim(
-                "Add the TOML snippet above to ~/.codex/config.toml. Restart Codex CLI after saving.",
-              ) +
-              "\n",
-          );
           configuredAgents.push({
             selection,
             platform: selectedPlatform,
@@ -4481,13 +4576,17 @@ export async function runInit(
       );
     }
     if (codexHostedConfigured) {
+      const codexLabel = mcpPromptLabel("codex-cli");
       blocks.push(
         "\n" +
           style.bold("Codex CLI (hosted)") +
           "\n" +
-          "  \u2192 Restart Codex CLI after saving config.toml\n" +
+          "  \u2192 Restart Codex CLI to load the new MCP server config\n" +
           "  \u2192 Verify it's connected: run /mcp in Codex CLI to see your active MCP servers\n" +
-          "  \u2192 Try it: make a request that uses an MCP tool through Shield\n",
+          "  \u2192 Try it - paste this into Codex:\n" +
+          "    Use the " +
+          codexLabel +
+          " MCP server to list available tools\n",
       );
     }
 

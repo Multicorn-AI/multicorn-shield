@@ -188,6 +188,7 @@ function sleep(ms: number): Promise<void> {
 async function pollApprovalStatus(
   config: { apiKey: string; baseUrl: string; agentName: string },
   approvalId: string,
+  consentLink: string,
 ): Promise<boolean> {
   let lastProgressWrite = Date.now();
   for (let i = 0; i < MAX_APPROVAL_POLLS; i++) {
@@ -196,9 +197,7 @@ async function pollApprovalStatus(
     }
     const now = Date.now();
     if (now - lastProgressWrite >= 30_000) {
-      process.stderr.write(
-        "[Shield] Waiting for approval... (open the consent screen in your browser)\n",
-      );
+      process.stderr.write(`[Shield] Waiting for approval... ${consentLink}\n`);
       lastProgressWrite = now;
     }
 
@@ -261,12 +260,15 @@ async function handlePendingWithConsentAndPoll(
   actionType: string,
   approvalsUrl: string,
 ): Promise<void> {
+  const consentLink = consentUrl(config.baseUrl, config.agentName, service, actionType);
+  process.stderr.write(`[Shield] Action requires approval. Open: ${consentLink}\n`);
+
   if (hasConsentMarker(config.agentName)) {
     process.stderr.write(
       `[Shield] Waiting for approval (up to 5 min)...\n  Approve in the Shield dashboard: ${approvalsUrl}\n`,
     );
 
-    const approved = await pollApprovalStatus(config, approvalId);
+    const approved = await pollApprovalStatus(config, approvalId, consentLink);
     if (approved) {
       process.exit(0);
     }
@@ -279,14 +281,13 @@ async function handlePendingWithConsentAndPoll(
     process.exit(0);
   }
 
-  const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
   writeConsentMarker(config.agentName);
-  openBrowser(url);
+  openBrowser(consentLink);
   process.stderr.write(
     "[Shield] Opening Shield consent screen... Waiting for approval (up to 5 min).\n",
   );
 
-  const approved = await pollApprovalStatus(config, approvalId);
+  const approved = await pollApprovalStatus(config, approvalId, consentLink);
   if (approved) {
     process.exit(0);
   }
