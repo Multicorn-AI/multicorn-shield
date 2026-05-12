@@ -2974,7 +2974,9 @@ function printPlatformSnippet(
     snippetText =
       `[mcp_servers.${shortName}]\n` +
       `url = "${urlInSnippet}"\n` +
-      `bearer_token_env_var = "MULTICORN_API_KEY"\n`;
+      `\n` +
+      `[mcp_servers.${shortName}.http_headers]\n` +
+      `Authorization = "Bearer ${authHeader}"\n`;
   } else {
     const urlKey = platform === "windsurf" ? "serverUrl" : "url";
     snippetText = JSON.stringify(
@@ -3029,7 +3031,7 @@ function printPlatformSnippet(
     process.stderr.write(
       "\n" +
         style.dim(
-          "Add this to ~/.codex/config.toml (create the file if it does not exist). Set the MULTICORN_API_KEY environment variable to your Shield API key. Restart Codex CLI after saving.",
+          "Add this to ~/.codex/config.toml (create the file if it does not exist). Restart Codex CLI after saving.",
         ) +
         "\n\n",
     );
@@ -3984,12 +3986,8 @@ export async function runInit(
           process.stderr.write(
             "\n" +
               style.dim(
-                "Add the TOML snippet above to ~/.codex/config.toml. Then set the environment variable:",
+                "Add the TOML snippet above to ~/.codex/config.toml. Restart Codex CLI after saving.",
               ) +
-              "\n\n  " +
-              style.cyan(`export MULTICORN_API_KEY="${apiKey}"`) +
-              "\n\n" +
-              style.dim("Restart Codex CLI after saving config.toml.") +
               "\n",
           );
           configuredAgents.push({
@@ -4487,7 +4485,6 @@ export async function runInit(
         "\n" +
           style.bold("Codex CLI (hosted)") +
           "\n" +
-          "  \u2192 Set the MULTICORN_API_KEY environment variable to your Shield API key\n" +
           "  \u2192 Restart Codex CLI after saving config.toml\n" +
           "  \u2192 Verify it's connected: run /mcp in Codex CLI to see your active MCP servers\n" +
           "  \u2192 Try it: make a request that uses an MCP tool through Shield\n",

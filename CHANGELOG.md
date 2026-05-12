@@ -13,7 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Codex CLI hosted proxy next-steps now includes /mcp verification step
+- Include `plugins/codex-cli` in published npm package (missing from `files` in package.json)
+- Codex CLI hosted proxy snippet uses `http_headers` with inline API key instead of `bearer_token_env_var` (no env var setup needed)
+- Removed "Set MULTICORN_API_KEY environment variable" instruction from hosted proxy next-steps
+- Added `/mcp` verification step to Codex CLI hosted proxy next-steps
 
 ## [1.9.1] - 2026-05-12
 
