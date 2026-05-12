@@ -948,7 +948,13 @@ export async function installCodexCliNativeHooks(): Promise<void> {
   const preHook = join(scriptsDir, "pre-tool-use.cjs");
   const postHook = join(scriptsDir, "post-tool-use.cjs");
   const toolMap = join(scriptsDir, "codex-cli-tool-map.cjs");
-  if (!existsSync(preHook) || !existsSync(postHook) || !existsSync(toolMap)) {
+  const sharedHook = join(scriptsDir, "codex-cli-hooks-shared.cjs");
+  if (
+    !existsSync(preHook) ||
+    !existsSync(postHook) ||
+    !existsSync(toolMap) ||
+    !existsSync(sharedHook)
+  ) {
     throw new Error(
       `Could not find Shield Codex CLI hook scripts at ${scriptsDir}. If you use npm, install the latest multicorn-shield package.`,
     );
@@ -959,6 +965,7 @@ export async function installCodexCliNativeHooks(): Promise<void> {
   await copyFile(preHook, join(destDir, "pre-tool-use.cjs"));
   await copyFile(postHook, join(destDir, "post-tool-use.cjs"));
   await copyFile(toolMap, join(destDir, "codex-cli-tool-map.cjs"));
+  await copyFile(sharedHook, join(destDir, "codex-cli-hooks-shared.cjs"));
 
   // Ensure ~/.codex/config.toml has [features] hooks = true
   const configTomlPath = getCodexConfigTomlPath();

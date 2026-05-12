@@ -1,4 +1,8 @@
 /**
+ * MIT License
+ *
+ * Copyright (c) Multicorn AI Pty Ltd
+ *
  * Resolves which Shield agent name to use for Codex CLI hooks when multiple
  * `codex-cli` agents exist in ~/.multicorn/config.json.
  *

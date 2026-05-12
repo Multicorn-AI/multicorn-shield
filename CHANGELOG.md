@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Codex CLI native hooks (`plugins/codex-cli/hooks/scripts/`) for PreToolUse permission checks and PostToolUse logging to Shield
 - OpenCode as a supported platform (native plugin + hosted proxy paths)
 - Native Shield plugin for OpenCode (`plugins/opencode/multicorn-shield.ts`) using `tool.execute.before`/`tool.execute.after` hooks for permission checks and audit logging
 - OpenCode in CLI init wizard with native plugin and hosted proxy integration modes

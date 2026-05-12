@@ -1,6 +1,6 @@
 "use strict";
 
-// AUTO-GENERATED from src/hooks/codex-cli-tool-map.ts — do not edit manually. Run pnpm build from the package root to regenerate.
+// AUTO-GENERATED from src/hooks/codex-cli-*.ts — do not edit manually. Run pnpm build from the package root to regenerate.
 
 // src/openclaw/tool-mapper.ts
 var TOOL_MAP = {
@@ -38,11 +38,6 @@ var TOOL_MAP = {
   payment: { service: "payments", permissionLevel: "write" },
   stripe: { service: "payments", permissionLevel: "write" },
 };
-function isDestructiveExecCommand(command) {
-  const destructiveCommands = ["rm", "mv", "sudo", "chmod", "chown", "dd", "truncate", "shred"];
-  const normalized = command.toLowerCase();
-  return destructiveCommands.some((destructive) => normalized.includes(destructive));
-}
 function mapToolToScope(toolName, command) {
   const normalized = toolName.trim().toLowerCase();
   if (normalized.length === 0) {
@@ -86,8 +81,28 @@ function mapToolToScope(toolName, command) {
   }
   return { service: normalized, permissionLevel: "execute" };
 }
+function isKnownTool(toolName) {
+  return Object.hasOwn(TOOL_MAP, toolName.trim().toLowerCase());
+}
 
 // src/hooks/codex-cli-tool-map.ts
+var CODEX_DESTRUCTIVE_KEYWORDS = ["rm", "mv", "sudo", "chmod", "chown", "dd", "truncate", "shred"];
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+function destructiveTokenRegex(keyword) {
+  const e = escapeRegExp(keyword);
+  return new RegExp(`(^|[^a-zA-Z0-9_])${e}(?![a-zA-Z0-9_-])`, "i");
+}
+function codexIsDestructiveExecCommand(command) {
+  const trimmed = command.trim();
+  if (/^\s*echo\b/i.test(trimmed) && !/[;&|]/.test(trimmed)) {
+    return false;
+  }
+  const withoutQuotes = trimmed.replace(/'[^']*'/g, " ").replace(/"([^"\\]|\\.)*"/g, " ");
+  const normalized = withoutQuotes.toLowerCase();
+  return CODEX_DESTRUCTIVE_KEYWORDS.some((kw) => destructiveTokenRegex(kw).test(normalized));
+}
 function extractExecCommand(toolInput) {
   if (toolInput === void 0 || toolInput === null) {
     return void 0;
@@ -115,18 +130,22 @@ function mapCodexCliToolToShield(toolName, toolInput) {
   }
   if (n === "bash") {
     const cmd = extractExecCommand(toolInput);
-    if (cmd !== void 0 && isDestructiveExecCommand(cmd)) {
+    if (cmd !== void 0 && codexIsDestructiveExecCommand(cmd)) {
       return { service: "terminal", actionType: "write" };
     }
     return { service: "terminal", actionType: "execute" };
   }
-  // Future: apply_patch / Edit / Write (not intercepted by Codex hooks yet)
   if (n === "apply_patch" || n === "edit" || n === "write") {
     return { service: "filesystem", actionType: "write" };
   }
   const scope = mapToolToScope(n);
-  return { service: scope.service, actionType: scope.permissionLevel };
+  let actionType = scope.permissionLevel;
+  if (!isKnownTool(n) && actionType === "execute") {
+    actionType = "write";
+  }
+  return { service: scope.service, actionType };
 }
 
+exports.codexIsDestructiveExecCommand = codexIsDestructiveExecCommand;
 exports.extractExecCommand = extractExecCommand;
 exports.mapCodexCliToolToShield = mapCodexCliToolToShield;

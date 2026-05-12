@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extractExecCommand, mapCodexCliToolToShield } from "./codex-cli-tool-map.js";
+import {
+  codexIsDestructiveExecCommand,
+  extractExecCommand,
+  mapCodexCliToolToShield,
+} from "./codex-cli-tool-map.js";
 
 describe("codex-cli-tool-map", () => {
   it("maps Bash with safe command to terminal execute", () => {
@@ -23,14 +27,14 @@ describe("codex-cli-tool-map", () => {
     });
   });
 
-  it("maps apply_patch to filesystem write (future)", () => {
+  it("maps apply_patch to filesystem write", () => {
     expect(mapCodexCliToolToShield("apply_patch")).toEqual({
       service: "filesystem",
       actionType: "write",
     });
   });
 
-  it("maps Edit and Write to filesystem write (future)", () => {
+  it("maps Edit and Write to filesystem write", () => {
     expect(mapCodexCliToolToShield("Edit")).toEqual({
       service: "filesystem",
       actionType: "write",
@@ -67,10 +71,28 @@ describe("codex-cli-tool-map", () => {
     });
   });
 
-  it("unknown tool names fall through to mapToolToScope", () => {
+  it("maps MCP-style tool names to write when they would otherwise be execute-only unknowns", () => {
+    expect(mapCodexCliToolToShield("mcp__myserver__do_thing")).toEqual({
+      service: "mcp__myserver__do_thing",
+      actionType: "write",
+    });
+  });
+
+  it("unknown non-integration tool names map to write instead of execute", () => {
     expect(mapCodexCliToolToShield("my_custom_mcp_tool")).toEqual({
       service: "my_custom_mcp_tool",
+      actionType: "write",
+    });
+  });
+
+  it("keeps known OpenClaw tools at their mapped permission level", () => {
+    expect(mapCodexCliToolToShield("slack")).toEqual({
+      service: "slack",
       actionType: "execute",
+    });
+    expect(mapCodexCliToolToShield("read")).toEqual({
+      service: "filesystem",
+      actionType: "read",
     });
   });
 
@@ -91,5 +113,39 @@ describe("codex-cli-tool-map", () => {
 
   it("extractExecCommand returns raw string for malformed JSON", () => {
     expect(extractExecCommand("{not valid json")).toBe("{not valid json");
+  });
+
+  describe("codexIsDestructiveExecCommand", () => {
+    it("flags rm -rf /", () => {
+      expect(codexIsDestructiveExecCommand("rm -rf /")).toBe(true);
+    });
+
+    it("does not flag grep with removeme in single quotes", () => {
+      expect(codexIsDestructiveExecCommand("grep -r 'removeme' .")).toBe(false);
+    });
+
+    it("does not flag echo rm without shell operators", () => {
+      expect(codexIsDestructiveExecCommand("echo rm")).toBe(false);
+    });
+
+    it("does not treat substring sudo in hyphenated token as sudo", () => {
+      expect(codexIsDestructiveExecCommand("curl https://example.com/sudo-payload")).toBe(false);
+    });
+
+    it("still flags real sudo", () => {
+      expect(codexIsDestructiveExecCommand("sudo ls")).toBe(true);
+    });
+
+    it("does not treat chmod inside double-quoted literal as chmod keyword after quote strip", () => {
+      expect(codexIsDestructiveExecCommand('echo "chmod 755 setup.sh"')).toBe(false);
+    });
+
+    it("flags chmod when it is a real shell token", () => {
+      expect(codexIsDestructiveExecCommand("chmod 755 setup.sh")).toBe(true);
+    });
+
+    it("flags destructive tokens after quoted segments", () => {
+      expect(codexIsDestructiveExecCommand("grep -r 'x' . && rm -rf ./dist")).toBe(true);
+    });
   });
 });
