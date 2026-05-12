@@ -9,11 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.9.0] - 2026-05-12
+
+### Added
+
+- OpenAI Codex CLI as a supported platform (native hooks + hosted proxy)
+- Codex CLI hook scripts (PreToolUse, PostToolUse) for terminal command interception
+- Codex CLI agent resolution and tool name mapping
+- CLI wizard support for Codex CLI: native plugin install and hosted proxy TOML snippet
+- `plugins/codex-cli/README.md` documenting hook script build and test workflow
+
+### Fixed
+
+- Codex config.toml feature flag updated from deprecated `codex_hooks` to `hooks`
+- Config.toml migration: init now detects and replaces deprecated `codex_hooks` flag automatically
+- Hook scripts reject plaintext HTTP for non-localhost API calls
+- Config file permission warning when `~/.multicorn/config.json` is readable by other users
+- Destructive command detection uses word-boundary matching instead of substring includes
+- Unknown tool names default to restrictive `write` permission level instead of `execute`
+- Audit log payloads size-bounded and secret patterns redacted before transmission
+- Error messages sanitised: internal details hidden unless `MULTICORN_DEBUG` is set
+- Test-mode polling escape hatch removed from production hook scripts
+- Shared utility module extracted to eliminate duplication between hook scripts
+
+### Changed
+
+- Error message prefix shortened from `[multicorn-shield]` to `[Shield]`
+- "Audit trail" terminology replaced with "record the action" in user-facing messages
+
 ## [1.8.0] - 2026-05-11
 
 ### Added
 
-- Codex CLI native hooks (`plugins/codex-cli/hooks/scripts/`) for PreToolUse permission checks and PostToolUse logging to Shield
 - OpenCode as a supported platform (native plugin + hosted proxy paths)
 - Native Shield plugin for OpenCode (`plugins/opencode/multicorn-shield.ts`) using `tool.execute.before`/`tool.execute.after` hooks for permission checks and audit logging
 - OpenCode in CLI init wizard with native plugin and hosted proxy integration modes
