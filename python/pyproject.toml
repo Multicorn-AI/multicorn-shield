@@ -1,0 +1,41 @@
+[project]
+name = "multicorn-shield"
+version = "0.1.0"
+description = "Python client for Multicorn Shield - AI agent governance"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+authors = [
+    { name = "Multicorn AI", email = "hello@multicorn.ai" }
+]
+keywords = ["ai", "agents", "governance", "permissions", "mcp"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "httpx>=0.24.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "anyio", "pytest-anyio"]
+
+[project.urls]
+Homepage = "https://multicorn.ai"
+Documentation = "https://multicorn.ai/shield"
+Repository = "https://github.com/Multicorn-AI/multicorn-shield"
+Issues = "https://github.com/Multicorn-AI/multicorn-shield/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["multicorn_shield"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
