@@ -1,5 +1,6 @@
 dist/
 coverage/
+python/.pytest_cache/
 node_modules/
 pnpm-lock.yaml
 scripts/multicorn-ops/
