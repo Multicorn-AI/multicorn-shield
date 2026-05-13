@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.9.4] - 2026-05-13
+
+### Fixed
+
+- Double "Bearer" prefix in Codex CLI hosted proxy TOML snippet (was outputting `Bearer Bearer mcs_...`)
+- Codex CLI hosted proxy now auto-writes MCP server config to `~/.codex/config.toml` instead of asking users to paste manually
+- PreToolUse hook now prints the consent/approval URL to stderr so users know where to approve
+
+### Changed
+
+- Codex CLI hosted proxy next-steps updated: "Restart Codex CLI to load the new MCP server config"
+- Added copy-pasteable "Try it out" prompt to Codex CLI hosted proxy next-steps
+
 ## [1.9.3] - 2026-05-13
 
 ### Fixed
