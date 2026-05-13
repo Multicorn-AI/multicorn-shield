@@ -164,7 +164,7 @@ function openBrowser(url) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-async function pollApprovalStatus(config, approvalId) {
+async function pollApprovalStatus(config, approvalId, consentLink) {
   let lastProgressWrite = Date.now();
   for (let i = 0; i < MAX_APPROVAL_POLLS; i++) {
     if (i > 0) {
@@ -172,9 +172,8 @@ async function pollApprovalStatus(config, approvalId) {
     }
     const now = Date.now();
     if (now - lastProgressWrite >= 3e4) {
-      process.stderr.write(
-        "[Shield] Waiting for approval... (open the consent screen in your browser)\n",
-      );
+      process.stderr.write(`[Shield] Waiting for approval... ${consentLink}
+`);
       lastProgressWrite = now;
     }
     let statusCode;
@@ -235,13 +234,16 @@ async function handlePendingWithConsentAndPoll(
   actionType,
   approvalsUrl,
 ) {
+  const consentLink = consentUrl(config.baseUrl, config.agentName, service, actionType);
+  process.stderr.write(`[Shield] Action requires approval. Open: ${consentLink}
+`);
   if (hasConsentMarker(config.agentName)) {
     process.stderr.write(
       `[Shield] Waiting for approval (up to 5 min)...
   Approve in the Shield dashboard: ${approvalsUrl}
 `,
     );
-    const approved2 = await pollApprovalStatus(config, approvalId);
+    const approved2 = await pollApprovalStatus(config, approvalId, consentLink);
     if (approved2) {
       process.exit(0);
     }
@@ -251,13 +253,12 @@ async function handlePendingWithConsentAndPoll(
     );
     process.exit(0);
   }
-  const url = consentUrl(config.baseUrl, config.agentName, service, actionType);
   writeConsentMarker(config.agentName);
-  openBrowser(url);
+  openBrowser(consentLink);
   process.stderr.write(
     "[Shield] Opening Shield consent screen... Waiting for approval (up to 5 min).\n",
   );
-  const approved = await pollApprovalStatus(config, approvalId);
+  const approved = await pollApprovalStatus(config, approvalId, consentLink);
   if (approved) {
     process.exit(0);
   }
