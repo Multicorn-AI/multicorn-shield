@@ -1829,6 +1829,13 @@ const INIT_WIZARD_MENU_SECTIONS: readonly {
 
 const INIT_WIZARD_SELECTION_MAX: number = INIT_WIZARD_PLATFORM_REGISTRY.length;
 
+/** Shown when init already has agents for the selected platform (one row per option). */
+const INIT_EXISTING_AGENTS_PLATFORM_ACTIONS: readonly string[] = [
+  "Add a new agent alongside these",
+  "Replace an existing agent",
+  "Skip - choose a different platform",
+];
+
 const PLATFORM_BY_SELECTION: Record<number, string> = Object.fromEntries(
   INIT_WIZARD_PLATFORM_REGISTRY.map((e, i) => [i + 1, e.slug]),
 ) as Record<number, string>;
@@ -3525,15 +3532,7 @@ export async function runInit(
       }
 
       process.stderr.write("\n" + style.bold("What would you like to do?") + "\n");
-      const actionIdx = await arrowSelect(
-        [
-          "Add a new agent alongside these",
-          "Replace an existing agent",
-          "Skip - choose a different platform",
-        ],
-        ask,
-        "Action",
-      );
+      const actionIdx = await arrowSelect(INIT_EXISTING_AGENTS_PLATFORM_ACTIONS, ask, "Action");
       if (actionIdx === 2) {
         continue;
       }
@@ -4586,7 +4585,7 @@ export async function runInit(
           "  \u2192 Try it - paste this into Codex:\n" +
           "    Use the " +
           codexLabel +
-          " MCP server to list available tools\n",
+          " MCP server to list my GitHub repositories\n",
       );
     }
 
