@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.9.5] - 2026-05-13
+
+### Fixed
+
+- CLI "Try it" prompt now suggests a real tool call instead of metadata discovery
+- Duplicate "Add a new agent alongside these" menu option removed
+
+### Changed
+
+- CLI "Try it" prompt matches dashboard example: "Use the {agent} MCP server to list my GitHub repositories"
+
 ## [1.9.4] - 2026-05-13
 
 ### Fixed
