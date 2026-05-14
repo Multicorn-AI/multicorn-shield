@@ -1,158 +1,82 @@
-![Multicorn Shield](https://multicorn.ai/images/og-image-shield.png)
-
 # Multicorn Shield
 
-The permissions and control layer for AI agents. Open source.
+Most AI coding agents inherit direct access to MCP tools, terminals, mail, and spend with no enforced guardrails, and Shield inserts consent workflows, budgets, policy checks, and tamper-evident logging before governed calls execute.
 
-[![CI](https://github.com/Multicorn-AI/multicorn-shield/actions/workflows/ci.yml/badge.svg)](https://github.com/Multicorn-AI/multicorn-shield/actions/workflows/ci.yml)
-[![Coverage](https://img.shields.io/badge/coverage-85%25+-brightgreen.svg)](https://github.com/Multicorn-AI/multicorn-shield)
+- **Permission enforcement** - Policy checks on scoped access so agents can't wander past what you granted.
+- **Consent flows** - Human-in-the-loop approval when the model asks for new or risky actions.
+- **Audit trails** - Structured activity logs with append-only hashing so history is harder to forge.
+- **Spending controls** - Per-session and rolling limits aligned with budgets you set on the dashboard.
+- **Anomaly detection** - Surfaces spikes and outliers in agent behaviour before they become incidents.
+
 [![npm version](https://img.shields.io/npm/v/multicorn-shield.svg)](https://www.npmjs.com/package/multicorn-shield)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Bundle Size](https://img.shields.io/bundlephobia/minzip/multicorn-shield)](https://bundlephobia.com/package/multicorn-shield)
-
-## Demo
+[![MIT Licence](https://img.shields.io/badge/licence-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/Multicorn-AI/multicorn-shield/actions/workflows/ci.yml/badge.svg)](https://github.com/Multicorn-AI/multicorn-shield/actions/workflows/ci.yml)
 
 <p align="center">
   <img src="https://multicorn.ai/images/demo.gif" alt="Multicorn Shield demo: agent blocked, user approves in dashboard, agent proceeds" width="800" />
 </p>
 
-## Why?
+[Consent screen (full-size image)](https://multicorn.ai/images/screenshots/consent-screen.png)
 
-AI agents are getting access to your email, calendar, bank accounts, and code repositories. Today, most agents operate with no permission boundaries: they can read, write, and spend with no oversight. Multicorn Shield gives developers a single SDK to enforce what agents can do, track what they did, and let users stay in control.
+## Supported agents
 
-## Quick Start
+`npx multicorn-shield init` recognises every platform listed here (same registry as [`INIT_WIZARD_PLATFORM_REGISTRY`](https://github.com/Multicorn-AI/multicorn-shield/blob/main/src/proxy/config.ts) in source). Integration mode follows the [**Shield threat model**](https://multicorn.ai/shield/threat-model): **native plugins** inspect the whole tool surface exposed by the host; **hosted MCP proxy** governs MCP-shaped traffic routed through Shield.
 
-### Option 1: Wrap your existing agents (no code changes)
+| Agent                           | Mode                                             | Setup on multicorn.ai                                                 |
+| ------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------- |
+| [OpenClaw](https://openclaw.ai) | Native plugin                                    | [Setup guide](https://multicorn.ai/docs/mcp-proxy#openclaw)           |
+| Claude Code                     | Native plugin                                    | [Setup guide](https://multicorn.ai/docs/mcp-proxy#claude-code)        |
+| Windsurf                        | Native Cascade hooks (hosted MCP proxy optional) | [Setup guide](https://multicorn.ai/docs/mcp-proxy#quick-start)        |
+| Cline                           | Native hooks                                     | [Setup guide](https://multicorn.ai/docs/mcp-proxy#quick-start)        |
+| Gemini CLI                      | Native hooks                                     | [Setup guide](https://multicorn.ai/docs/mcp-proxy#quick-start)        |
+| OpenCode                        | Native plugin                                    | [Setup guide](https://multicorn.ai/docs/mcp-proxy#quick-start)        |
+| Codex CLI                       | Native hooks                                     | [Setup guide](https://multicorn.ai/docs/mcp-proxy#quick-start)        |
+| Cursor                          | Hosted MCP proxy                                 | [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client) |
+| Claude Desktop                  | Hosted MCP proxy or `.mcpb` extension            | [Setup guide](https://multicorn.ai/shield)                            |
+| GitHub Copilot                  | Hosted MCP proxy                                 | [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client) |
+| Kilo Code                       | Hosted MCP proxy                                 | [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client) |
+| Continue                        | Hosted MCP proxy                                 | [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client) |
+| Goose                           | Hosted MCP proxy                                 | [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client) |
 
-Already using an MCP server with Claude Code, OpenClaw, or another agent? Add Shield as a proxy in front of it. No code changes required: the proxy intercepts every tool call, enforces permissions, and logs activity to your dashboard.
+For any other MCP client on stdio, pick **Local MCP / Other** in the wizard or open the [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client).
 
-**Step 1: Install**
+## Quick start
 
-```bash
-npm install -g multicorn-shield
-```
-
-**Step 2: Set up your API key**
-
-```bash
-npx multicorn-shield init
-```
-
-The init wizard supports multiple agents. Run it again to add agents on different platforms (OpenClaw, Claude Code, Cursor) without losing existing config. Use `npx multicorn-shield agents` to see configured agents.
-
-**Step 3: Wrap your MCP server**
-
-```bash
-npx multicorn-shield --wrap <your-mcp-server>
-```
-
-For example, to wrap the MCP filesystem server:
-
-```bash
-npx multicorn-shield --wrap npx @modelcontextprotocol/server-filesystem /tmp
-```
-
-That's it. Every tool call now goes through Shield's permission layer, and activity appears in your [Multicorn dashboard](https://app.multicorn.ai) in real time.
-
-See the [full MCP proxy guide](https://multicorn.ai/docs/mcp-proxy) for Claude Code, OpenClaw, and generic MCP client examples.
-
-### Claude Desktop Extension (.mcpb)
-
-Install Shield without the terminal: download the `.mcpb` bundle (or use **Install** from the Shield product page), open it in Claude Desktop, and enter your API key when prompted. The extension reads your existing MCP servers from `claude_desktop_config.json`, runs them as child processes, merges their tools, and checks every `tools/call` with the Shield API. Activity still shows up in your [Multicorn dashboard](https://app.multicorn.ai).
-
-**Disable or uninstall recovery:** On each start the extension saves a copy of your `mcpServers` block to `~/.multicorn/extension-backup.json` with restricted file permissions (owner read/write only). If you turn the extension off and need your original Claude Desktop MCP entries back, run:
-
-```bash
-npx multicorn-shield restore
-```
-
-Then restart Claude Desktop. That overwrites `mcpServers` in your config with the last backup.
-
-**Duplicate tool names:** If two MCP servers expose the same tool name, the first server in your config file keeps the name. The duplicate is skipped and a warning is written to the extension logs (stderr). Rename tools on the server side if you need both.
-
-Build the bundle locally (requires a full `pnpm build` first):
-
-```bash
-pnpm run pack:extension
-```
-
-This runs `mcpb validate` and writes `dist/multicorn-shield.mcpb`.
-
-### Option 2: OpenClaw Plugin (native integration)
-
-If you're running [OpenClaw](https://openclaw.ai), Shield integrates directly as a plugin. No proxy layer, no code changes. The plugin intercepts every tool call at the infrastructure level before it executes.
-
-**Step 1: Install and configure**
+Fastest path to a governed proxy ([full walkthrough](https://multicorn.ai/docs/mcp-proxy)):
 
 ```bash
 npm install -g multicorn-shield
 npx multicorn-shield init
 ```
 
-Enter your API key when prompted. This saves your key to `~/.multicorn/config.json` and configures the OpenClaw hook environment.
-
-**Step 2: Build the plugin**
+The wizard prompts for your API key (`mcs_…` from [app.multicorn.ai](https://app.multicorn.ai)) and merges platform-specific snippets into the right config paths. Run it again any time you add another host agent. Inspect saved agents with:
 
 ```bash
-cd $(npm root -g)/multicorn-shield
-npm run build
+npx multicorn-shield agents
 ```
 
-**Step 3: Register with OpenClaw**
-
-Add the plugin path to your `~/.openclaw/openclaw.json`:
-
-```json
-{
-  "plugins": {
-    "load": {
-      "paths": ["<npm-root>/multicorn-shield/dist/openclaw-plugin/index.js"]
-    },
-    "entries": {
-      "multicorn-shield": {
-        "enabled": true
-      }
-    }
-  }
-}
-```
-
-Replace `<npm-root>` with the output of `npm root -g`.
-
-**Step 4: Restart and verify**
+After init, wrap your MCP server when you launch it:
 
 ```bash
-openclaw gateway restart
-openclaw plugins list
+npx multicorn-shield --wrap <your-existing-mcp-command>
 ```
 
-You should see `multicorn-shield` in the loaded plugins list.
+Shield bundles an OpenClaw plugin under `dist/openclaw-plugin/` if you prefer native interception over wrapping the MCP process. Claude Desktop users can sidestep manual JSON editing with the downloadable `.mcpb` bundle from [multicorn.ai/shield](https://multicorn.ai/shield). Need the SDK directly? Jump to **[SDK snippet](#sdk-snippet)** and the [getting started tutorial](https://multicorn.ai/docs/getting-started).
 
-**How it works**
+## Links
 
-1. Agent tries to use a tool (read files, run commands, send emails)
-2. Shield intercepts via `before_tool_call` and checks permissions
-3. First time: A consent screen opens in your browser so you can authorize the agent
-4. Authorized actions: Proceed immediately
-5. New or elevated actions: Blocked with a link to the dashboard where you approve or reject
-6. Everything is logged to your Multicorn dashboard
+| Resource       | URL                                              |
+| -------------- | ------------------------------------------------ |
+| Docs hub       | https://multicorn.ai/shield                      |
+| Product docs   | https://multicorn.ai/docs/getting-started        |
+| Live dashboard | https://app.multicorn.ai                         |
+| Source         | https://github.com/Multicorn-AI/multicorn-shield |
 
-The plugin maps OpenClaw tools to Shield permission scopes automatically:
+Changelog: [CHANGELOG.md](CHANGELOG.md) · Contributing: [CONTRIBUTING.md](CONTRIBUTING.md) · Security: [SECURITY.md](SECURITY.md)
 
-| OpenClaw Tool       | Shield Scope     |
-| ------------------- | ---------------- |
-| read                | filesystem:read  |
-| write, edit         | filesystem:write |
-| exec                | terminal:execute |
-| exec (rm, mv, sudo) | terminal:write   |
-| browser             | browser:execute  |
-| message             | messaging:write  |
+## SDK snippet
 
-Destructive commands (rm, mv, sudo, chmod) are detected automatically and require separate write-level approval.
-
-### Option 3: Integrate the SDK
-
-For full control over consent screens, spending limits, and action logging, use the SDK directly in your application code.
+Install as a dependency when you embed consent screens or bespoke logging paths:
 
 ```bash
 npm install multicorn-shield
@@ -177,355 +101,44 @@ await shield.logAction({
 });
 ```
 
-That gives you a consent screen, scoped permissions, and an audit trail.
+## Configuration
 
-## Dashboard
-
-Every action, approval, and permission is visible in real time at [app.multicorn.ai](https://app.multicorn.ai).
-
-**Sign up:** [https://app.multicorn.ai](https://app.multicorn.ai)
-
-With the dashboard you can:
-
-- See all agents and their activity
-- Approve or reject pending actions
-- Configure per-agent permissions (read/write/execute per service)
-- Set spending limits
-- View the full audit trail with hash-chain integrity
-
-The dashboard works with both the SDK integration and the MCP proxy. No extra setup needed.
-
-<p align="center">
-  <img src="https://multicorn.ai/images/og-image-shield.png" alt="Dashboard overview showing total actions, blocked count, spend, and live activity feed" width="800" />
-</p>
-
-<p align="center">
-  <img src="https://multicorn.ai/images/screenshots/approvals-card.png" alt="Approval card with one-tap approve/reject and permission duration options" width="800" />
-</p>
-
-<p align="center">
-  <img src="https://multicorn.ai/images/screenshots/activity-log-list.png" alt="Filterable activity log showing every agent action with status" width="800" />
-</p>
-
-<p align="center">
-  <img src="https://multicorn.ai/images/screenshots/consent-screen.png" alt="Consent screen where users grant agent permissions" width="800" />
-</p>
-
-<p align="center">
-  <img src="https://multicorn.ai/images/screenshots/agent-page-with-stats.png" alt="Agent detail page with action stats and budget tracking" width="800" />
-</p>
-
-## Built with Shield
-
-Multicorn is developed using AI coding agents. Primarily Cursor for code generation and GitHub Actions as the deployment agent. Every one of those agents runs under Shield.
-
-We're not just building a trust layer for AI agents. We're depending on it ourselves. If Shield fails to catch something in our own workflow, we feel it directly.
-
-[Read how we use agents to build Multicorn →](https://multicorn.ai/blog/agents)
-
-## Features
-
-### Consent Screens
-
-A drop-in web component (Shadow DOM, framework-agnostic) that lets users review and approve agent permissions before granting access.
-
-```typescript
-const decision = await shield.requestConsent({
-  agent: "OpenClaw",
-  scopes: ["read:gmail", "write:calendar", "execute:payments"],
-  spendLimit: 500,
-  agentColor: "#8b5cf6",
-});
-
-// decision.grantedScopes - what the user actually approved
-```
-
-### Scopes
-
-Type-safe permission scopes with built-in services (Gmail, Calendar, Slack, Drive, Payments, GitHub, Jira) and a registry for custom ones.
-
-```typescript
-import { createScopeRegistry, parseScope } from "multicorn-shield";
-
-const registry = createScopeRegistry();
-
-registry.register({
-  name: "analytics",
-  description: "Internal analytics platform",
-  capabilities: ["read", "write"],
-});
-
-const scope = parseScope("read:analytics");
-// { service: "analytics", permissionLevel: "read" }
-```
-
-### Action Logging
-
-Structured audit trail of every action an agent takes. Supports immediate and batched delivery.
-
-```typescript
-await shield.logAction({
-  agent: "OpenClaw",
-  service: "gmail",
-  action: "send_email",
-  status: "approved",
-  cost: 0.002,
-  metadata: { recipient: "user@example.com" },
-});
-```
-
-### Spending Controls
-
-Client-side enforcement of per-transaction, daily, and monthly spend limits. Currency-safe integer arithmetic (cents) prevents floating point issues.
-
-```typescript
-const result = shield.checkSpending("OpenClaw", 849);
-
-if (!result.allowed) {
-  // "Action blocked: $849.00 exceeds per-transaction limit of $200.00"
-  console.error(result.reason);
-}
-```
-
-### MCP Integration
-
-Middleware adapter for Model Context Protocol servers. Sits between the agent and MCP tools, enforcing permissions on every tool call.
-
-```typescript
-import { createMcpAdapter, isBlockedResult } from "multicorn-shield";
-
-const adapter = createMcpAdapter({
-  agentId: "inbox-assistant",
-  grantedScopes: [
-    { service: "gmail", permissionLevel: "execute" },
-    { service: "calendar", permissionLevel: "read" },
-  ],
-  logger,
-});
-
-const result = await adapter.intercept(
-  { toolName: "gmail_send_email", arguments: { to: "user@example.com" } },
-  (call) => mcpServer.callTool(call.toolName, call.arguments),
-);
-
-if (isBlockedResult(result)) {
-  console.error(result.reason);
-}
-```
-
-## API Reference
-
-Full API documentation is generated from source with TypeDoc:
-
-```bash
-pnpm run docs
-```
-
-This outputs to `docs/api/`. You can also browse the inline JSDoc on every public export. All interfaces, functions, and types are documented with examples.
+The hosted **[getting started guide](https://multicorn.ai/docs/getting-started)** spells out CLI quick starts and SDK bootstrap defaults. MCP adapter knobs, consent payloads, CLI flags for the proxy wrapper, spending helpers, and every public export are covered by TypeDoc emitted with `pnpm docs` into **`docs/api/`**.
 
 ## Architecture
 
-Multicorn Shield is the client-side SDK in the Multicorn ecosystem. It runs in the browser or Node.js and communicates with the Multicorn hosted API for persistence and policy enforcement.
-
 ```
-┌─────────────────────────────────────────────────────┐
-│  Your Application                                   │
-│                                                     │
-│  ┌──────────────────────────────────────────────┐   │
-│  │  multicorn-shield (this SDK)                 │   │
-│  │                                              │   │
-│  │  ┌────────────┐  ┌──────────┐  ┌──────────┐ │   │
-│  │  │  Consent   │  │  Action  │  │ Spending │ │   │
-│  │  │  Screen    │  │  Logger  │  │ Checker  │ │   │
-│  │  └────────────┘  └────┬─────┘  └──────────┘ │   │
-│  │  ┌────────────┐       │                      │   │
-│  │  │  MCP       │       │                      │   │
-│  │  │  Adapter   │       │                      │   │
-│  │  └────────────┘       │                      │   │
-│  └───────────────────────┼──────────────────────┘   │
-│                          │ HTTPS                     │
-└──────────────────────────┼──────────────────────────┘
-                           │
-                           ▼
-              ┌────────────────────────┐
-              │  Multicorn Service API │
-              │  (hosted backend)      │
-              └────────────┬───────────┘
-                           │
-                           ▼
-              ┌────────────────────────┐
-              │  Multicorn Dashboard   │
-              │  (admin UI)            │
-              └────────────────────────┘
+Your agent / Browser
+           │
+           ▼
+multicorn-shield SDK · CLI · local proxy shim
+           │
+        HTTPS (see Network behaviour below)
+           ▼
+   Multicorn hosted API -> Dashboard UI
 ```
 
-The SDK handles:
+For module-level internals (consent renderer, MCP adapter, spending checker, proxies), regenerate TypeDoc locally (`pnpm docs`) and skim `docs/adr/`.
 
-- **Consent**: renders a Shadow DOM web component for permission approval
-- **Scope validation**: parses and validates `"permission:service"` scope strings locally
-- **Action logging**: sends structured events to the hosted API over HTTPS
-- **Spending checks**: client-side pre-validation (server is the source of truth)
-- **MCP adapter**: middleware layer between AI agents and MCP tool servers
+The SDK validates scopes client-side before calling hosted persistence. MCP proxy setups add localhost-only IPC (`127.0.0.1`) between wrapper and MCP child.
 
-The hosted API handles persistence, policy enforcement, and the audit trail. The SDK never stores credentials locally. API keys are held in memory only.
+See **[Network behaviour](#network-behaviour)** for reachable hosts.
 
-## Configuration
+## Network behaviour
 
-### `MulticornShieldConfig`
+- **`api.multicorn.ai`:** Consent workflows, approvals, auditing, spends. Calls happen only while your code or CLI path runs Shield. There is no import-time network activity.
+- **`localhost`:** Proxy-local IPC during stdio MCP wrapping. Traffic never leaves the machine.
+- **CLI config:** The wizard writes your API key into `~/.multicorn/config.json` on disk. The in-app SDK keeps keys in memory unless you persist them yourself.
 
-| Option      | Type              | Default                      | Description                                                                                                        |
-| ----------- | ----------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `apiKey`    | `string`          | -                            | **Required.** Your Multicorn API key. Must start with `mcs_` and be at least 16 characters. Stored in memory only. |
-| `baseUrl`   | `string`          | `"https://api.multicorn.ai"` | Base URL for the Multicorn API.                                                                                    |
-| `timeout`   | `number`          | `5000`                       | Request timeout in milliseconds.                                                                                   |
-| `batchMode` | `BatchModeConfig` | -                            | Optional batch mode for action logging. When enabled, actions are queued and flushed periodically.                 |
+No third-party telemetry.
 
-### `BatchModeConfig`
+## Dashboard
 
-| Option            | Type      | Default | Description                               |
-| ----------------- | --------- | ------- | ----------------------------------------- |
-| `enabled`         | `boolean` | -       | Whether batch mode is active.             |
-| `maxSize`         | `number`  | `10`    | Maximum actions to queue before flushing. |
-| `flushIntervalMs` | `number`  | `5000`  | Maximum time (ms) between flushes.        |
-
-### `ConsentOptions`
-
-| Option       | Type       | Default     | Description                                                                     |
-| ------------ | ---------- | ----------- | ------------------------------------------------------------------------------- |
-| `agent`      | `string`   | -           | **Required.** Name of the agent requesting access. Shown on the consent screen. |
-| `scopes`     | `string[]` | -           | **Required.** Permission scopes to request. Format: `"permission:service"`.     |
-| `spendLimit` | `number`   | `0`         | Maximum spend per transaction in dollars. `0` disables spending controls.       |
-| `agentColor` | `string`   | `"#8b5cf6"` | Hex colour for the agent icon on the consent screen.                            |
-
-### `McpAdapterConfig`
-
-| Option                    | Type                           | Default            | Description                                                                 |
-| ------------------------- | ------------------------------ | ------------------ | --------------------------------------------------------------------------- |
-| `agentId`                 | `string`                       | -                  | **Required.** Agent identifier for audit logging.                           |
-| `grantedScopes`           | `Scope[]`                      | -                  | **Required.** Scopes granted via the consent screen.                        |
-| `logger`                  | `ActionLogger`                 | -                  | Optional logger instance. When omitted, actions are checked but not logged. |
-| `requiredPermissionLevel` | `PermissionLevel`              | `"execute"`        | Permission level required for MCP tool calls.                               |
-| `extractService`          | `(toolName: string) => string` | Split on first `_` | Custom function to derive the service name from a tool name.                |
-| `extractAction`           | `(toolName: string) => string` | Split on first `_` | Custom function to derive the action type from a tool name.                 |
-
-## Framework Examples
-
-> **Using MCP?** If your agent connects to tools via an MCP server, you may not need any of these. See [Option 1](#option-1-wrap-your-existing-agents-no-code-changes) to add Shield with zero code changes.
-
-### React
-
-```tsx
-import { useEffect, useRef } from "react";
-import { MulticornShield } from "multicorn-shield";
-
-function AgentSetup() {
-  const shieldRef = useRef<MulticornShield | null>(null);
-
-  useEffect(() => {
-    shieldRef.current = new MulticornShield({ apiKey: "mcs_your_key_here" });
-    return () => shieldRef.current?.destroy();
-  }, []);
-
-  async function handleConnect() {
-    const decision = await shieldRef.current?.requestConsent({
-      agent: "OpenClaw",
-      scopes: ["read:gmail", "write:calendar"],
-      spendLimit: 200,
-    });
-    console.log("Granted:", decision?.grantedScopes);
-  }
-
-  return <button onClick={handleConnect}>Connect Agent</button>;
-}
-```
-
-### Vue
-
-```vue
-<script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
-import { MulticornShield } from "multicorn-shield";
-
-const shield = ref<MulticornShield | null>(null);
-
-onMounted(() => {
-  shield.value = new MulticornShield({ apiKey: "mcs_your_key_here" });
-});
-
-onUnmounted(() => shield.value?.destroy());
-
-async function handleConnect() {
-  const decision = await shield.value?.requestConsent({
-    agent: "OpenClaw",
-    scopes: ["read:gmail", "write:calendar"],
-    spendLimit: 200,
-  });
-  console.log("Granted:", decision?.grantedScopes);
-}
-</script>
-
-<template>
-  <button @click="handleConnect">Connect Agent</button>
-</template>
-```
-
-### Svelte
-
-```svelte
-<script lang="ts">
-  import { onMount, onDestroy } from "svelte";
-  import { MulticornShield } from "multicorn-shield";
-
-  let shield: MulticornShield;
-
-  onMount(() => {
-    shield = new MulticornShield({ apiKey: "mcs_your_key_here" });
-  });
-
-  onDestroy(() => shield?.destroy());
-
-  async function handleConnect() {
-    const decision = await shield.requestConsent({
-      agent: "OpenClaw",
-      scopes: ["read:gmail", "write:calendar"],
-      spendLimit: 200,
-    });
-    console.log("Granted:", decision.grantedScopes);
-  }
-</script>
-
-<button on:click={handleConnect}>Connect Agent</button>
-```
-
-### Vanilla HTML
-
-```html
-<button id="connect">Connect Agent</button>
-
-<script type="module">
-  import { MulticornShield } from "multicorn-shield";
-
-  const shield = new MulticornShield({ apiKey: "mcs_your_key_here" });
-
-  document.getElementById("connect").addEventListener("click", async () => {
-    const decision = await shield.requestConsent({
-      agent: "OpenClaw",
-      scopes: ["read:gmail", "write:calendar"],
-      spendLimit: 200,
-    });
-    console.log("Granted:", decision.grantedScopes);
-  });
-</script>
-```
+Approve, reject, revoke, tune budgets, and watch live traffic at [app.multicorn.ai](https://app.multicorn.ai). Works for both MCP proxy setups and bespoke SDK integrations.
 
 ## Development
 
-### Prerequisites
-
-- Node.js 20+
-- pnpm 9+
-
-### Setup
+Requires Node.js 20+ and pnpm 9+.
 
 ```bash
 git clone https://github.com/Multicorn-AI/multicorn-shield.git
@@ -535,87 +148,36 @@ pnpm test
 pnpm build
 ```
 
-### Commands
+| Script               | Meaning                              |
+| -------------------- | ------------------------------------ |
+| `pnpm build`         | Produce ESM+CJS bundles with tsup    |
+| `pnpm dev`           | tsup watch mode                      |
+| `pnpm lint`          | ESLint + Prettier                    |
+| `pnpm lint:fix`      | ESLint autofix plus Prettier write   |
+| `pnpm test`          | Vitest unit suite                    |
+| `pnpm test:coverage` | Vitest plus Istanbul instrumentation |
+| `pnpm typecheck`     | `tsc --noEmit`                       |
+| `pnpm docs`          | Typedoc emission into `docs/api/`    |
 
-| Command              | Description                                |
-| -------------------- | ------------------------------------------ |
-| `pnpm build`         | Build ESM and CJS bundles with tsup        |
-| `pnpm dev`           | Build in watch mode                        |
-| `pnpm lint`          | Run ESLint and Prettier checks             |
-| `pnpm lint:fix`      | Auto-fix lint and formatting issues        |
-| `pnpm test`          | Run tests with Vitest                      |
-| `pnpm test:watch`    | Run tests in watch mode                    |
-| `pnpm test:coverage` | Run tests with Istanbul coverage reporting |
-| `pnpm typecheck`     | Type-check without emitting                |
-| `pnpm docs`          | Generate API docs with TypeDoc             |
-
-## Project Structure
+Detailed notes live in **`src/`** headers and **`docs/adr/`**.
 
 ```
 multicorn-shield/
-├── src/
-│   ├── index.ts              # Package entry point (public API barrel)
-│   ├── multicorn-shield.ts   # Main SDK class that orchestrates all modules
-│   ├── consent/              # Consent screen web component (Lit + Shadow DOM)
-│   │   ├── multicorn-consent.ts   # <multicorn-consent> custom element
-│   │   ├── consent-events.ts      # Custom event types and dispatchers
-│   │   ├── consent-styles.ts      # Scoped styles (no CSS leakage)
-│   │   ├── focus-trap.ts          # Keyboard focus management
-│   │   └── scope-labels.ts        # Human-readable scope display names
-│   ├── scopes/               # Scope types, parsing, and validation
-│   │   ├── scope-definitions.ts   # Built-in service registry
-│   │   ├── scope-parser.ts        # "read:gmail" string parsing
-│   │   └── scope-validator.ts     # Permission access checks
-│   ├── logger/               # Action logging client
-│   │   └── action-logger.ts       # HTTP client with batch mode and retry
-│   ├── spending/             # Client-side spend enforcement
-│   │   └── spending-checker.ts    # Integer-cents arithmetic, limit checks
-│   ├── mcp/                  # MCP (Model Context Protocol) adapter
-│   │   └── mcp-adapter.ts        # Middleware for MCP tool call interception
-│   └── types/                # Shared TypeScript types
-│       └── index.ts               # Interfaces, constants, type aliases
-├── docs/
-│   └── adr/                  # Architecture Decision Records
-├── examples/                 # Runnable HTML examples
-├── dist/                     # Built output (ESM + CJS + types)
-├── tsup.config.ts            # Bundle configuration
-├── tsconfig.json             # TypeScript strict mode configuration
-├── vitest.config.ts          # Test runner configuration
-└── eslint.config.ts          # Linting rules
+├── src/                 # SDK, CLI, MCP adapter, consent web component
+├── plugins/             # Host-specific hooks (Cline, Codex CLI, Windsurf, OpenCode…)
+├── bin/                 # Executable entry stubs
+├── docs/adr/            # Architecture decision records
+└── examples/            # Runnable HTML snippets
 ```
 
 ## Publishing & ownership
 
-Releases are published from a single GitHub Actions workflow (.github/workflows/publish.yml). It is manually dispatched (workflow_dispatch) with a patch/minor/major input. Each run installs dependencies, runs lint, typecheck, tests, and build, then bumps the package version with npm version (which creates a version commit and tag locally), publishes to npm with pnpm publish --no-git-checks --access public --provenance, and pushes the commit and tag with git push --follow-tags. After that, the same run may POST to a Vercel deploy hook (repository secret) to refresh the learn site. That hook does not publish to npm. No other workflow publishes this package.
-
-The npm publish step uses a scoped automation token stored as one repository secret (`NPM_TOKEN`), only for this workflow, with npm provenance enabled on the publish command.
-
-The npm package has a single publisher account (`multicorn-ai`). If you see a Socket.dev "unstable ownership" warning after an earlier publish-identity change, it often clears as the registry history stabilizes across the next few releases.
-
-For compromised-package or supply-chain concerns, see [SECURITY.md](SECURITY.md).
-
-## Network behaviour
-
-The SDK and CLI make outbound requests to the following hosts:
-
-**api.multicorn.ai** (control plane; default)
-
-- Consent creation and approval polling
-- Action audit submission
-- Spending checks
-- Invoked only when the host application calls SDK or CLI methods, or when the proxy or extension runs its control-plane logic. There is no import-time network activity.
-
-**127.0.0.1 / localhost** (local proxy, when running in proxy mode)
-
-- IPC between the CLI wrapper and the local proxy process
-- Never leaves the user's machine
-
-No telemetry, analytics, or phone-home calls. Outbound API URLs use fixed paths under a single configurable base URL: the SDK `baseUrl` option (default `https://api.multicorn.ai`), the `MULTICORN_BASE_URL` environment variable, or `baseUrl` in `~/.multicorn/config.json` for the proxy and related tooling. Hosts and paths are not built from agent tool parameters or request bodies.
+Published by `multicorn-ai` on npm. CI runs lint, types, tests, and build before every release. See [SECURITY.md](SECURITY.md) for supply-chain concerns. Operational detail lives in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Contributing
 
-Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+Patches welcome: read [CONTRIBUTING.md](CONTRIBUTING.md), open issues for platform gaps, attach repro logs whenever hooks mis-fire.
 
-## License
+## Licence
 
 [MIT](LICENSE) © Multicorn AI Pty Ltd
