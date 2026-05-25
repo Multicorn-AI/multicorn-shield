@@ -355,11 +355,16 @@ describe("collectAgentsFromConfig", () => {
 });
 
 describe("shouldEmbedKeyInHostedProxyUrl", () => {
-  it("is true only for platforms that omit static Authorization headers in practice", () => {
+  it("is true when the Shield CLI puts ?key= on the proxy URL for that hosted client", () => {
     expect(shouldEmbedKeyInHostedProxyUrl("cursor")).toBe(true);
+    expect(shouldEmbedKeyInHostedProxyUrl("claude-desktop")).toBe(true);
     expect(shouldEmbedKeyInHostedProxyUrl("github-copilot")).toBe(true);
+    expect(shouldEmbedKeyInHostedProxyUrl("kilo-code")).toBe(true);
+    expect(shouldEmbedKeyInHostedProxyUrl("continue-dev")).toBe(true);
+    expect(shouldEmbedKeyInHostedProxyUrl("goose")).toBe(true);
+    expect(shouldEmbedKeyInHostedProxyUrl("cline")).toBe(true);
+
     expect(shouldEmbedKeyInHostedProxyUrl("windsurf")).toBe(false);
-    expect(shouldEmbedKeyInHostedProxyUrl("cline")).toBe(false);
     expect(shouldEmbedKeyInHostedProxyUrl("gemini-cli")).toBe(false);
     expect(shouldEmbedKeyInHostedProxyUrl("opencode")).toBe(false);
   });
