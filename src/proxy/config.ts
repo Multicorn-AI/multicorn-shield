@@ -2207,8 +2207,8 @@ async function createProxyConfig(
 }
 
 /**
- * Platforms where we embed the API key in the proxy URL (Cursor, Claude Desktop, Copilot, etc. omit static headers).
- * Windsurf, Cline, and Gemini CLI are headers-only; they send Authorization reliably.
+ * Platforms where we embed the API key in the proxy URL as a ?key= query parameter.
+ * Windsurf and Gemini CLI are headers-only; they send Authorization reliably.
  */
 const HOSTED_PROXY_PLATFORMS_WITH_URL_KEY = new Set([
   "cursor",
@@ -2217,6 +2217,7 @@ const HOSTED_PROXY_PLATFORMS_WITH_URL_KEY = new Set([
   "kilo-code",
   "continue-dev",
   "goose",
+  "cline",
 ]);
 
 export function shouldEmbedKeyInHostedProxyUrl(platform: string): boolean {
@@ -2764,7 +2765,6 @@ async function applyHostedProxyMcpConfig(
     } else if (platform === "cline") {
       result = await mergeMcpServersObjectStyle(getClineMcpSettingsPath(), shortName, {
         url: proxyUrlWithKeyWhenNeeded,
-        headers: { Authorization: authHeader },
       });
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(getClineMcpSettingsPath());
@@ -3084,20 +3084,33 @@ function printPlatformSnippet(
       `Authorization = "Bearer ${bearerToken}"\n`;
   } else {
     const urlKey = platform === "windsurf" ? "serverUrl" : "url";
-    snippetText = JSON.stringify(
-      {
-        mcpServers: {
-          [shortName]: {
-            [urlKey]: urlInSnippet,
-            headers: {
-              Authorization: authHeader,
+    snippetText =
+      platform === "cline"
+        ? JSON.stringify(
+            {
+              mcpServers: {
+                [shortName]: {
+                  [urlKey]: urlInSnippet,
+                },
+              },
             },
-          },
-        },
-      },
-      null,
-      2,
-    );
+            null,
+            2,
+          )
+        : JSON.stringify(
+            {
+              mcpServers: {
+                [shortName]: {
+                  [urlKey]: urlInSnippet,
+                  headers: {
+                    Authorization: authHeader,
+                  },
+                },
+              },
+            },
+            null,
+            2,
+          );
   }
 
   if (platform === "openclaw") {

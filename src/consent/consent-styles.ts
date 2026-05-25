@@ -7,7 +7,7 @@
  * @module consent/consent-styles
  */
 
-import { css, unsafeCSS, type CSSResult } from "lit";
+import { css, unsafeCSS, type CSSResult } from "@lit/reactive-element/css-tag.js";
 import { SHIELD_COLORS } from "../shared/shield-tokens.js";
 
 export { SHIELD_COLORS } from "../shared/shield-tokens.js";
