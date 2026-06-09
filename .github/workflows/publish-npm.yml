@@ -25,7 +25,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
+
+      - name: Debug publish environment
+        run: |
+          echo "npm version: $(npm --version)"
+          echo "node version: $(node --version)"
+          echo "registry: $(npm config get registry)"
+          cat ~/.npmrc 2>/dev/null || echo "no ~/.npmrc"
+          cat .npmrc 2>/dev/null || echo "no ./.npmrc"
 
       - name: Verify version matches
         run: |
