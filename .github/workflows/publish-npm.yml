@@ -27,12 +27,12 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Strip auth token from npmrc
+      - name: Prepare npm for OIDC
         run: |
-          echo "npm version: $(npm --version)"
-          sed -i '/_authToken/d' ~/.npmrc
-          echo "npmrc after strip:"
-          cat ~/.npmrc
+          echo "npm $(npm --version) / node $(node --version)"
+          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
+          echo "--- npm config ---"
+          npm config list
 
       - name: Verify version matches
         run: |

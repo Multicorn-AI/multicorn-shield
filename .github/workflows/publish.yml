@@ -35,12 +35,16 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
-      - name: Strip auth token from npmrc
+      - name: Prepare npm for OIDC
         run: |
-          echo "npm version: $(npm --version)"
-          sed -i '/_authToken/d' ~/.npmrc
-          echo "npmrc after strip:"
-          cat ~/.npmrc
+          echo "npm $(npm --version) / node $(node --version)"
+          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
+          echo "--- npm config ---"
+          npm config list
+          echo "--- .npmrc files ---"
+          cat ~/.npmrc 2>/dev/null || echo "no ~/.npmrc"
+          cat .npmrc 2>/dev/null || echo "no ./.npmrc"
+          find /home/runner -name .npmrc 2>/dev/null || true
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
