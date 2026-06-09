@@ -33,14 +33,14 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
+          registry-url: "https://registry.npmjs.org"
 
-      - name: Debug publish environment
+      - name: Strip auth token from npmrc
         run: |
           echo "npm version: $(npm --version)"
-          echo "node version: $(node --version)"
-          echo "registry: $(npm config get registry)"
-          cat ~/.npmrc 2>/dev/null || echo "no ~/.npmrc"
-          cat .npmrc 2>/dev/null || echo "no ./.npmrc"
+          sed -i '/_authToken/d' ~/.npmrc
+          echo "npmrc after strip:"
+          cat ~/.npmrc
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
