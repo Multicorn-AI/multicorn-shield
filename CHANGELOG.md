@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.10.0] - 2026-06-09
+
+### Changed
+
+- Cline hosted proxy auth now uses `?key=` URL query parameter instead of static `Authorization` header, matching the pattern used by Cursor and other platforms
+- Claude Desktop added to URL-key hosted proxy platforms
+
+### Fixed
+
+- Consent screen CSS import changed from `lit` to `@lit/reactive-element/css-tag.js` for compatibility with downstream bundlers
+
 ## [1.9.5] - 2026-05-13
 
 ### Fixed
