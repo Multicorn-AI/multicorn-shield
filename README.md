@@ -16,7 +16,9 @@ Most AI coding agents inherit direct access to MCP tools, terminals, mail, and s
   <img src="https://multicorn.ai/images/demo.gif" alt="Multicorn Shield demo: agent blocked, user approves in dashboard, agent proceeds" width="800" />
 </p>
 
-[Consent screen (full-size image)](https://multicorn.ai/images/screenshots/consent-screen.png)
+<p align="center">
+  <img src="https://multicorn.ai/images/screenshots/consent-screen.png" alt="Consent screen where users grant agent permissions" width="800" />
+</p>
 
 ## Supported agents
 
