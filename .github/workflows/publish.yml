@@ -35,15 +35,6 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
-      - name: Remove setup-node auth token
-        run: sed -i '/_authToken/d' ~/.npmrc
-
-      - name: Debug npm auth
-        run: |
-          echo "npm version: $(npm --version)"
-          echo "node version: $(node --version)"
-          cat ~/.npmrc
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
