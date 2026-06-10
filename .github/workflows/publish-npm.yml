@@ -25,16 +25,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-
-      - name: Configure npm for OIDC publish
-        run: |
-          NPMRC="$(npm config get userconfig)"
-          echo "registry=https://registry.npmjs.org/" > "$NPMRC"
-          echo "--- npmrc at $NPMRC ---"
-          cat "$NPMRC"
-          echo "--- OIDC env check ---"
-          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
-          echo "npm version: $(npm --version)"
+          registry-url: "https://registry.npmjs.org"
 
       - name: Verify version matches
         run: |
@@ -51,4 +42,4 @@ jobs:
         run: pnpm run build
 
       - name: Publish
-        run: npm publish --access public --provenance
+        run: npm publish --access public --provenance --loglevel verbose
