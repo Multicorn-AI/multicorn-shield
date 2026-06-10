@@ -31,20 +31,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: "20"
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
-
-      - name: Prepare npm for OIDC
-        run: |
-          echo "npm $(npm --version) / node $(node --version)"
-          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
-          echo "--- npm config ---"
-          npm config list
-          echo "--- .npmrc files ---"
-          cat ~/.npmrc 2>/dev/null || echo "no ~/.npmrc"
-          cat .npmrc 2>/dev/null || echo "no ./.npmrc"
-          find /home/runner -name .npmrc 2>/dev/null || true
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -70,7 +59,9 @@ jobs:
         run: 'npm version ${{ inputs.version }} -m "chore(release): v%s"'
 
       - name: Publish to npm
-        run: npm publish --access public --provenance
+        run: pnpm publish --no-git-checks --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Push version commit and tag
         run: git push --follow-tags
