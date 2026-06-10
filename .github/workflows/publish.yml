@@ -35,6 +35,15 @@ jobs:
           cache: pnpm
           registry-url: "https://registry.npmjs.org"
 
+      - name: Upgrade npm and clean .npmrc auth
+        run: |
+          npm install -g npm@latest
+          npm config delete //registry.npmjs.org/:_authToken || true
+          echo "--- npm version ---"
+          npm --version
+          echo "--- .npmrc ---"
+          cat ~/.npmrc || true
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
