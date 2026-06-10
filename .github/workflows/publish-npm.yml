@@ -25,14 +25,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          registry-url: "https://registry.npmjs.org"
 
-      - name: Prepare npm for OIDC
+      - name: Configure npm for OIDC publish
         run: |
-          echo "npm $(npm --version) / node $(node --version)"
-          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
-          echo "--- npm config ---"
-          npm config list
+          NPMRC="$(npm config get userconfig)"
+          echo "registry=https://registry.npmjs.org/" > "$NPMRC"
+          echo "--- npmrc at $NPMRC ---"
+          cat "$NPMRC"
+          echo "--- OIDC env check ---"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+          echo "npm version: $(npm --version)"
 
       - name: Verify version matches
         run: |

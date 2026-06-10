@@ -33,18 +33,16 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
-          registry-url: "https://registry.npmjs.org"
 
-      - name: Prepare npm for OIDC
+      - name: Configure npm for OIDC publish
         run: |
-          echo "npm $(npm --version) / node $(node --version)"
-          npm config delete //registry.npmjs.org/:_authToken 2>/dev/null || true
-          echo "--- npm config ---"
-          npm config list
-          echo "--- .npmrc files ---"
-          cat ~/.npmrc 2>/dev/null || echo "no ~/.npmrc"
-          cat .npmrc 2>/dev/null || echo "no ./.npmrc"
-          find /home/runner -name .npmrc 2>/dev/null || true
+          NPMRC="$(npm config get userconfig)"
+          echo "registry=https://registry.npmjs.org/" > "$NPMRC"
+          echo "--- npmrc at $NPMRC ---"
+          cat "$NPMRC"
+          echo "--- OIDC env check ---"
+          echo "ACTIONS_ID_TOKEN_REQUEST_URL set: ${ACTIONS_ID_TOKEN_REQUEST_URL:+yes}"
+          echo "npm version: $(npm --version)"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
