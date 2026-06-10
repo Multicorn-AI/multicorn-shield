@@ -33,12 +33,11 @@ jobs:
         with:
           node-version: "24"
           cache: pnpm
-          registry-url: "https://registry.npmjs.org"
 
-      - name: Upgrade npm and clean .npmrc auth
+      - name: Configure npm for OIDC publishing
         run: |
           npm install -g npm@latest
-          npm config delete //registry.npmjs.org/:_authToken || true
+          npm config set registry https://registry.npmjs.org/
           echo "--- npm version ---"
           npm --version
           echo "--- .npmrc ---"
