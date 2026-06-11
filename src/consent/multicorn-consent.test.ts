@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
 /**
  * Unit tests for the `<multicorn-consent>` web component.
  *
