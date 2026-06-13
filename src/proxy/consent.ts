@@ -236,6 +236,9 @@ export async function fetchGrantedScopes(
     if (perm.revoked_at !== null) continue;
     if (perm.read) scopes.push({ service: perm.service, permissionLevel: "read" });
     if (perm.write) scopes.push({ service: perm.service, permissionLevel: "write" });
+    // Delete is a distinct grant from write; surface it so a granted
+    // filesystem:delete actually satisfies a requested delete.
+    if (perm.delete === true) scopes.push({ service: perm.service, permissionLevel: "delete" });
     if (perm.execute) scopes.push({ service: perm.service, permissionLevel: "execute" });
   }
 
@@ -386,6 +389,7 @@ interface PermissionShape {
   readonly service: string;
   readonly read: boolean;
   readonly write: boolean;
+  readonly delete?: boolean;
   readonly execute: boolean;
   readonly revoked_at: string | null;
   readonly granted_at?: string;

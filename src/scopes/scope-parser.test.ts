@@ -126,8 +126,15 @@ describe("parseScope", () => {
     });
 
     it("throws on unknown permission level", () => {
-      expect(() => parseScope("delete:gmail")).toThrow(ScopeParseError);
-      expect(() => parseScope("delete:gmail")).toThrow(/Unknown permission level "delete"/);
+      expect(() => parseScope("destroy:gmail")).toThrow(ScopeParseError);
+      expect(() => parseScope("destroy:gmail")).toThrow(/Unknown permission level "destroy"/);
+    });
+
+    it("accepts the delete permission level", () => {
+      expect(parseScope("delete:filesystem")).toEqual({
+        service: "filesystem",
+        permissionLevel: "delete",
+      });
     });
 
     it("throws on misspelled permission level", () => {
@@ -287,7 +294,7 @@ describe("isValidScopeString", () => {
   it("returns false for invalid scope strings", () => {
     expect(isValidScopeString("")).toBe(false);
     expect(isValidScopeString("bad")).toBe(false);
-    expect(isValidScopeString("delete:gmail")).toBe(false);
+    expect(isValidScopeString("destroy:gmail")).toBe(false);
     expect(isValidScopeString("read:")).toBe(false);
     expect(isValidScopeString(":gmail")).toBe(false);
   });

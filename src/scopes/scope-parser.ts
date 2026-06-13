@@ -178,7 +178,7 @@ function doParse(input: string): ScopeParseResult {
  * Parse a scope string into a structured {@link Scope} object.
  *
  * Scope strings use the format `"permission:service"` where:
- * - **permission** is one of `read`, `write`, `execute`, `publish`, or `create`
+ * - **permission** is one of `read`, `write`, `delete`, `execute`, `publish`, or `create`
  * - **service** is a lowercase identifier (letters, digits, hyphens, underscores)
  *
  * @param input - The scope string to parse (e.g. `"read:gmail"`).
@@ -193,8 +193,8 @@ function doParse(input: string): ScopeParseResult {
  *
  * @example
  * ```ts
- * parseScope("delete:gmail");
- * // throws ScopeParseError: Unknown permission level "delete" …
+ * parseScope("destroy:gmail");
+ * // throws ScopeParseError: Unknown permission level "destroy" …
  * ```
  */
 export function parseScope(input: string): Scope {
@@ -283,7 +283,7 @@ export function formatScope(scope: Scope): string {
  * @example
  * ```ts
  * isValidScopeString("read:gmail");     // true
- * isValidScopeString("delete:gmail");   // false
+ * isValidScopeString("destroy:gmail");  // false
  * isValidScopeString("");               // false
  * ```
  */

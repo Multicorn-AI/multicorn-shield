@@ -73,6 +73,11 @@ export const BUILT_IN_SERVICES = {
     description: "Google Drive: file browsing, uploading, and sharing",
     capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write],
   },
+  filesystem: {
+    name: "filesystem",
+    description: "Sandboxed Multicorn workspace: reading, writing, and deleting files",
+    capabilities: [PERMISSION_LEVELS.Read, PERMISSION_LEVELS.Write, PERMISSION_LEVELS.Delete],
+  },
   payments: {
     name: "payments",
     description: "Payment processing: balance enquiries and transaction execution",

@@ -492,7 +492,7 @@ describe("MulticornShield.requestConsent", () => {
 
   it("rejects with ScopeParseError when a scope has an unknown permission level", async () => {
     await expect(
-      shield.requestConsent({ agent: "OpenClaw", scopes: ["delete:gmail"] }),
+      shield.requestConsent({ agent: "OpenClaw", scopes: ["destroy:gmail"] }),
     ).rejects.toThrow();
   });
 
@@ -744,7 +744,7 @@ describe("MulticornShield.revokeScope", () => {
 
   it("throws ScopeParseError when the scope string has an unknown permission level", () => {
     expect(() => {
-      shield.revokeScope("OpenClaw", "delete:gmail");
+      shield.revokeScope("OpenClaw", "destroy:gmail");
     }).toThrow();
   });
 
