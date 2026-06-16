@@ -283,6 +283,10 @@ describe("resolveWrapConfig", () => {
       deleteAgentName: "",
       apiKey: undefined,
       verbose: false,
+      filesDir: "",
+      filesPort: undefined,
+      filesProxyPort: undefined,
+      filesStop: false,
       ...overrides,
     };
   }

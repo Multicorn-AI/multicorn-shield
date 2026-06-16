@@ -31,9 +31,10 @@ import {
 import { deriveDashboardUrl } from "../src/proxy/consent.js";
 import { restoreClaudeDesktopMcpFromBackup } from "../src/extension/restore.js";
 import { PACKAGE_VERSION } from "../src/package-meta.js";
+import { runFilesCommand } from "../src/commands/files.js";
 
 export interface CliArgs {
-  readonly subcommand: "init" | "wrap" | "help" | "agents" | "delete-agent";
+  readonly subcommand: "init" | "wrap" | "help" | "agents" | "delete-agent" | "files";
   readonly wrapCommand: string;
   readonly wrapArgs: readonly string[];
   readonly logLevel: LogLevel;
@@ -46,6 +47,14 @@ export interface CliArgs {
   readonly apiKey: string | undefined;
   /** Extra diagnostics during `init` (menu selection, agent counts). */
   readonly verbose: boolean;
+  /** `files` subcommand: directory to share. */
+  readonly filesDir: string;
+  /** `files` subcommand: filesystem server port. */
+  readonly filesPort: number | undefined;
+  /** `files` subcommand: proxy port override. */
+  readonly filesProxyPort: number | undefined;
+  /** `files` subcommand: --stop flag. */
+  readonly filesStop: boolean;
 }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -61,12 +70,60 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let deleteAgentName = "";
   let apiKey: string | undefined = undefined;
   let verbose = false;
+  let filesDir = "";
+  let filesPort: number | undefined = undefined;
+  let filesProxyPort: number | undefined = undefined;
+  let filesStop = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
 
     if (arg === "init") {
       subcommand = "init";
+    } else if (arg === "files") {
+      subcommand = "files";
+      // Parse files-specific args from remainder
+      const tail = args.slice(i + 1);
+      for (let j = 0; j < tail.length; j++) {
+        const token = tail[j];
+        if (token === undefined) continue;
+        if (token === "--agent") {
+          const value = tail[j + 1];
+          if (value !== undefined) {
+            agentName = value;
+            j++;
+          }
+        } else if (token === "--port") {
+          const value = tail[j + 1];
+          if (value !== undefined) {
+            filesPort = Number.parseInt(value, 10);
+            j++;
+          }
+        } else if (token === "--proxy-port") {
+          const value = tail[j + 1];
+          if (value !== undefined) {
+            filesProxyPort = Number.parseInt(value, 10);
+            j++;
+          }
+        } else if (token === "--api-key") {
+          const value = tail[j + 1];
+          if (value !== undefined) {
+            apiKey = value;
+            j++;
+          }
+        } else if (token === "--base-url") {
+          const value = tail[j + 1];
+          if (value !== undefined) {
+            baseUrl = value;
+            j++;
+          }
+        } else if (token === "--stop") {
+          filesStop = true;
+        } else if (!token.startsWith("-") && filesDir === "") {
+          filesDir = token;
+        }
+      }
+      break;
     } else if (arg === "agents") {
       subcommand = "agents";
     } else if (arg === "delete-agent") {
@@ -183,6 +240,10 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     deleteAgentName,
     apiKey,
     verbose,
+    filesDir,
+    filesPort,
+    filesProxyPort,
+    filesStop,
   };
 }
 
@@ -194,6 +255,13 @@ function printHelp(): void {
       "Usage:",
       "  npx multicorn-shield init",
       "      Interactive setup. Saves API key to ~/.multicorn/config.json.",
+      "",
+      "  npx multicorn-shield files <dir> --agent <name> [--port <n>] [--proxy-port <n>]",
+      "      Share a local folder with a coding agent. Starts a filesystem MCP server",
+      "      scoped to <dir>, registers the agent, and prints a paste-ready config block.",
+      "      Write and delete requests trigger Shield's consent screen.",
+      "",
+      "      --stop    Tear down the servers started by a previous `files` invocation.",
       "",
       "  npx multicorn-shield restore",
       "      Restore MCP servers in claude_desktop_config.json from the Shield extension backup.",
@@ -219,6 +287,8 @@ function printHelp(): void {
       "",
       "Examples:",
       "  npx multicorn-shield init",
+      "  npx multicorn-shield files ./my-repo --agent my-agent",
+      "  npx multicorn-shield files ./my-repo --agent my-agent --stop",
       "  npx multicorn-shield --wrap npx @modelcontextprotocol/server-filesystem /tmp",
       "  npx multicorn-shield --wrap my-mcp-server --log-level debug",
       "",
@@ -252,6 +322,29 @@ export async function runCli(): Promise<void> {
 
   if (cli.subcommand === "init") {
     await runInit(cli.baseUrl, { verbose: cli.verbose });
+    return;
+  }
+
+  if (cli.subcommand === "files") {
+    if (!cli.filesStop && cli.agentName.length === 0) {
+      process.stderr.write("Error: --agent <name> is required for the files command.\n");
+      process.stderr.write("Example: npx multicorn-shield files ./my-repo --agent my-agent\n");
+      process.exit(1);
+    }
+    if (!cli.filesStop && cli.filesDir.length === 0) {
+      process.stderr.write("Error: a directory path is required.\n");
+      process.stderr.write("Example: npx multicorn-shield files ./my-repo --agent my-agent\n");
+      process.exit(1);
+    }
+    await runFilesCommand({
+      dir: cli.filesDir,
+      agent: cli.agentName,
+      port: cli.filesPort,
+      proxyPort: cli.filesProxyPort,
+      apiKey: cli.apiKey,
+      baseUrl: cli.baseUrl,
+      stop: cli.filesStop,
+    });
     return;
   }
 
