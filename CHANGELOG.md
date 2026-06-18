@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [1.11.0] - 2026-06-18
+
+### Added
+
+- `files` subcommand for governing a local filesystem under Shield (`files start`, `stop`, `restart`, `status`). An agent can read, write, and delete files in a chosen folder, with each action approved and logged like the hosted services.
+- Combo agents: a single agent can expose both hosted services (Gmail, Calendar, Drive) and a local filesystem through one `mcp.json` entry.
+- Per-agent file supervisors with a liveness heartbeat to the backend, auto port allocation, and refcounted shared proxy and filesystem servers that start and stop with the agents using them.
+- Distinct `delete` permission level for the filesystem, separate from `write`, so an agent can be allowed to change files without being allowed to delete them.
+- `files start` and `files restart` regenerate the agent's keyed `mcp.json` entry on every run. The write is atomic and fail-closed: a complete entry is built first, then the block is replaced in one write, so a failed run never leaves the file broken.
+
+### Changed
+
+- One `mcp.json` entry per agent, keyed by the agent's own name. Earlier builds appended `-files`/`-filesystem` suffixes; legacy suffixed entries are now cleaned up on registration.
+
+### Fixed
+
+- Pinned transitive dependencies (`path-to-regexp`, `ws`, `hono`) via `pnpm.overrides` to clear high-severity audit advisories pulled in by `supergateway` and the MCP SDK.
+
 ## [1.10.0] - 2026-06-09
 
 ### Changed
