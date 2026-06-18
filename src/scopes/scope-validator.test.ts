@@ -5,7 +5,7 @@ import { validateScopeAccess, validateAllScopesAccess, hasScope } from "./scope-
 // Helpers
 
 function scope(
-  permissionLevel: "read" | "write" | "execute" | "publish" | "create",
+  permissionLevel: "read" | "write" | "delete" | "execute" | "publish" | "create",
   service: string,
 ): Scope {
   return { service, permissionLevel };
@@ -31,6 +31,18 @@ describe("validateScopeAccess", () => {
     it("allows when create scope is granted", () => {
       const granted = [scope("create", "public_content")];
       const result = validateScopeAccess(granted, scope("create", "public_content"));
+      expect(result.allowed).toBe(true);
+    });
+
+    it("does NOT allow a delete when only read+write are granted (write never implies delete)", () => {
+      const granted = [scope("read", "filesystem"), scope("write", "filesystem")];
+      const result = validateScopeAccess(granted, scope("delete", "filesystem"));
+      expect(result.allowed).toBe(false);
+    });
+
+    it("allows a delete only when filesystem:delete is granted", () => {
+      const granted = [scope("write", "filesystem"), scope("delete", "filesystem")];
+      const result = validateScopeAccess(granted, scope("delete", "filesystem"));
       expect(result.allowed).toBe(true);
     });
 

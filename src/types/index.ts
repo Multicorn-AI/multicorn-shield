@@ -53,6 +53,8 @@ export type AgentStatus = (typeof AGENT_STATUSES)[keyof typeof AGENT_STATUSES];
  *
  * - `read`: observe data without modification
  * - `write`: create or modify data
+ * - `delete`: destroy data (kept distinct from `write` so saving a file never
+ *   implies the right to delete one; used by the hosted workspace filesystem)
  * - `execute`: trigger side-effects (e.g. send an email, make a payment)
  * - `publish`: make existing content publicly accessible (e.g. deploy, publish, make live)
  * - `create`: create new content that is immediately public (e.g. tweet, public commit, forum post)
@@ -60,6 +62,7 @@ export type AgentStatus = (typeof AGENT_STATUSES)[keyof typeof AGENT_STATUSES];
 export const PERMISSION_LEVELS = {
   Read: "read",
   Write: "write",
+  Delete: "delete",
   Execute: "execute",
   Publish: "publish",
   Create: "create",

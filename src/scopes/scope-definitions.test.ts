@@ -19,6 +19,7 @@ describe("BUILT_IN_SERVICES", () => {
         "calendar",
         "slack",
         "drive",
+        "filesystem",
         "payments",
         "github",
         "jira",
@@ -26,7 +27,7 @@ describe("BUILT_IN_SERVICES", () => {
         "public_content",
       ]),
     );
-    expect(names).toHaveLength(9);
+    expect(names).toHaveLength(10);
   });
 
   it.each(serviceEntries)('"%s" has a name matching its key', (key, definition) => {
@@ -207,7 +208,7 @@ describe("createScopeRegistry", () => {
         registry.register({
           name: "bad-cap",
           description: "Bad cap",
-          capabilities: ["read", "delete" as never],
+          capabilities: ["read", "destroy" as never],
         });
       }).toThrow(/Invalid capability/);
     });

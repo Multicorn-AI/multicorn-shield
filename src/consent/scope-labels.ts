@@ -20,6 +20,7 @@ const SERVICE_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   calendar: "Google Calendar",
   slack: "Slack",
   drive: "Google Drive",
+  filesystem: "Workspace files",
   payments: "Payments",
   github: "GitHub",
   jira: "Jira",
@@ -37,6 +38,7 @@ const SERVICE_ICONS: Readonly<Record<string, string>> = {
   calendar: "📅",
   slack: "💬",
   drive: "📁",
+  filesystem: "📂",
   payments: "💳",
   github: "🐙",
   jira: "🎯",
@@ -52,6 +54,7 @@ const SERVICE_ICONS: Readonly<Record<string, string>> = {
 const PERMISSION_DESCRIPTIONS: Readonly<Record<PermissionLevel, string>> = {
   [PERMISSION_LEVELS.Read]: "Read",
   [PERMISSION_LEVELS.Write]: "Create and modify",
+  [PERMISSION_LEVELS.Delete]: "Delete",
   [PERMISSION_LEVELS.Execute]: "Execute actions",
   [PERMISSION_LEVELS.Publish]: "Publish",
   [PERMISSION_LEVELS.Create]: "Create",
@@ -67,6 +70,7 @@ const PERMISSION_FULL_DESCRIPTIONS: Readonly<
 > = {
   [PERMISSION_LEVELS.Read]: (serviceName: string) => `Read your ${serviceName}`,
   [PERMISSION_LEVELS.Write]: (serviceName: string) => `Create and modify ${serviceName} content`,
+  [PERMISSION_LEVELS.Delete]: (serviceName: string) => `Delete ${serviceName} content`,
   [PERMISSION_LEVELS.Execute]: (serviceName: string) => {
     // Special handling for payments (most critical execute permission)
     if (serviceName.toLowerCase().includes("payment")) {

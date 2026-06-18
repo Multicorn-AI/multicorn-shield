@@ -91,9 +91,11 @@
     ]
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
     "@lit/reactive-element": "^2.0.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/server-filesystem": "^2026.1.14",
     "lit": "^3.2.0",
+    "supergateway": "^3.4.3",
     "yaml": "^2.8.2",
     "zod": "^4.3.6"
   },
@@ -168,8 +170,11 @@
       "rollup": ">=4.59.0",
       "picomatch": ">=4.0.4",
       "path-to-regexp": ">=8.4.0",
+      "express>path-to-regexp": ">=0.1.13",
       "node-forge": ">=1.4.0",
-      "fast-uri": ">=3.1.2"
+      "fast-uri": ">=3.1.2",
+      "hono": ">=4.12.25",
+      "ws": ">=8.21.0"
     }
   }
 }
