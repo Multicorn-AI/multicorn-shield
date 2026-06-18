@@ -8,7 +8,7 @@
  */
 
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -2356,6 +2356,26 @@ type MergeTopLevelKeyedJsonFileResult = "ok" | "parse-error" | "unchanged";
  * Read a JSON (or comment-stripped JSONC-style) object root file, merge `entry` under `topLevelKey`,
  * and write pretty-printed JSON (comments are not preserved).
  */
+/**
+ * Write a file atomically: stage the full contents in a sibling temp file, then
+ * rename it into place. rename(2) is atomic on the same filesystem, so a reader
+ * (or a crash) only ever sees the old complete file or the new complete file -
+ * never a half-written one. If staging fails the original is left untouched and
+ * the temp file is cleaned up. This is what makes the MCP-config rewrite safe to
+ * run on every `files start`/`restart`: a complete replacement or nothing.
+ */
+async function writeFileAtomic(filePath: string, body: string): Promise<void> {
+  await mkdir(dirname(filePath), { recursive: true });
+  const tmp = `${filePath}.${String(process.pid)}.${String(Date.now())}.tmp`;
+  try {
+    await writeFile(tmp, body, SECRET_JSON_FILE_OPTIONS);
+    await rename(tmp, filePath);
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => undefined);
+    throw e;
+  }
+}
+
 async function mergeTopLevelKeyedJsonFile(
   filePath: string,
   topLevelKey: string,
@@ -2364,6 +2384,9 @@ async function mergeTopLevelKeyedJsonFile(
   options: {
     readonly stripJsonComments: boolean;
     readonly onExisting: MergeJsonTopLevelOnExisting;
+    // Stale keys to drop in the same write (e.g. a legacy `<agent>-files` entry that an
+    // older build wrote), so the user is left with one entry named for the agent, not two.
+    readonly removeKeys?: readonly string[] | undefined;
   },
 ): Promise<MergeTopLevelKeyedJsonFileResult> {
   let root: Record<string, unknown> = {};
@@ -2392,20 +2415,28 @@ async function mergeTopLevelKeyedJsonFile(
   }
 
   const bucketRaw = root[topLevelKey];
-  const bucket: Record<string, unknown> =
+  const existingBucket: Record<string, unknown> =
     typeof bucketRaw === "object" && bucketRaw !== null && !Array.isArray(bucketRaw)
-      ? { ...(bucketRaw as Record<string, unknown>) }
+      ? (bucketRaw as Record<string, unknown>)
       : {};
 
-  if (options.onExisting === "skip" && bucket[shortName] !== undefined) {
+  if (options.onExisting === "skip" && existingBucket[shortName] !== undefined) {
     return "unchanged";
   }
 
+  // Build the complete, keyed entry into the in-memory root first, then replace the
+  // whole file in one atomic write. We never mutate the file in place or delete the
+  // existing entry before the replacement is staged, so a failure leaves the old file
+  // intact rather than a half-written or empty one. Legacy/suffixed entries to drop are
+  // simply excluded when copying the bucket, rather than deleted in place.
+  const staleKeys = new Set((options.removeKeys ?? []).filter((k) => k !== shortName));
+  const bucket: Record<string, unknown> = Object.fromEntries(
+    Object.entries(existingBucket).filter(([k]) => !staleKeys.has(k)),
+  );
   bucket[shortName] = entry;
   root[topLevelKey] = bucket;
 
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(root, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
+  await writeFileAtomic(filePath, JSON.stringify(root, null, 2) + "\n");
   writeMcpAddedLine(shortName, filePath);
   return "ok";
 }
@@ -2417,10 +2448,12 @@ async function mergeMcpServersObjectStyle(
   filePath: string,
   shortName: string,
   entry: Record<string, unknown>,
+  removeKeys?: readonly string[],
 ): Promise<"ok" | "parse-error"> {
   const result = await mergeTopLevelKeyedJsonFile(filePath, "mcpServers", shortName, entry, {
     stripJsonComments: false,
     onExisting: "overwrite",
+    removeKeys,
   });
   return result === "parse-error" ? "parse-error" : "ok";
 }
@@ -4629,4 +4662,393 @@ export async function runInit(
   }
 
   return lastConfig;
+}
+
+// ---------------------------------------------------------------------------
+// Local MCP entry writer for `multicorn-shield files`
+// ---------------------------------------------------------------------------
+
+export type CodingClient =
+  | "cursor"
+  | "cline"
+  | "windsurf"
+  | "claude"
+  | "copilot"
+  | "goose"
+  | "gemini"
+  | "codex"
+  | "continue"
+  | "kilo"
+  | "opencode";
+
+export const CODING_CLIENTS: readonly CodingClient[] = [
+  "cursor",
+  "cline",
+  "windsurf",
+  "claude",
+  "copilot",
+  "goose",
+  "gemini",
+  "codex",
+  "continue",
+  "kilo",
+  "opencode",
+];
+
+/** Human-friendly display names for clients. */
+const CLIENT_DISPLAY_NAMES: Record<CodingClient, string> = {
+  cursor: "Cursor",
+  cline: "Cline",
+  windsurf: "Windsurf",
+  claude: "Claude Desktop",
+  copilot: "GitHub Copilot",
+  goose: "Goose",
+  gemini: "Gemini CLI",
+  codex: "Codex CLI",
+  continue: "Continue",
+  kilo: "Kilo Code",
+  opencode: "OpenCode",
+};
+
+/** What the user needs to do after config is written, per client. */
+const CLIENT_RELOAD_INSTRUCTIONS: Record<CodingClient, string> = {
+  cursor: "Restart Cursor or reload the window to pick up the new server.",
+  cline: "Cline picks up config changes automatically.",
+  windsurf: "Restart Windsurf to pick up the new server.",
+  claude: "Restart Claude Desktop to pick up the new server.",
+  copilot: "Reload the VS Code window (Cmd+Shift+P > Reload Window).",
+  goose: "Restart Goose to pick up the new extension.",
+  gemini: "Restart Gemini CLI to pick up the new server.",
+  codex: "Restart Codex CLI to pick up the new server.",
+  continue: "Continue picks up config changes automatically.",
+  kilo: "Kilo Code picks up config changes automatically.",
+  opencode: "Restart OpenCode to pick up the new server.",
+};
+
+export function clientDisplayName(client: CodingClient): string {
+  return CLIENT_DISPLAY_NAMES[client];
+}
+
+export function clientReloadInstruction(client: CodingClient): string {
+  return CLIENT_RELOAD_INSTRUCTIONS[client];
+}
+
+function clientConfigPath(client: CodingClient, workspacePath?: string): string {
+  switch (client) {
+    case "cursor":
+      return getCursorMcpJsonPath();
+    case "cline":
+      return getClineMcpSettingsPath();
+    case "windsurf":
+      return getWindsurfMcpConfigPath();
+    case "claude":
+      return getClaudeDesktopConfigPath();
+    case "goose":
+      return join(homedir(), ".config", "goose", "config.yaml");
+    case "gemini":
+      return join(homedir(), ".gemini", "settings.json");
+    case "codex":
+      return join(homedir(), ".codex", "config.toml");
+    case "copilot":
+      return join(workspacePath ?? ".", ".vscode", "mcp.json");
+    case "continue":
+      return join(workspacePath ?? ".", ".continue", "mcpServers");
+    case "kilo":
+      return join(workspacePath ?? ".", ".kilo", "kilo.jsonc");
+    case "opencode":
+      return join(workspacePath ?? ".", "opencode.json");
+  }
+}
+
+/**
+ * Detect which coding agent clients have existing config files on disk.
+ * Only checks user-home-level configs (not workspace-relative).
+ */
+export function detectInstalledClients(): CodingClient[] {
+  const found: CodingClient[] = [];
+  const homeClients: CodingClient[] = [
+    "cursor",
+    "cline",
+    "windsurf",
+    "claude",
+    "goose",
+    "gemini",
+    "codex",
+  ];
+  for (const client of homeClients) {
+    const p = clientConfigPath(client);
+    if (existsSync(p)) {
+      found.push(client);
+    } else {
+      // Check if the parent directory exists (client is installed but no config yet)
+      const dir = dirname(p);
+      if (existsSync(dir)) {
+        found.push(client);
+      }
+    }
+  }
+  return found;
+}
+
+/**
+ * Maps a `CodingClient` to the dashboard `platform` name used by
+ * `shouldEmbedKeyInHostedProxyUrl`, so the files flow makes the same
+ * key-in-URL decision as the hosted-proxy flow (`applyHostedProxyMcpConfig`).
+ */
+const CODING_CLIENT_TO_PLATFORM: Record<CodingClient, string> = {
+  cursor: "cursor",
+  cline: "cline",
+  windsurf: "windsurf",
+  claude: "claude-desktop",
+  copilot: "github-copilot",
+  goose: "goose",
+  gemini: "gemini-cli",
+  codex: "codex-cli",
+  continue: "continue-dev",
+  kilo: "kilo-code",
+  opencode: "opencode",
+};
+
+/**
+ * Write a local proxy MCP entry into a coding agent's config file.
+ * Returns the file path written to, or null if write failed.
+ *
+ * The proxy authenticates the request from the API key in any of three carriers
+ * (Authorization: Bearer, X-Multicorn-Key, or ?key= query param). A bare
+ * /r/<token>/<server> URL is routing only and gets a stub handshake + 401 on any
+ * real tool call, so the key MUST be carried. We mirror the hosted-proxy flow
+ * (`applyHostedProxyMcpConfig`): embed ?key= for clients that need it and add an
+ * Authorization: Bearer header for header-capable clients.
+ */
+export async function writeLocalMcpEntry(
+  client: CodingClient,
+  agentName: string,
+  localProxyUrl: string,
+  apiKey: string,
+  workspacePath?: string,
+): Promise<string | null> {
+  const filePath = clientConfigPath(client, workspacePath);
+  // The MCP server is named for the agent so it's recognisable in the editor. An older
+  // build wrote `${agentName}-files`; we drop that stale key in the same write so the
+  // user is left with one entry that matches the agent name, not a confusing duplicate.
+  const entryKey = agentName;
+  const legacyKeys = [`${agentName}-files`];
+
+  // Fail closed: an entry without the key is broken - the proxy rejects every request
+  // that carries no key. Rather than write a half-built entry (or strip the key off an
+  // existing good one), refuse and leave the file exactly as it was. The caller surfaces
+  // this so the user knows the rewrite was skipped on purpose.
+  if (apiKey.trim().length === 0) {
+    process.stderr.write(
+      style.yellow("\u26A0") +
+        ` Refusing to write MCP config for "${agentName}": missing API key. Left the config file unchanged.\n`,
+    );
+    return null;
+  }
+
+  // Carry the API key exactly like the hosted-proxy flow does.
+  const authHeader = `Bearer ${apiKey}`;
+  const url = shouldEmbedKeyInHostedProxyUrl(CODING_CLIENT_TO_PLATFORM[client])
+    ? hostedProxyUrlWithKeyParam(localProxyUrl, apiKey)
+    : localProxyUrl;
+
+  switch (client) {
+    case "cursor":
+      return (await mergeMcpServersObjectStyle(
+        filePath,
+        entryKey,
+        {
+          url,
+          headers: { Authorization: authHeader },
+        },
+        legacyKeys,
+      )) === "ok"
+        ? filePath
+        : null;
+
+    case "cline":
+      return (await mergeMcpServersObjectStyle(
+        filePath,
+        entryKey,
+        {
+          url,
+        },
+        legacyKeys,
+      )) === "ok"
+        ? filePath
+        : null;
+
+    case "windsurf":
+      return (await mergeMcpServersObjectStyle(
+        filePath,
+        entryKey,
+        {
+          serverUrl: url,
+          headers: { Authorization: authHeader },
+        },
+        legacyKeys,
+      )) === "ok"
+        ? filePath
+        : null;
+
+    case "claude":
+      return (await mergeMcpServersObjectStyle(
+        filePath,
+        entryKey,
+        {
+          url,
+          headers: { Authorization: authHeader },
+        },
+        legacyKeys,
+      )) === "ok"
+        ? filePath
+        : null;
+
+    case "gemini": {
+      // Gemini uses `httpUrl` inside `mcpServers`
+      return (await mergeMcpServersObjectStyle(
+        filePath,
+        entryKey,
+        {
+          httpUrl: url,
+          headers: { Authorization: authHeader },
+        },
+        legacyKeys,
+      )) === "ok"
+        ? filePath
+        : null;
+    }
+
+    case "copilot": {
+      // Copilot uses `servers` key (not `mcpServers`)
+      const result = await mergeTopLevelKeyedJsonFile(
+        filePath,
+        "servers",
+        entryKey,
+        { type: "http", url, headers: { Authorization: authHeader } },
+        { stripJsonComments: false, onExisting: "overwrite", removeKeys: legacyKeys },
+      );
+      return result === "ok" ? filePath : null;
+    }
+
+    case "goose": {
+      // Goose uses YAML with `extensions` key
+      const goosePath = filePath;
+      let content = "";
+      try {
+        content = await readFile(goosePath, "utf8");
+      } catch (e) {
+        if (isErrnoException(e) && e.code === "ENOENT") {
+          content = "";
+        } else {
+          return null;
+        }
+      }
+      let root: Record<string, unknown>;
+      try {
+        const data: unknown = content.trim().length === 0 ? {} : parseYaml(content);
+        if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
+        root = data as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+      const extensionsRaw = root["extensions"];
+      let extensions: Record<string, unknown>;
+      if (isYamlPlainObject(extensionsRaw)) {
+        extensions = { ...extensionsRaw };
+      } else if (extensionsRaw === undefined) {
+        extensions = {};
+      } else {
+        return null;
+      }
+      extensions[entryKey] = {
+        enabled: true,
+        type: "streamable_http",
+        name: entryKey,
+        description: "",
+        uri: url,
+        envs: {},
+        env_keys: [],
+        headers: { Authorization: authHeader },
+        timeout: 300,
+        socket: null,
+        bundled: null,
+        available_tools: [],
+      };
+      root["extensions"] = extensions;
+      const out = stringifyYaml(root, { indent: 2, lineWidth: 0 });
+      const body = out.endsWith("\n") ? out : `${out}\n`;
+      await mkdir(dirname(goosePath), { recursive: true });
+      await writeFile(goosePath, body, SECRET_JSON_FILE_OPTIONS);
+      return goosePath;
+    }
+
+    case "codex": {
+      // Codex uses TOML with [mcp_servers.<name>]
+      const codexPath = filePath;
+      let existing = "";
+      try {
+        existing = await readFile(codexPath, "utf8");
+      } catch (e) {
+        if (isErrnoException(e) && e.code === "ENOENT") {
+          existing = "";
+        } else {
+          return null;
+        }
+      }
+      const sectionHeader = `[mcp_servers.${entryKey}]`;
+      const sectionBlock =
+        `${sectionHeader}\ntype = "http"\nurl = "${url}"\n` +
+        `\n[mcp_servers.${entryKey}.http_headers]\nAuthorization = "${authHeader}"\n`;
+      if (existing.includes(sectionHeader)) {
+        const idx = existing.indexOf(sectionHeader);
+        const nextSection = existing.indexOf("\n[", idx + sectionHeader.length);
+        const before = existing.slice(0, idx);
+        const after = nextSection >= 0 ? existing.slice(nextSection + 1) : "";
+        existing = before + sectionBlock + (after.length > 0 ? "\n" + after : "");
+      } else {
+        existing = existing.trimEnd() + "\n\n" + sectionBlock;
+      }
+      await mkdir(dirname(codexPath), { recursive: true });
+      await writeFile(codexPath, existing, SECRET_JSON_FILE_OPTIONS);
+      return codexPath;
+    }
+
+    case "continue": {
+      // Continue uses per-server YAML files in .continue/mcpServers/
+      const dir = join(workspacePath ?? ".", ".continue", "mcpServers");
+      const continuePath = join(dir, `${entryKey}.yaml`);
+      const yamlContent = stringifyYaml(
+        { name: entryKey, type: "streamableHttp", url },
+        { indent: 2, lineWidth: 0 },
+      );
+      await mkdir(dir, { recursive: true });
+      await writeFile(continuePath, yamlContent, SECRET_JSON_FILE_OPTIONS);
+      return continuePath;
+    }
+
+    case "kilo": {
+      // Kilo uses `mcp` key in .kilo/kilo.jsonc
+      const result = await mergeTopLevelKeyedJsonFile(
+        filePath,
+        "mcp",
+        entryKey,
+        { url, headers: { Authorization: authHeader } },
+        { stripJsonComments: true, onExisting: "overwrite", removeKeys: legacyKeys },
+      );
+      return result === "ok" ? filePath : null;
+    }
+
+    case "opencode": {
+      // OpenCode uses `mcp` key in opencode.json
+      const result = await mergeTopLevelKeyedJsonFile(
+        filePath,
+        "mcp",
+        entryKey,
+        { type: "streamablehttp", url, headers: { Authorization: authHeader } },
+        { stripJsonComments: false, onExisting: "overwrite", removeKeys: legacyKeys },
+      );
+      return result === "ok" ? filePath : null;
+    }
+  }
 }

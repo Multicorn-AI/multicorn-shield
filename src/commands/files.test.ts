@@ -83,6 +83,25 @@ describe("parseArgs - files subcommand", () => {
     expect(result.baseUrl).toBe("http://localhost:8080");
   });
 
+  it("parses --client within files subcommand", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-shield",
+      "files",
+      "./src",
+      "--agent",
+      "a",
+      "--client",
+      "cursor",
+    ]);
+    expect(result.filesClient).toBe("cursor");
+  });
+
+  it("filesClient is undefined when --client is not provided", () => {
+    const result = parseArgs(["node", "multicorn-shield", "files", "./src", "--agent", "a"]);
+    expect(result.filesClient).toBeUndefined();
+  });
+
   it("uses the explicit --agent name verbatim (no fallback override)", () => {
     const result = parseArgs([
       "node",
@@ -93,6 +112,72 @@ describe("parseArgs - files subcommand", () => {
       "My-Custom_Agent-123",
     ]);
     expect(result.agentName).toBe("My-Custom_Agent-123");
+  });
+
+  it("parses --foreground flag", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-shield",
+      "files",
+      "./src",
+      "--agent",
+      "my-agent",
+      "--foreground",
+    ]);
+    expect(result.filesForeground).toBe(true);
+  });
+
+  it("accepts --detach as legacy no-op (default behavior)", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-shield",
+      "files",
+      "./src",
+      "--agent",
+      "my-agent",
+      "--detach",
+    ]);
+    expect(result.filesForeground).toBe(false);
+  });
+
+  it("parses 'files status' sub-action", () => {
+    const result = parseArgs(["node", "multicorn-shield", "files", "status"]);
+    expect(result.filesStatus).toBe(true);
+  });
+
+  it("parses 'files stop --agent <name>'", () => {
+    const result = parseArgs(["node", "multicorn-shield", "files", "stop", "--agent", "my-agent"]);
+    expect(result.filesStop).toBe(true);
+    expect(result.agentName).toBe("my-agent");
+  });
+
+  it("parses 'files restart --agent <name>' without a directory", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-shield",
+      "files",
+      "restart",
+      "--agent",
+      "my-agent",
+    ]);
+    expect(result.filesRestart).toBe(true);
+    expect(result.agentName).toBe("my-agent");
+    expect(result.filesDir).toBe("");
+  });
+
+  it("parses 'files restart <dir> --agent <name>' with an explicit directory", () => {
+    const result = parseArgs([
+      "node",
+      "multicorn-shield",
+      "files",
+      "restart",
+      "./my-repo",
+      "--agent",
+      "my-agent",
+    ]);
+    expect(result.filesRestart).toBe(true);
+    expect(result.filesDir).toBe("./my-repo");
+    expect(result.agentName).toBe("my-agent");
   });
 });
 

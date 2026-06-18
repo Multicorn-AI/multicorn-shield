@@ -287,6 +287,10 @@ describe("resolveWrapConfig", () => {
       filesPort: undefined,
       filesProxyPort: undefined,
       filesStop: false,
+      filesClient: undefined,
+      filesForeground: false,
+      filesStatus: false,
+      filesRestart: false,
       ...overrides,
     };
   }

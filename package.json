@@ -170,6 +170,7 @@
       "rollup": ">=4.59.0",
       "picomatch": ">=4.0.4",
       "path-to-regexp": ">=8.4.0",
+      "express>path-to-regexp": "0.1.12",
       "node-forge": ">=1.4.0",
       "fast-uri": ">=3.1.2"
     }
