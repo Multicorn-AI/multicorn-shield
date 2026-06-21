@@ -35,6 +35,12 @@ import {
   CODING_CLIENTS,
   type CodingClient,
 } from "../proxy/config.js";
+import {
+  buildLocalProxySpawnCommand,
+  formatLocalProxyStartError,
+  LOCAL_PROXY_READY_MAX_POLLS,
+  LOCAL_PROXY_READY_POLL_MS,
+} from "./local-proxy-start.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -520,7 +526,7 @@ function startFsServerDetached(realDir: string, port: number): ChildProcess {
 }
 
 // ---------------------------------------------------------------------------
-// Start local proxy (multicorn-proxy)
+// Start local proxy (dist/server.js)
 // ---------------------------------------------------------------------------
 
 /**
@@ -533,19 +539,17 @@ function startLocalProxyDetached(port: number, apiBaseUrl: string): ChildProcess
   const logFile = join(PIDFILE_DIR, "proxy.log");
   const out = openSync(logFile, "a");
   const err = openSync(logFile, "a");
-  const child = spawn("npx", ["multicorn-proxy"], {
+  const { executable, args, env: proxyEnv } = buildLocalProxySpawnCommand(port, apiBaseUrl);
+  const child = spawn(executable, [...args], {
     stdio: ["ignore", out, err],
     detached: true,
     env: {
       ...process.env,
-      PORT: String(port),
-      HOST: "127.0.0.1",
-      SHIELD_API_BASE_URL: apiBaseUrl,
+      ...proxyEnv,
       // SAFETY: blanket-allow for private targets is acceptable ONLY because
       // this is a local single-user proxy. The only registered target is the
       // filesystem server on the same machine. Do NOT copy this pattern to a
       // multi-tenant or hosted proxy deployment.
-      ALLOW_PRIVATE_TARGETS: "true",
     },
   });
   child.unref();
@@ -588,9 +592,12 @@ async function ensureProxy(proxyPort: number, apiBaseUrl: string): Promise<Ensur
     );
   }
 
+  const logFile = join(PIDFILE_DIR, "proxy.log");
   const child = startLocalProxyDetached(proxyPort, apiBaseUrl);
-  for (let i = 0; i < 30; i++) {
-    await sleep(500);
+
+  for (let i = 0; i < LOCAL_PROXY_READY_MAX_POLLS; i++) {
+    await sleep(LOCAL_PROXY_READY_POLL_MS);
+    if (child.exitCode !== null || child.signalCode !== null) break;
     if (await probeProxyHealth(proxyPort)) {
       if (child.pid !== undefined) {
         writeJsonFile(PROXY_REGISTRY, { pid: child.pid, port: proxyPort });
@@ -604,9 +611,8 @@ async function ensureProxy(proxyPort: number, apiBaseUrl: string): Promise<Ensur
   } catch {
     // ignore
   }
-  throw new Error(
-    `Could not start the local proxy on port ${String(proxyPort)}. Check the log at ${join(PIDFILE_DIR, "proxy.log")}.`,
-  );
+  const childExited = child.exitCode !== null || child.signalCode !== null;
+  throw new Error(formatLocalProxyStartError(proxyPort, logFile, childExited, child.exitCode));
 }
 
 interface EnsureFsResult {
@@ -1447,3 +1453,6 @@ function promptLine(question: string): Promise<string> {
     });
   });
 }
+
+/** @internal Exposed for unit tests only. */
+export { ensureProxy as ensureProxyForTests };

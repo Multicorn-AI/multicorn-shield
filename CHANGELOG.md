@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `files` now starts the local proxy by spawning the bundled `dist/server.js` entry directly (with `PORT`, `SHIELD_API_BASE_URL`, and `ALLOW_PRIVATE_TARGETS`), instead of invoking the deprecated `multicorn-proxy` CLI alias. First-run setup works when no proxy is already listening on the port.
 - Pinned transitive dependencies (`path-to-regexp`, `ws`, `hono`) via `pnpm.overrides` to clear high-severity audit advisories pulled in by `supergateway` and the MCP SDK.
 
 ## [1.10.0] - 2026-06-09

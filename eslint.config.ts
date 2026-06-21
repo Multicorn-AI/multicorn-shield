@@ -82,11 +82,13 @@ export default tseslint.config(
       "coverage/",
       "node_modules/",
       "docs/",
+      "vendor/",
       "eslint.config.ts",
       "tsup.config.ts",
       /* Packaged .mcpb output; not part of tsconfig project */
       "extension-pack/**",
       "scripts/multicorn-ops/**",
+      "scripts/stage-local-proxy-server.mjs",
       /* Claude Code plugin hooks: plain Node scripts, not part of tsconfig */
       "plugins/**/hooks/**/*.js",
       "plugins/**/hooks/**/*.cjs",
