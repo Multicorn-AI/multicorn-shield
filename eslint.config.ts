@@ -92,6 +92,7 @@ export default tseslint.config(
       /* Claude Code plugin hooks: plain Node scripts, not part of tsconfig */
       "plugins/**/hooks/**/*.js",
       "plugins/**/hooks/**/*.cjs",
+      "src/commands/__fixtures__/**",
     ],
   },
 );

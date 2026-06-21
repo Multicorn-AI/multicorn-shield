@@ -1,11 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { tmpdir } from "node:os";
 
-const testMulticornHome = join(tmpdir(), `shield-files-proxy-test-${String(process.pid)}`);
-process.env["MULTICORN_HOME"] = testMulticornHome;
+const testMulticornHome = vi.hoisted(() => {
+  const dir = `/tmp/shield-files-proxy-test-${String(process.pid)}`;
+  process.env["MULTICORN_HOME"] = dir;
+  return dir;
+});
 
 vi.mock("node:net", async (importOriginal) => {
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- vitest importOriginal generic
@@ -34,23 +36,27 @@ vi.mock("node:child_process", async (importOriginal) => {
 vi.mock("./local-proxy-start.js", async (importOriginal) => {
   // eslint-disable-next-line @typescript-eslint/consistent-type-imports -- vitest importOriginal generic
   const actual = await importOriginal<typeof import("./local-proxy-start.js")>();
+  const fakeServerEntry = join(import.meta.dirname, "__fixtures__", "fake-server.js");
   return {
     ...actual,
     LOCAL_PROXY_READY_MAX_POLLS: 2,
     LOCAL_PROXY_READY_POLL_MS: 1,
-    buildLocalProxySpawnCommand: vi.fn(actual.buildLocalProxySpawnCommand),
-    resolveLocalProxyServerEntry: vi.fn(() =>
-      join(import.meta.dirname, "__fixtures__", "fake-server.js"),
+    buildLocalProxySpawnCommand: vi.fn((port: number, apiBaseUrl: string) =>
+      actual.buildLocalProxySpawnCommand(port, apiBaseUrl, process.execPath, fakeServerEntry),
     ),
   };
 });
 
 import { spawn } from "node:child_process";
-import { ensureProxyForTests } from "./files.js";
 
 describe("ensureProxy start failure", () => {
   let mcpJsonPath: string;
+  let ensureProxyForTests: (proxyPort: number, apiBaseUrl: string) => Promise<unknown>;
   const originalMulticornHome = process.env["MULTICORN_HOME"];
+
+  beforeAll(async () => {
+    ({ ensureProxyForTests } = await import("./files.js"));
+  });
 
   beforeEach(() => {
     mkdirSync(testMulticornHome, { recursive: true });
