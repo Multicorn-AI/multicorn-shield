@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
-## [Unreleased]
+## [1.11.1] - 2026-06-22
 
 ### Fixed
 
