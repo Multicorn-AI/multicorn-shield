@@ -15,21 +15,60 @@ export const LOCAL_PROXY_READY_POLL_MS = 500;
 /** Max polls before giving up (~15s at 500ms). */
 export const LOCAL_PROXY_READY_MAX_POLLS = 30;
 
-function multicornShieldPackageRoot(): string {
+const NOT_FOUND_MESSAGE =
+  "Local proxy server entry (dist/server.js) not found. Reinstall multicorn-shield or run pnpm build.";
+
+/**
+ * Walks up from [moduleDir] to find the nearest package.json whose name is multicorn-shield.
+ * Falls back to resolving multicorn-shield via createRequire for installed-dependency layouts.
+ */
+export function findMulticornShieldPackageRoot(
+  moduleDir: string = dirname(fileURLToPath(import.meta.url)),
+): string {
+  let current = moduleDir;
+  for (;;) {
+    const pkgPath = join(current, "package.json");
+    if (existsSync(pkgPath)) {
+      try {
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: string };
+        if (pkg.name === "multicorn-shield") {
+          return current;
+        }
+      } catch {
+        // Malformed package.json at this level; keep walking.
+      }
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+
   try {
     const req = createRequire(import.meta.url);
     return dirname(req.resolve("multicorn-shield/package.json"));
   } catch {
-    return join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    throw new Error(NOT_FOUND_MESSAGE);
   }
+}
+
+export interface ResolveLocalProxyServerEntryOptions {
+  /** Directory containing the calling module file (for tests and custom layouts). */
+  readonly moduleDir?: string;
 }
 
 /**
  * Resolves the built proxy server entry (`dist/server.js`) shipped with multicorn-shield,
  * or from a linked `multicorn-proxy` install during monorepo development.
  */
-export function resolveLocalProxyServerEntry(): string {
-  const candidates: string[] = [join(multicornShieldPackageRoot(), "dist", "server.js")];
+export function resolveLocalProxyServerEntry(
+  options?: ResolveLocalProxyServerEntryOptions,
+): string {
+  const moduleDir = options?.moduleDir ?? dirname(fileURLToPath(import.meta.url));
+  const candidates: string[] = [
+    join(findMulticornShieldPackageRoot(moduleDir), "dist", "server.js"),
+  ];
 
   try {
     const req = createRequire(import.meta.url);
@@ -43,9 +82,7 @@ export function resolveLocalProxyServerEntry(): string {
     if (existsSync(path)) return path;
   }
 
-  throw new Error(
-    "Local proxy server entry (dist/server.js) not found. Reinstall multicorn-shield or run pnpm build.",
-  );
+  throw new Error(NOT_FOUND_MESSAGE);
 }
 
 export interface LocalProxySpawnEnv {
