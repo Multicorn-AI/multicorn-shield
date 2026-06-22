@@ -1,8 +1,13 @@
 import { defineConfig } from "tsup";
 import { execFileSync, execSync } from "node:child_process";
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-export default defineConfig([
+const packageRoot = fileURLToPath(new URL(".", import.meta.url));
+const siblingProxyServerEntry = join(packageRoot, "../multicorn-proxy/src/server.ts");
+
+const configs: ReturnType<typeof defineConfig> extends infer C ? C[] : never = [
   {
     entry: ["src/index.ts"],
     format: ["esm", "cjs"],
@@ -190,4 +195,38 @@ export default defineConfig([
     outDir: "dist",
     platform: "browser",
   },
-]);
+];
+
+if (existsSync(siblingProxyServerEntry)) {
+  configs.push({
+    entry: { server: siblingProxyServerEntry },
+    format: ["esm"],
+    dts: false,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    treeshake: true,
+    minify: false,
+    outDir: "dist",
+    platform: "node",
+    target: "node20",
+    bundle: true,
+    noExternal: [/^multicorn-shield(\/|$)/],
+    define: {
+      __PROXY_VERSION__: JSON.stringify(
+        (() => {
+          try {
+            const proxyPkg = JSON.parse(
+              readFileSync(join(packageRoot, "../multicorn-proxy/package.json"), "utf8"),
+            ) as { version?: string };
+            return typeof proxyPkg.version === "string" ? proxyPkg.version : "0.0.0";
+          } catch {
+            return "0.0.0";
+          }
+        })(),
+      ),
+    },
+  });
+}
+
+export default defineConfig(configs);

@@ -60,7 +60,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node scripts/stage-local-proxy-server.mjs",
     "dev": "tsup --watch",
     "lint": "eslint . --no-warn-ignored && prettier --check .",
     "lint:fix": "eslint --fix . --no-warn-ignored && prettier --write .",

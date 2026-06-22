@@ -1,0 +1,2 @@
+Warning: multicorn-proxy is deprecated. Use multicorn-shield instead.
+Usage: multicorn-shield [options] [command]
