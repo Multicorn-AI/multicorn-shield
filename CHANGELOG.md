@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [Unreleased]
+
+### Fixed
+
+- The local proxy server entry is now resolved by locating the multicorn-shield package root rather than a fixed relative climb, so `files` works from source, bundled dist, and npm installs.
+
 ## [1.11.0] - 2026-06-18
 
 ### Added
