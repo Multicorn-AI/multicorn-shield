@@ -2018,6 +2018,10 @@ describe("config file parsing", () => {
 
     expect(result).toBe("updated");
     const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const plugins = written["plugins"] as Record<string, unknown>;
+    const entries = plugins["entries"] as Record<string, unknown>;
+    const shield = entries["multicorn-shield"] as Record<string, unknown>;
+    expect(shield["agentName"]).toBe("my-agent");
     const agents = written["agents"] as Record<string, unknown>;
     expect(agents["list"]).toEqual([{ id: "my-agent", name: "my-agent" }]);
   });

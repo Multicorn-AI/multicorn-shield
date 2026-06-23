@@ -568,25 +568,20 @@ export async function updateOpenClawConfigIfPresent(
     return "parse-error";
   }
 
-  let hooks = obj["hooks"] as Record<string, unknown> | undefined;
-  if (hooks === undefined || typeof hooks !== "object") {
-    hooks = {};
-    obj["hooks"] = hooks;
+  let plugins = obj["plugins"] as Record<string, unknown> | undefined;
+  if (plugins === undefined || typeof plugins !== "object") {
+    plugins = {};
+    obj["plugins"] = plugins;
   }
-  let internal = hooks["internal"] as Record<string, unknown> | undefined;
-  if (internal === undefined || typeof internal !== "object") {
-    internal = { enabled: true, entries: {} };
-    hooks["internal"] = internal;
+  let pluginEntries = plugins["entries"] as Record<string, unknown> | undefined;
+  if (pluginEntries === undefined || typeof pluginEntries !== "object") {
+    pluginEntries = {};
+    plugins["entries"] = pluginEntries;
   }
-  let entries = internal["entries"] as Record<string, unknown> | undefined;
-  if (entries === undefined || typeof entries !== "object") {
-    entries = {};
-    internal["entries"] = entries;
-  }
-  let shield = entries["multicorn-shield"] as Record<string, unknown> | undefined;
+  let shield = pluginEntries["multicorn-shield"] as Record<string, unknown> | undefined;
   if (shield === undefined || typeof shield !== "object") {
-    shield = { enabled: true, env: {} };
-    entries["multicorn-shield"] = shield;
+    shield = { enabled: true };
+    pluginEntries["multicorn-shield"] = shield;
   }
   let env = shield["env"] as Record<string, unknown> | undefined;
   if (env === undefined || typeof env !== "object") {
@@ -596,7 +591,7 @@ export async function updateOpenClawConfigIfPresent(
   env["MULTICORN_API_KEY"] = apiKey;
   env["MULTICORN_BASE_URL"] = baseUrl;
   if (agentName !== undefined) {
-    env["MULTICORN_AGENT_NAME"] = agentName;
+    shield["agentName"] = agentName;
 
     const agentsList = obj["agents"] as Record<string, unknown> | undefined;
     const list = agentsList?.["list"];
