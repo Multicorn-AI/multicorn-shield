@@ -900,6 +900,49 @@ describe("resolveAgentName", () => {
   it("falls back to openclaw when sessionKey has empty second segment", () => {
     expect(resolveAgentName("agent::main", null)).toBe("openclaw");
   });
+
+  it("uses pluginConfig agentName instead of the openclaw ghost fallback", async () => {
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: { agentName: "configured-agent" },
+    } as unknown as OpenClawPluginApi;
+
+    vi.stubEnv("MULTICORN_API_KEY", "mcs_test_key_123456");
+    readFileSyncMock.mockImplementation(() => {
+      throw new Error("ENOENT");
+    });
+
+    void plugin.register?.(api);
+
+    findOrRegisterAgentMock.mockResolvedValue({
+      id: "agent-1",
+      name: "configured-agent",
+    });
+    fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
+    checkActionPermissionMock.mockResolvedValue({ status: "approved" });
+
+    await beforeToolCall(
+      makeBeforeEvent("exec"),
+      makeCtx({ sessionKey: "agent::main", agentId: "" }),
+    );
+
+    expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
+      "configured-agent",
+      expect.any(String),
+      expect.any(String),
+      expect.anything(),
+    );
+    expect(findOrRegisterAgentMock).not.toHaveBeenCalledWith(
+      "openclaw",
+      expect.any(String),
+      expect.any(String),
+      expect.anything(),
+    );
+  });
 });
 
 describe("agent name pinning", () => {
