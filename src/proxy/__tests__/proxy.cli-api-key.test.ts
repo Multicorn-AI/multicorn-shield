@@ -291,6 +291,7 @@ describe("resolveWrapConfig", () => {
       filesForeground: false,
       filesStatus: false,
       filesRestart: false,
+      filesRespawnProxy: false,
       ...overrides,
     };
   }

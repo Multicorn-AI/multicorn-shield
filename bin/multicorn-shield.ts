@@ -63,6 +63,8 @@ export interface CliArgs {
   readonly filesStatus: boolean;
   /** `files` subcommand: restart sub-action (stop then start). */
   readonly filesRestart: boolean;
+  /** `files` subcommand: internal flag to respawn the shared proxy on start. */
+  readonly filesRespawnProxy: boolean;
 }
 
 export function parseArgs(argv: readonly string[]): CliArgs {
@@ -86,6 +88,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let filesForeground = false;
   let filesStatus = false;
   let filesRestart = false;
+  let filesRespawnProxy = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -139,6 +142,8 @@ export function parseArgs(argv: readonly string[]): CliArgs {
           filesStop = true;
         } else if (token === "--foreground") {
           filesForeground = true;
+        } else if (token === "--respawn-proxy") {
+          filesRespawnProxy = true;
         } else if (token === "--detach") {
           // Legacy flag (now default behavior) - ignored
         } else if (token === "stop") {
@@ -276,6 +281,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     filesForeground,
     filesStatus,
     filesRestart,
+    filesRespawnProxy,
   };
 }
 
@@ -390,6 +396,7 @@ export async function runCli(): Promise<void> {
         foreground: true,
         status: true,
         restart: false,
+        respawnProxy: false,
       });
       return;
     }
@@ -417,6 +424,7 @@ export async function runCli(): Promise<void> {
       foreground: cli.filesForeground,
       status: false,
       restart: cli.filesRestart,
+      respawnProxy: cli.filesRespawnProxy,
     });
     return;
   }
