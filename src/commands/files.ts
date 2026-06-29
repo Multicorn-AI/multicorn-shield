@@ -25,6 +25,7 @@ import { createInterface } from "node:readline";
 
 import {
   loadConfig,
+  readBaseUrlFromConfig,
   DEFAULT_SHIELD_API_BASE_URL,
   isAllowedShieldApiBaseUrl,
   detectInstalledClients,
@@ -60,6 +61,8 @@ export interface FilesCommandOptions {
   // Stop (if running) then start again. Start re-derives the agent's MCP config
   // entry every run, so restart is the universal remedy for a stale on-disk entry.
   readonly restart: boolean;
+  /** When true, kill and respawn the shared proxy even if one is already healthy. */
+  readonly respawnProxy: boolean;
 }
 
 interface PidfileData {
@@ -74,6 +77,9 @@ interface PidfileData {
   readonly fsPort: number;
   readonly proxyPort: number;
 }
+
+/** Legacy pidfiles stored the supervisor pid under `pid` before supervisorPid existed. */
+type PidfileDataOnDisk = PidfileData & { readonly pid?: number };
 
 // One shared proxy across all local agents.
 interface ProxyRegistry {
@@ -145,10 +151,23 @@ function readPidfile(agent: string): PidfileData | null {
   const p = pidfilePath(agent);
   if (!existsSync(p)) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as PidfileData;
+    return JSON.parse(readFileSync(p, "utf8")) as PidfileDataOnDisk;
   } catch {
     return null;
   }
+}
+
+function supervisorPidFromSession(data: PidfileDataOnDisk): number | undefined {
+  if (typeof data.supervisorPid === "number") return data.supervisorPid;
+  if (typeof data.pid === "number") return data.pid;
+  return undefined;
+}
+
+/** True only when the pidfile's supervisor process is still alive. */
+export function isAgentSessionRunning(data: PidfileData | null): boolean {
+  if (data === null) return false;
+  const pid = supervisorPidFromSession(data as PidfileDataOnDisk);
+  return typeof pid === "number" && isProcessAlive(pid);
 }
 
 function removePidfile(agent: string): void {
@@ -198,7 +217,7 @@ function runStatus(): void {
 
   process.stderr.write("Active sessions:\n\n");
   for (const s of sessions) {
-    const supervisorAlive = typeof s.supervisorPid === "number" && isProcessAlive(s.supervisorPid);
+    const supervisorAlive = isAgentSessionRunning(s);
     const fsEntry = fsReg[s.dir];
     const fsAlive = fsEntry !== undefined && isProcessAlive(fsEntry.pid);
     const proxyAlive =
@@ -400,9 +419,7 @@ async function withResourceLock<T>(fn: () => T | Promise<T>): Promise<T> {
 
 /** Agents whose supervisor process is still alive. A dead supervisor pins nothing. */
 function liveAgents(): PidfileData[] {
-  return listAllPidfiles().filter(
-    (p) => typeof p.supervisorPid === "number" && isProcessAlive(p.supervisorPid),
-  );
+  return listAllPidfiles().filter((p) => isAgentSessionRunning(p));
 }
 
 export function agentsReferencingProxy(
@@ -455,30 +472,50 @@ interface ResolvedConfig {
   readonly baseUrl: string;
 }
 
+/**
+ * Shield API base URL for `files`: `--base-url` > `MULTICORN_BASE_URL` >
+ * config.json `baseUrl` > production default.
+ */
+export async function resolveBaseUrl(explicitBaseUrl?: string): Promise<string> {
+  if (explicitBaseUrl !== undefined && explicitBaseUrl.trim().length > 0) {
+    return explicitBaseUrl.trim();
+  }
+
+  const envBaseUrl = process.env["MULTICORN_BASE_URL"];
+  if (typeof envBaseUrl === "string" && envBaseUrl.trim().length > 0) {
+    return envBaseUrl.trim();
+  }
+
+  const config = await loadConfig();
+  if (config !== null && config.baseUrl.length > 0) {
+    return config.baseUrl;
+  }
+
+  const fromFile = await readBaseUrlFromConfig();
+  if (fromFile !== undefined && fromFile.length > 0) {
+    return fromFile;
+  }
+
+  return DEFAULT_SHIELD_API_BASE_URL;
+}
+
 async function resolveConfig(opts: FilesCommandOptions): Promise<ResolvedConfig> {
+  const baseUrl = await resolveBaseUrl(opts.baseUrl);
+
   // Priority: --api-key > env > config file
   const fromFlag = opts.apiKey;
   if (fromFlag && fromFlag.length > 0) {
-    return {
-      apiKey: fromFlag,
-      baseUrl: opts.baseUrl ?? DEFAULT_SHIELD_API_BASE_URL,
-    };
+    return { apiKey: fromFlag, baseUrl };
   }
 
   const envKey = process.env["MULTICORN_API_KEY"];
   if (typeof envKey === "string" && envKey.length > 0) {
-    return {
-      apiKey: envKey,
-      baseUrl: opts.baseUrl ?? DEFAULT_SHIELD_API_BASE_URL,
-    };
+    return { apiKey: envKey, baseUrl };
   }
 
   const config = await loadConfig();
   if (config !== null) {
-    return {
-      apiKey: config.apiKey,
-      baseUrl: opts.baseUrl ?? config.baseUrl,
-    };
+    return { apiKey: config.apiKey, baseUrl };
   }
 
   process.stderr.write(
@@ -568,8 +605,34 @@ interface EnsureProxyResult {
   readonly managed: boolean;
 }
 
-async function ensureProxy(proxyPort: number, apiBaseUrl: string): Promise<EnsureProxyResult> {
-  if (await probeProxyHealth(proxyPort)) {
+interface EnsureProxyOptions {
+  readonly forceRespawn?: boolean;
+}
+
+async function ensureProxy(
+  proxyPort: number,
+  apiBaseUrl: string,
+  options?: EnsureProxyOptions,
+): Promise<EnsureProxyResult> {
+  const forceRespawn = options?.forceRespawn === true;
+
+  if (forceRespawn) {
+    const reg = readProxyRegistry();
+    if (reg !== null && reg.port === proxyPort && isProcessAlive(reg.pid)) {
+      killWithEscalation(reg.pid, true);
+    }
+    if (reg !== null && reg.port === proxyPort) {
+      try {
+        unlinkSync(PROXY_REGISTRY);
+      } catch {
+        // ignore
+      }
+    }
+    for (let i = 0; i < 20; i++) {
+      if (!(await isPortListening(proxyPort))) break;
+      await sleep(100);
+    }
+  } else if (await probeProxyHealth(proxyPort)) {
     const reg = readProxyRegistry();
     const managed = reg !== null && reg.port === proxyPort && isProcessAlive(reg.pid);
     return { reused: true, managed };
@@ -934,8 +997,9 @@ async function runStop(agent: string): Promise<void> {
   // sees the first already gone.
   await withResourceLock(() => {
     // Stop this agent's supervisor (the heartbeat process).
-    if (typeof data.supervisorPid === "number" && isProcessAlive(data.supervisorPid)) {
-      killWithEscalation(data.supervisorPid);
+    const supervisorPid = supervisorPidFromSession(data as PidfileDataOnDisk);
+    if (typeof supervisorPid === "number" && isProcessAlive(supervisorPid)) {
+      killWithEscalation(supervisorPid);
     }
     removePidfile(agent);
 
@@ -991,6 +1055,7 @@ async function runRestart(opts: FilesCommandOptions): Promise<void> {
     stop: false,
     status: false,
     restart: false,
+    respawnProxy: true,
     foreground: false,
   });
 }
@@ -1009,9 +1074,7 @@ async function runDetached(opts: FilesCommandOptions): Promise<void> {
   // Check if already running (supervisor alive for this agent).
   const existing = readPidfile(opts.agent);
   if (existing !== null) {
-    const alive =
-      typeof existing.supervisorPid === "number" && isProcessAlive(existing.supervisorPid);
-    if (alive) {
+    if (isAgentSessionRunning(existing)) {
       process.stderr.write(
         `Already running for agent "${opts.agent}" (fs :${String(existing.fsPort)}, proxy :${String(existing.proxyPort)}).\n` +
           `Stop with: npx multicorn-shield files stop --agent ${opts.agent}\n`,
@@ -1027,6 +1090,7 @@ async function runDetached(opts: FilesCommandOptions): Promise<void> {
   if (opts.proxyPort !== undefined) args.push("--proxy-port", String(opts.proxyPort));
   if (opts.apiKey !== undefined) args.push("--api-key", opts.apiKey);
   if (opts.baseUrl !== undefined) args.push("--base-url", opts.baseUrl);
+  if (opts.respawnProxy) args.push("--respawn-proxy");
   if (opts.client !== undefined) args.push("--client", opts.client);
 
   // Use the same script that was invoked (process.argv[1])
@@ -1136,10 +1200,7 @@ export async function runFilesCommand(opts: FilesCommandOptions): Promise<void> 
   // Already running for this agent?
   const existingPidfile = readPidfile(opts.agent);
   if (existingPidfile !== null) {
-    const supervisorAlive =
-      typeof existingPidfile.supervisorPid === "number" &&
-      isProcessAlive(existingPidfile.supervisorPid);
-    if (supervisorAlive) {
+    if (isAgentSessionRunning(existingPidfile)) {
       process.stderr.write(
         `A session for agent "${opts.agent}" is already running. ` +
           `Run 'files stop --agent ${opts.agent}' first, or use a different --agent name.\n`,
@@ -1157,7 +1218,9 @@ export async function runFilesCommand(opts: FilesCommandOptions): Promise<void> 
   let fsReused: boolean;
   try {
     const ensured = await withResourceLock(async () => {
-      const proxyRes = await ensureProxy(proxyPort, config.baseUrl);
+      const proxyRes = await ensureProxy(proxyPort, config.baseUrl, {
+        forceRespawn: opts.respawnProxy,
+      });
       const fsRes = await ensureFsServer(realDir, opts.port);
       writePidfile({
         agent: opts.agent,
@@ -1455,4 +1518,7 @@ function promptLine(question: string): Promise<string> {
 }
 
 /** @internal Exposed for unit tests only. */
-export { ensureProxy as ensureProxyForTests };
+export {
+  ensureProxy as ensureProxyForTests,
+  supervisorPidFromSession as supervisorPidFromSessionForTests,
+};
