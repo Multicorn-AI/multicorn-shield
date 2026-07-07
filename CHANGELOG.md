@@ -11,13 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-07-06
+
 ### Fixed
 
-- OpenClaw init now writes manifest-valid plugin config under `plugins.entries.multicorn-shield.config` instead of the rejected `env` wrapper shape. Plaintext API keys are not written to `openclaw.json`.
+- Local proxy no longer crashes on startup with "pathRegexp is not a function": pinned express 4's nested path-to-regexp to the patched 0.1.x line so the supergateway filesystem gateway starts cleanly.
+- `files` now threads the resolved base URL (--base-url > MULTICORN_BASE_URL > config baseUrl > default) into the spawned proxy's SHIELD_API_BASE_URL, so a local-minted API key is validated against the correct service instead of defaulting to production.
+- `files restart` now respawns the shared proxy instead of reusing a stale one, so a changed base URL takes effect.
+- `files` now reaps a stale pid file when its process is no longer running, instead of refusing to start with "already running" when the port is free.
+- `init` base-URL precedence now matches `files` (--base-url > MULTICORN_BASE_URL > config baseUrl > default), so MULTICORN_BASE_URL overrides a stale stored base URL.
+- `init` "Use this key? (Y/n)" prompt now accepts a pasted `mcs_` key as a replacement key rather than silently keeping the existing one.
+- OpenClaw plugin config is now written in the shape OpenClaw's schema accepts (apiKey/baseUrl/agentName/failMode as direct properties, no env wrapper), fixing "Unrecognized keys: env, agentName" on load.
+- Corrected the OpenClaw auth-error message to point at the valid config path.
+
+### Changed
+
+- The interactive platform picker is now native-only; MCP/hosted agents are directed to the dashboard. Selecting a native platform proceeds straight to native setup with no redundant native-vs-hosted prompt. Explicit `--client` still configures any supported platform.
 
 ### Security
 
-- OpenClaw plugin `failMode` is read from config (default `closed`). Init writes `failMode: closed` so unreachable Shield API blocks tool calls unless an operator explicitly sets `open`.
+- Native governance hooks and the OpenClaw plugin now fail closed: when the Shield API cannot be reached or authentication fails, tool calls are blocked (with an actionable message) instead of being silently allowed. `failMode` is honoured from configuration and defaults to closed.
+- The OpenClaw plugin config now prefers a `${MULTICORN_API_KEY}` reference over embedding the raw API key in `openclaw.json`.
 
 ## [1.11.1] - 2026-06-22
 
