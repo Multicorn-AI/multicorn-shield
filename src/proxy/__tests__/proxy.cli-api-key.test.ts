@@ -113,6 +113,19 @@ describe("parseArgs --verbose and --debug", () => {
   });
 });
 
+describe("parseArgs --integration", () => {
+  it("parses hosted integration for init", () => {
+    const result = parseArgs(["node", "multicorn-shield", "init", "--integration", "hosted"]);
+    expect(result.subcommand).toBe("init");
+    expect(result.initIntegration).toBe("hosted");
+  });
+
+  it("defaults initIntegration to undefined", () => {
+    const result = parseArgs(["node", "multicorn-shield", "init"]);
+    expect(result.initIntegration).toBeUndefined();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // parseArgs: --wrap flag/command ordering
 // ---------------------------------------------------------------------------
@@ -282,6 +295,7 @@ describe("resolveWrapConfig", () => {
       agentName: "",
       deleteAgentName: "",
       apiKey: undefined,
+      initIntegration: undefined,
       verbose: false,
       filesDir: "",
       filesPort: undefined,

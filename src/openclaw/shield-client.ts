@@ -214,7 +214,8 @@ function handleHttpError(
       authErrorLogged = true;
       const errorMsg =
         "[multicorn-shield] ERROR: Authentication failed. Your MULTICORN_API_KEY is invalid or expired. " +
-        "Check the key in your OpenClaw config (~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.env.MULTICORN_API_KEY). " +
+        "Check the key in ~/.multicorn/config.json (from npx multicorn-shield init) or " +
+        "~/.openclaw/openclaw.json → plugins.entries.multicorn-shield.config.apiKey. " +
         "Get a valid key from your Multicorn dashboard (Settings → API Keys).";
       logger?.error(errorMsg);
       // Also log to stderr for visibility in gateway console

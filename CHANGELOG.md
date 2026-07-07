@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `version` in `package.json` before publishing to npm.
 
+## [Unreleased]
+
+### Fixed
+
+- OpenClaw init now writes manifest-valid plugin config under `plugins.entries.multicorn-shield.config` instead of the rejected `env` wrapper shape. Plaintext API keys are not written to `openclaw.json`.
+
+### Security
+
+- OpenClaw plugin `failMode` is read from config (default `closed`). Init writes `failMode: closed` so unreachable Shield API blocks tool calls unless an operator explicitly sets `open`.
+
 ## [1.11.1] - 2026-06-22
 
 ### Fixed

@@ -101,6 +101,10 @@ describe("findAgentByName", () => {
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("Authentication failed"));
+    const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(stderrText).toContain("plugins.entries.multicorn-shield.config.apiKey");
+    expect(stderrText).toContain(".multicorn/config.json");
+    expect(stderrText).not.toContain("env.MULTICORN_API_KEY");
   });
 
   it("logs auth error once on 403 and returns null", async () => {

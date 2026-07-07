@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { writeLocalMcpEntry } from "./config.js";
+import { CODING_CLIENTS, writeLocalMcpEntry } from "./config.js";
 
 // Real-filesystem tests (no fs mock) for the on-disk MCP config rewrite that
 // `files start`/`files restart` runs on every start. We use the `copilot` client
@@ -153,5 +153,13 @@ describe("writeLocalMcpEntry on-disk rewrite", () => {
     const written = await writeLocalMcpEntry("copilot", "demo", PROXY_URL, "", workspace);
     expect(written).toBeNull();
     expect(await readFile(configPath, "utf8")).toBe(original);
+  });
+});
+
+describe("files --client registry", () => {
+  it("still accepts cursor and other MCP clients for explicit --client writes", () => {
+    expect(CODING_CLIENTS).toContain("cursor");
+    expect(CODING_CLIENTS).toContain("copilot");
+    expect(CODING_CLIENTS).toContain("cline");
   });
 });

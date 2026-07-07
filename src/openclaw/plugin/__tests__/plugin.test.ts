@@ -346,8 +346,7 @@ describe("beforeToolCall", () => {
     expect(findOrRegisterAgentMock).not.toHaveBeenCalled();
   });
 
-  it("blocks when Shield API is unreachable (fail-closed only)", async () => {
-    vi.stubEnv("MULTICORN_FAIL_MODE", "open");
+  it("blocks when Shield API is unreachable and failMode is closed (default)", async () => {
     resetState();
 
     findOrRegisterAgentMock.mockResolvedValue(null);
@@ -355,16 +354,43 @@ describe("beforeToolCall", () => {
 
     const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
-    // failMode is always closed; MULTICORN_FAIL_MODE is ignored
     expect(result).toEqual({
       block: true,
       blockReason: expect.stringContaining("fail-closed") as string,
     });
   });
 
+  it("allows tool calls when API is unreachable and plugin failMode is open", async () => {
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: { failMode: "open" },
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
+
+    findOrRegisterAgentMock.mockResolvedValue(null);
+    loadCachedScopesMock.mockResolvedValue(null);
+
+    const result = await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
+
+    expect(result).toBeUndefined();
+  });
+
   it("returns { block: true } in fail-closed mode when Shield API is unreachable", async () => {
-    vi.stubEnv("MULTICORN_FAIL_MODE", "closed");
-    resetState();
+    const api = {
+      id: "multicorn-shield",
+      name: "Multicorn Shield",
+      source: "test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+      on: vi.fn(),
+      pluginConfig: { failMode: "closed" },
+    } as unknown as OpenClawPluginApi;
+
+    void plugin.register?.(api);
 
     findOrRegisterAgentMock.mockResolvedValue(null);
     loadCachedScopesMock.mockResolvedValue(null);
@@ -655,21 +681,32 @@ describe("config fallback", () => {
     );
   });
 
-  it("env vars take priority over multicorn config", async () => {
+  it("~/.multicorn/config.json apiKey wins over process.env", async () => {
     const api = {
       id: "multicorn-shield",
       name: "Multicorn Shield",
       source: "test",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       on: vi.fn(),
-      pluginConfig: {}, // Empty plugin config
+      pluginConfig: {},
     } as unknown as OpenClawPluginApi;
 
     vi.stubEnv("MULTICORN_API_KEY", "mcs_env_key_67890");
     vi.stubEnv("MULTICORN_BASE_URL", "https://custom.api.multicorn.ai");
 
+    const multicornConfig = {
+      apiKey: "mcs_multicorn_key_99999",
+      baseUrl: "https://api.multicorn.ai",
+    };
+    const multicornConfigPath = path.join("/home/test", ".multicorn", "config.json");
+    readFileSyncMock.mockImplementation((filePath: string) => {
+      if (filePath === multicornConfigPath) {
+        return JSON.stringify(multicornConfig);
+      }
+      throw new Error(`Unexpected file path: ${filePath}`);
+    });
+
     void plugin.register?.(api);
-    resetState();
 
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
@@ -677,12 +714,11 @@ describe("config fallback", () => {
 
     await beforeToolCall(makeBeforeEvent("exec"), makeCtx());
 
-    // Env wins; file may be read at startup but env key is used
     expect(findOrRegisterAgentMock).toHaveBeenCalledWith(
       "main",
-      "mcs_env_key_67890",
-      "https://custom.api.multicorn.ai",
-      undefined,
+      "mcs_multicorn_key_99999",
+      "https://api.multicorn.ai",
+      expect.anything(),
     );
   });
 
@@ -785,14 +821,14 @@ describe("config fallback", () => {
     expect(findOrRegisterAgentMock).not.toHaveBeenCalled();
   });
 
-  it("env vars take priority over multicorn config", async () => {
+  it("resolves plugin config ${MULTICORN_API_KEY} from env when config file is absent", async () => {
     const api = {
       id: "multicorn-shield",
       name: "Multicorn Shield",
       source: "test",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
       on: vi.fn(),
-      pluginConfig: {},
+      pluginConfig: { apiKey: "${MULTICORN_API_KEY}" },
     } as unknown as OpenClawPluginApi;
 
     vi.stubEnv("MULTICORN_API_KEY", "mcs_env_key_67890");
@@ -803,7 +839,6 @@ describe("config fallback", () => {
     });
 
     void plugin.register?.(api);
-    resetState();
 
     findOrRegisterAgentMock.mockResolvedValue({ id: "agent-1", name: "main" });
     fetchGrantedScopesMock.mockResolvedValue([{ service: "terminal", permissionLevel: "execute" }]);
@@ -815,7 +850,7 @@ describe("config fallback", () => {
       "main",
       "mcs_env_key_67890",
       "https://custom.api.multicorn.ai",
-      undefined,
+      expect.anything(),
     );
   });
 

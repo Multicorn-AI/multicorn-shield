@@ -9,7 +9,7 @@
     "properties": {
       "apiKey": {
         "type": "string",
-        "pattern": "^mcs_.{12,}$",
+        "pattern": "^(mcs_.{12,}|\\$\\{MULTICORN_API_KEY\\})$",
         "minLength": 16
       },
       "baseUrl": {
