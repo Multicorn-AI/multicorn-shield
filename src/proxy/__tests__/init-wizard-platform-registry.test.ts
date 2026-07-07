@@ -82,6 +82,7 @@ describe("INIT_WIZARD init picker", () => {
     );
   });
 });
+
 describe("INIT_WIZARD_PLATFORM_REGISTRY native section", () => {
   it("lists exactly the seven native-capable platforms", () => {
     const nativeSlugs = INIT_WIZARD_PLATFORM_REGISTRY.filter((e) => e.section === "native").map(
