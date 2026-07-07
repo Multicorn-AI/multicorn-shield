@@ -21,13 +21,15 @@ import {
   validateApiKey,
   runInit,
   updateOpenClawConfigIfPresent,
+  buildOpenClawShieldPluginConfig,
+  OPENCLAW_SHIELD_API_KEY_ENV_REF,
   updateClaudeDesktopConfig,
   getClaudeDesktopConfigPath,
-  initWizardSelectionNumberForSlug,
+  initWizardPickerSelectionNumberForSlug,
 } from "../config.js";
 
 function menuSel(slug: string): string {
-  return String(initWizardSelectionNumberForSlug(slug));
+  return String(initWizardPickerSelectionNumberForSlug(slug));
 }
 import { resolveAgentRecord, waitForConsent, deriveDashboardUrl } from "../consent.js";
 import { startMockMcpServer } from "../__fixtures__/mockMcpServer.js";
@@ -572,6 +574,110 @@ describe("config file parsing", () => {
     if (!config) throw new Error("expected config");
     expect(config.apiKey).toBe("mcs_existing_key1");
     expect(stderrBuffer).toContain("mcs_...key1");
+    expect(global.fetch).toHaveBeenCalled();
+  });
+
+  it("runInit accepts pasted mcs_ key at reuse prompt", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingConfig = JSON.stringify({
+      apiKey: "mcs_existing_key1",
+      baseUrl: "https://api.multicorn.ai",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(existingConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+
+    mockPrompts({
+      "Use this key": "mcs_pasted_newkey",
+      Select: menuSel("openclaw"),
+      "call this agent": "test-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.apiKey).toBe("mcs_pasted_newkey");
+    expect(global.fetch).toHaveBeenCalled();
+  });
+
+  it("runInit rejects invalid pasted key at reuse prompt and prompts for new key", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingConfig = JSON.stringify({
+      apiKey: "mcs_existing_key1",
+      baseUrl: "https://api.multicorn.ai",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(existingConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      .mockResolvedValue({ ok: true, status: 200 });
+    global.fetch = fetchMock;
+
+    mockPrompts({
+      "Use this key": "mcs_bad_paste12",
+      "API key": "mcs_valid_newkey",
+      Select: menuSel("openclaw"),
+      "call this agent": "test-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.apiKey).toBe("mcs_valid_newkey");
+    expect(stderrBuffer).toContain("That key was rejected");
+    expect(fetchMock).toHaveBeenCalled();
+  });
+
+  it("runInit falls through to prompt when existing key fails validation on reuse", async () => {
+    captureStderr();
+    writeFileMock.mockResolvedValue(undefined);
+    mkdirMock.mockResolvedValue(undefined);
+    const existingConfig = JSON.stringify({
+      apiKey: "mcs_stale_key123",
+      baseUrl: "https://api.multicorn.ai",
+    });
+    readFileMock.mockImplementation((path: string) => {
+      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
+      if (path.includes("config.json")) return Promise.resolve(existingConfig);
+      return Promise.reject(new Error("ENOENT"));
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 401 })
+      .mockResolvedValueOnce({ ok: true, status: 200 })
+      .mockResolvedValue({ ok: true, status: 200 });
+    global.fetch = fetchMock;
+
+    mockPrompts({
+      "Use this key": "y",
+      "API key": "mcs_fresh_key123",
+      Select: menuSel("openclaw"),
+      "call this agent": "test-agent",
+      "Connect another": "n",
+    });
+
+    const config = await runInit("https://api.multicorn.ai");
+
+    expect(config).not.toBeNull();
+    if (!config) throw new Error("expected config");
+    expect(config.apiKey).toBe("mcs_fresh_key123");
+    expect(stderrBuffer).toContain("Existing key is no longer valid");
   });
 
   it("runInit falls through to prompt when user declines existing key", async () => {
@@ -1015,71 +1121,31 @@ describe("config file parsing", () => {
     }
   });
 
-  it("runInit completes Cursor platform with proxy URL and Cursor next steps", async () => {
+  it("runInit shows dashboard pointer below the menu and rejects selection 8", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
     mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockImplementation((path: string) => {
-      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
-      const err = new Error("ENOENT") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      return Promise.reject(err);
-    });
-    global.fetch = vi.fn().mockImplementation((input: unknown) => {
-      const url = typeof input === "string" ? input : String(input);
-      if (url.includes("/api/v1/proxy/config")) {
-        return Promise.resolve({
-          ok: true,
-          status: 200,
-          json: () =>
-            Promise.resolve({
-              data: { proxy_url: "https://hosted.proxy.example/mcp" },
-            }),
-        });
-      }
-      return Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve({}),
-      });
-    });
+    readFileMock.mockRejectedValue(new Error("ENOENT"));
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    existsSyncMock.mockReturnValue(true);
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: menuSel("cursor"),
-      "call this agent": "cursor-agent",
-      "URL:": "https://upstream.example/mcp",
+      Select: ["8", menuSel("cline")],
+      "call this agent": "my-cline-agent",
       "Connect another": "n",
     });
 
-    const config = await runInit("https://api.multicorn.ai");
+    await runInit("https://api.multicorn.ai");
 
-    expect(config).not.toBeNull();
-    if (!config) throw new Error("expected config");
-    expect(config.agents?.[0]?.platform).toBe("cursor");
-    expect(config.defaultAgent).toBe("cursor-agent");
-    expect(stripAnsi(stderrBuffer)).toContain(
-      "Before continuing, make sure you have Cursor installed.",
-    );
-    expect(stripAnsi(stderrBuffer)).toContain("https://www.cursor.com/downloads");
-    expect(stderrBuffer).toContain("Next steps");
-    expect(stderrBuffer).toContain("Restart Cursor");
-    expect(stderrBuffer).toContain("hosted.proxy.example");
-    expect(stderrBuffer).toContain("cursor.com/downloads");
-    expect(stripAnsi(stderrBuffer)).toContain("Confirm connection: open Settings → Tools & MCPs");
-    expect(stripAnsi(stderrBuffer)).toContain(
-      'Check that "cursor-agent" shows a green status indicator',
-    );
-    expect(stripAnsi(stderrBuffer)).toContain("Try it: paste this into Cursor:");
-    expect(stripAnsi(stderrBuffer)).toContain(
-      '"Use the cursor-agent MCP server to list my GitHub repositories"',
-    );
-    expect(stderrBuffer).not.toContain("paste the config snippet shown above");
-    const cursorWrite = writeFileMock.mock.calls.find(
-      (c: unknown[]) => String(c[0]).includes(".cursor") && String(c[0]).includes("mcp.json"),
-    );
-    expect(cursorWrite).toBeDefined();
-    expect(String(cursorWrite?.[1])).toContain("Bearer mcs_valid_key");
+    const plain = stripAnsi(stderrBuffer);
+    expect(plain).toContain("MCP agents (Cursor, Copilot, others) are set up");
+    expect(plain).toContain("in the dashboard:");
+    expect(plain).toContain("app.multicorn.ai/agents/new");
+    expect(plain).not.toMatch(/\n\s*8\.\s/);
+
+    const promptTexts = rlQuestionMock.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(promptTexts.some((p) => p.includes("Choose integration"))).toBe(false);
   });
 
   it("runInit Gemini CLI hosted merges mcpServers into ~/.gemini/settings.json", async () => {
@@ -1119,13 +1185,12 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("gemini-cli"),
-      "Choose integration": "2",
       "call this agent": "my-gem-agent",
       "URL:": "https://upstream.example/mcp",
       "Connect another": "n",
     });
 
-    const config = await runInit("https://api.multicorn.ai");
+    const config = await runInit("https://api.multicorn.ai", { integration: "hosted" });
 
     expect(config).not.toBeNull();
     const geminiWrites = writeFileMock.mock.calls.filter(
@@ -1152,36 +1217,6 @@ describe("config file parsing", () => {
         plain.includes("Ask Gemini to do something"),
     ).toBe(true);
     expect(plain).not.toContain("/mcp to verify");
-  });
-
-  it("runInit skips Cursor agent when user declines hosted prereq prompt", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockImplementation((path: string) => {
-      if (path.includes(".openclaw")) return Promise.resolve(MINIMAL_OPENCLAW_JSON);
-      const err = new Error("ENOENT") as NodeJS.ErrnoException;
-      err.code = "ENOENT";
-      return Promise.reject(err);
-    });
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("cursor"),
-      "Ready to continue": "n",
-      "Connect another": "n",
-    });
-
-    const config = await runInit("https://api.multicorn.ai");
-
-    expect(config).not.toBeNull();
-    if (!config) throw new Error("expected config");
-    expect(config.defaultAgent).toBeUndefined();
-    expect(config.agents ?? []).toHaveLength(0);
-    expect(stripAnsi(stderrBuffer)).toContain(
-      "Before continuing, make sure you have Cursor installed.",
-    );
   });
 
   it("runInit completes Windsurf platform with proxy URL and Windsurf next steps", async () => {
@@ -1216,13 +1251,12 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("windsurf"),
-      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Connect another": "n",
     });
 
-    const config = await runInit("https://api.multicorn.ai");
+    const config = await runInit("https://api.multicorn.ai", { integration: "hosted" });
 
     expect(config).not.toBeNull();
     if (!config) throw new Error("expected config");
@@ -1281,13 +1315,12 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("windsurf"),
-      "Choose integration": "2",
       "call this agent": "windsurf-agent",
       "URL:": "https://upstream.example/mcp",
       "Connect another": "n",
     });
 
-    await runInit("https://api.multicorn.ai");
+    await runInit("https://api.multicorn.ai", { integration: "hosted" });
 
     expect(stripAnsi(stderrBuffer)).toContain("windsurf.com/download");
     expect(stripAnsi(stderrBuffer)).toContain("Restart Windsurf so it loads the MCP server");
@@ -1321,7 +1354,6 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("windsurf"),
-      "Choose integration": "1",
       "call this agent": "windsurf-native-agent",
       "Connect another": "n",
     });
@@ -1372,7 +1404,6 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("windsurf"),
-      "Choose integration": "1",
       "call this agent": "windsurf-agent",
       "Connect another": "n",
     });
@@ -1405,7 +1436,6 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("windsurf"),
-      "Choose integration": "1",
       "call this agent": "windsurf-dir-missing",
       "Connect another": "n",
     });
@@ -1444,7 +1474,6 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("windsurf"),
-      "Choose integration": "1",
       "call this agent": "windsurf-merge-agent",
       "Connect another": "n",
     });
@@ -1492,7 +1521,6 @@ describe("config file parsing", () => {
     mockPrompts({
       "API key": "mcs_valid_key",
       Select: menuSel("windsurf"),
-      "Choose integration": "1",
       "call this agent": "windsurf-replace-agent",
       "Connect another": "n",
     });
@@ -1555,176 +1583,6 @@ describe("config file parsing", () => {
     expect(openclawLine).not.toContain("\u25CF");
   });
 
-  it("runInit Local MCP / Other writes config with apiKey and baseUrl only (no agents, no defaultAgent)", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    const config = await runInit("https://api.multicorn.ai");
-
-    expect(config).not.toBeNull();
-    if (!config) throw new Error("expected config");
-    expect(config.apiKey).toBe("mcs_valid_key");
-    expect(config.baseUrl).toBe("https://api.multicorn.ai");
-    expect(config.agents).toBeUndefined();
-    expect(config.defaultAgent).toBeUndefined();
-
-    const writeCalls = writeFileMock.mock.calls.filter(
-      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("mcs_valid_key"),
-    );
-    expect(writeCalls.length).toBeGreaterThanOrEqual(1);
-    const written = JSON.parse(String(writeCalls[0]?.[1])) as Record<string, unknown>;
-    expect(written["apiKey"]).toBe("mcs_valid_key");
-    expect(written["baseUrl"]).toBe("https://api.multicorn.ai");
-    expect(written["agents"]).toBeUndefined();
-    expect(written["defaultAgent"]).toBeUndefined();
-    expect(written["agentName"]).toBeUndefined();
-    expect(written["platform"]).toBeUndefined();
-  });
-
-  it("runInit Local MCP / Other does not prompt for target URL", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    const promptTexts = rlQuestionMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    const hasUrlPrompt = promptTexts.some(
-      (p: string) => p.includes("URL") && !p.includes("Select"),
-    );
-    expect(hasUrlPrompt).toBe(false);
-  });
-
-  it("runInit Local MCP / Other does not prompt for agent name", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    const promptTexts = rlQuestionMock.mock.calls.map((c: unknown[]) => String(c[0]));
-    const hasAgentNamePrompt = promptTexts.some((p: string) => p.includes("call this agent"));
-    expect(hasAgentNamePrompt).toBe(false);
-  });
-
-  it("runInit Local MCP / Other does not call createProxyConfig (no /api/v1/proxy/config POST)", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-    global.fetch = fetchMock;
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    const proxyConfigCalls = fetchMock.mock.calls.filter(
-      (c: unknown[]) => typeof c[0] === "string" && c[0].includes("/api/v1/proxy/config"),
-    );
-    expect(proxyConfigCalls).toHaveLength(0);
-  });
-
-  it("runInit Local MCP / Other prints the --wrap example command in success message", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    expect(stderrBuffer).toContain("npx multicorn-shield --wrap");
-    expect(stderrBuffer).toContain("@modelcontextprotocol/server-filesystem");
-  });
-
-  it("runInit Local MCP / Other config is loadable by loadConfig", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    // Extract what was written and feed it back to loadConfig via readFileMock.
-    const writeCalls = writeFileMock.mock.calls.filter(
-      (c: unknown[]) => typeof c[1] === "string" && c[1].includes("mcs_valid_key"),
-    );
-    expect(writeCalls.length).toBeGreaterThanOrEqual(1);
-    const writtenJson = String(writeCalls[0]?.[1]);
-
-    readFileMock.mockResolvedValue(writtenJson);
-    const loaded = await loadConfig();
-
-    expect(loaded).not.toBeNull();
-    if (!loaded) throw new Error("expected loaded config");
-    expect(loaded.apiKey).toBe("mcs_valid_key");
-    expect(loaded.baseUrl).toBe("https://api.multicorn.ai");
-  });
-
-  it("runInit Local MCP / Other summary does not render a trailing dash", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    const plain = stripAnsi(stderrBuffer);
-    expect(plain).toContain("Local MCP / Other");
-    expect(plain).not.toContain("Local MCP / Other -");
-    expect(plain).not.toMatch(/Local MCP \/ Other\s*-\s*$/m);
-  });
-
   it("runInit option 1 summary renders platform dash agent name correctly", async () => {
     captureStderr();
     writeFileMock.mockResolvedValue(undefined);
@@ -1748,29 +1606,6 @@ describe("config file parsing", () => {
 
     const plain = stripAnsi(stderrBuffer);
     expect(plain).toContain("OpenClaw - my-oc-agent");
-  });
-
-  it("runInit Local MCP / Other prints a Next steps block with try-it line", async () => {
-    captureStderr();
-    writeFileMock.mockResolvedValue(undefined);
-    mkdirMock.mockResolvedValue(undefined);
-    readFileMock.mockRejectedValue(new Error("ENOENT"));
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-
-    mockPrompts({
-      "API key": "mcs_valid_key",
-      Select: menuSel("other-mcp"),
-      "Connect another": "n",
-    });
-
-    await runInit("https://api.multicorn.ai");
-
-    const plain = stripAnsi(stderrBuffer);
-    expect(plain).toContain("Next steps");
-    expect(plain).toContain("Local MCP / Other");
-    expect(plain).toContain("npx multicorn-shield --wrap");
-    expect(plain).not.toContain("Other MCP Agent");
-    expect(plain).not.toContain("--agent-name");
   });
 
   it("runInit option 1 Next steps block still renders correctly", async () => {
@@ -1979,8 +1814,8 @@ describe("config file parsing", () => {
               data: [
                 {
                   id: "86a1c4b9-77d6-4f5d-86e1-3295ee043c3d",
-                  name: "my-cursor-agent",
-                  platform: "cursor",
+                  name: "my-windsurf-agent",
+                  platform: "windsurf",
                 },
               ],
             }),
@@ -1991,7 +1826,7 @@ describe("config file parsing", () => {
 
     mockPrompts({
       "API key": "mcs_valid_key",
-      Select: [menuSel("cursor"), menuSel("openclaw")],
+      Select: [menuSel("windsurf"), menuSel("openclaw")],
       Action: "3",
       "call this agent": "test-openclaw",
       "Connect another": "n",
@@ -2021,9 +1856,85 @@ describe("config file parsing", () => {
     const plugins = written["plugins"] as Record<string, unknown>;
     const entries = plugins["entries"] as Record<string, unknown>;
     const shield = entries["multicorn-shield"] as Record<string, unknown>;
-    expect(shield["agentName"]).toBe("my-agent");
+    expect(shield["env"]).toBeUndefined();
+    const config = shield["config"] as Record<string, unknown>;
+    expect(config).toEqual(
+      buildOpenClawShieldPluginConfig({
+        baseUrl: "https://api.multicorn.ai",
+        agentName: "my-agent",
+      }),
+    );
+    expect(config["apiKey"]).toBe(OPENCLAW_SHIELD_API_KEY_ENV_REF);
     const agents = written["agents"] as Record<string, unknown>;
     expect(agents["list"]).toEqual([{ id: "my-agent", name: "my-agent" }]);
+  });
+
+  it("updateOpenClawConfigIfPresent strips legacy env block from plugin entry", async () => {
+    const openClawConfig = {
+      plugins: {
+        entries: {
+          "multicorn-shield": {
+            enabled: true,
+            env: {
+              MULTICORN_API_KEY: "mcs_legacy_key_123456",
+              MULTICORN_BASE_URL: "https://old.example",
+            },
+            agentName: "legacy-agent",
+          },
+        },
+      },
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(openClawConfig));
+    writeFileMock.mockResolvedValue(undefined);
+
+    await updateOpenClawConfigIfPresent(
+      "mcs_new_key_12345678",
+      "https://api.multicorn.ai",
+      "my-agent",
+    );
+
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const shield = (written["plugins"] as Record<string, unknown>)["entries"] as Record<
+      string,
+      unknown
+    >;
+    const entry = shield["multicorn-shield"] as Record<string, unknown>;
+    expect(entry["env"]).toBeUndefined();
+    expect(entry["agentName"]).toBeUndefined();
+    expect(entry["config"]).toEqual(
+      buildOpenClawShieldPluginConfig({
+        baseUrl: "https://api.multicorn.ai",
+        agentName: "my-agent",
+      }),
+    );
+  });
+
+  it("updateOpenClawConfigIfPresent warns on stale hooks.internal entry without deleting it", async () => {
+    const stderrSpy = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    const openClawConfig = {
+      hooks: {
+        internal: {
+          entries: {
+            "multicorn-shield": {
+              env: { MULTICORN_API_KEY: "mcs_stale_key_123456" },
+            },
+          },
+        },
+      },
+    };
+    readFileMock.mockResolvedValue(JSON.stringify(openClawConfig));
+    writeFileMock.mockResolvedValue(undefined);
+
+    await updateOpenClawConfigIfPresent("mcs_key_12345678", "https://api.multicorn.ai", "my-agent");
+
+    const written = JSON.parse(String(writeFileMock.mock.calls[0]?.[1])) as Record<string, unknown>;
+    const hooks = written["hooks"] as Record<string, unknown>;
+    const internal = hooks["internal"] as Record<string, unknown>;
+    const entries = internal["entries"] as Record<string, unknown>;
+    expect(entries["multicorn-shield"]).toBeDefined();
+    const stderr = stderrSpy.mock.calls.map((c) => String(c[0])).join("");
+    expect(stderr).toContain("hooks.internal.entries.multicorn-shield");
+    stderrSpy.mockRestore();
   });
 
   it("updateOpenClawConfigIfPresent overwrites first agent entry", async () => {

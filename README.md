@@ -22,7 +22,15 @@ Most AI coding agents inherit direct access to MCP tools, terminals, mail, and s
 
 ## Supported agents
 
-`npx multicorn-shield init` recognises every platform listed here (same registry as [`INIT_WIZARD_PLATFORM_REGISTRY`](https://github.com/Multicorn-AI/multicorn-shield/blob/main/src/proxy/config.ts) in source). Integration mode follows the [**Shield threat model**](https://multicorn.ai/shield/threat-model): **native plugins** inspect the whole tool surface exposed by the host; **hosted MCP proxy** governs MCP-shaped traffic routed through Shield.
+`npx multicorn-shield init` walks you through **native plugins** only: OpenClaw, Claude Code, Windsurf, Cline, Gemini CLI, OpenCode, and Codex CLI. Native plugins govern files, terminal, and browser tools exposed by the host.
+
+**MCP-only clients** (Cursor, Claude Desktop, GitHub Copilot, Kilo Code, Continue, Goose, and other hosted MCP setups) are configured in the [Multicorn dashboard](https://app.multicorn.ai/agents/new). The init menu includes a link there if you do not see your agent.
+
+The full platform registry in [`INIT_WIZARD_PLATFORM_REGISTRY`](https://github.com/Multicorn-AI/multicorn-shield/blob/main/src/proxy/config.ts) still lists every supported slug. Integration mode follows the [**Shield threat model**](https://multicorn.ai/shield/threat-model): **native plugins** inspect the whole tool surface exposed by the host; **hosted MCP proxy** governs MCP-shaped traffic routed through Shield.
+
+Use `npx multicorn-shield files --client <name>` to write MCP config for any supported coding client (including Cursor and Copilot). Valid `--client` names: cursor, cline, windsurf, claude, copilot, goose, gemini, codex, continue, kilo, opencode.
+
+For hybrid platforms (Windsurf, Cline, Gemini CLI, OpenCode, Codex CLI), the init wizard defaults to the native plugin. Use `npx multicorn-shield init --integration hosted` when you want the hosted MCP proxy path instead.
 
 | Agent                           | Mode                                             | Setup on multicorn.ai                                                 |
 | ------------------------------- | ------------------------------------------------ | --------------------------------------------------------------------- |
@@ -40,7 +48,7 @@ Most AI coding agents inherit direct access to MCP tools, terminals, mail, and s
 | Continue                        | Hosted MCP proxy                                 | [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client) |
 | Goose                           | Hosted MCP proxy                                 | [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client) |
 
-For any other MCP client on stdio, pick **Local MCP / Other** in the wizard or open the [Setup guide](https://multicorn.ai/docs/mcp-proxy#generic-mcp-client).
+For any other MCP client on stdio, use `npx multicorn-shield --wrap` or set up a hosted agent in the [dashboard](https://app.multicorn.ai/agents/new).
 
 ## Quick start
 

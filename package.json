@@ -79,7 +79,8 @@
     "prepare": "husky || true",
     "release:patch": "npm version patch && pnpm publish",
     "release:minor": "npm version minor && pnpm publish",
-    "release:major": "npm version major && pnpm publish"
+    "release:major": "npm version major && pnpm publish",
+    "local": "pnpm build &&node dist/multicorn-shield.js init --base-url http://localhost:8080"
   },
   "lint-staged": {
     "*.ts": [
@@ -107,6 +108,7 @@
     "@size-limit/file": "^11.1.6",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^3.0.5",
+    "ajv": "^8.18.0",
     "eslint": "^9.19.0",
     "eslint-config-prettier": "^10.0.1",
     "eslint-plugin-unicorn": "^57.0.0",

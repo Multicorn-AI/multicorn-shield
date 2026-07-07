@@ -7,15 +7,16 @@
  * - before_tool_call: checks permissions and blocks unauthorized actions
  * - after_tool_call: logs activity to the Shield dashboard (fire-and-forget)
  *
- * API key and base URL are read from (in order): process.env, then
- * ~/.multicorn/config.json (written by npx multicorn-shield init).
- * Agent name and fail mode also use plugin config and env.
+ * Config resolution (see readConfig):
+ * - apiKey: ~/.multicorn/config.json, then plugins.entries.multicorn-shield.config.apiKey
+ *   (supports ${MULTICORN_API_KEY}), then process.env.MULTICORN_API_KEY
+ * - baseUrl: plugin config, then config.json, then env, then https://api.multicorn.ai
+ * - failMode: plugin config (open | closed), default closed
  *
  * Environment variables:
- * - MULTICORN_API_KEY (required)
- * - MULTICORN_BASE_URL (default: https://api.multicorn.ai)
+ * - MULTICORN_API_KEY (fallback when not in config files)
+ * - MULTICORN_BASE_URL
  * - MULTICORN_AGENT_NAME (override, default: derived from session key)
- * - MULTICORN_FAIL_MODE (open | closed, default: open)
  *
  * @module openclaw/plugin
  */
@@ -111,18 +112,44 @@ function agentNameFromOpenclawPlatform(cfg: MulticornConfig | null): string | un
   return undefined;
 }
 
+const ENV_REF_PATTERN = /^\$\{([A-Z_][A-Z0-9_]*)\}$/;
+
+/** Resolve `${ENV_VAR}` references from process.env; pass through other strings. */
+function resolveConfigString(value: unknown): string | undefined {
+  const raw = asString(value);
+  if (raw === undefined) return undefined;
+  const match = ENV_REF_PATTERN.exec(raw.trim());
+  if (match === null) return raw;
+  const envName = match[1];
+  if (envName === undefined) return undefined;
+  const fromEnv = process.env[envName];
+  return typeof fromEnv === "string" && fromEnv.length > 0 ? fromEnv : undefined;
+}
+
+function parseFailMode(value: unknown): "open" | "closed" {
+  if (value === "open") return "open";
+  if (value === "closed") return "closed";
+  return "closed";
+}
+
 /**
- * Read config. API key and base URL: ~/.multicorn/config.json first (cached at startup), then env.
- * Agent name and fail mode: plugin config then env.
+ * Read config.
+ * apiKey: ~/.multicorn/config.json → resolved plugin config → process.env.MULTICORN_API_KEY
+ * baseUrl: resolved plugin config → config.json → env → default
+ * failMode: plugin config, default closed
  */
 function readConfig(): ShieldConfig {
   const pc = pluginConfig ?? {};
-  const resolvedApiKey =
-    asString(cachedMulticornConfig?.apiKey) ?? asString(process.env["MULTICORN_API_KEY"]) ?? "";
-  const resolvedBaseUrl =
-    asString(cachedMulticornConfig?.baseUrl) ??
-    asString(process.env["MULTICORN_BASE_URL"]) ??
-    "https://api.multicorn.ai";
+
+  const fromFileKey = asString(cachedMulticornConfig?.apiKey);
+  const fromPluginKey = resolveConfigString(pc["apiKey"]);
+  const fromEnvKey = asString(process.env["MULTICORN_API_KEY"]);
+  let apiKey = fromFileKey ?? fromPluginKey ?? fromEnvKey ?? "";
+
+  const fromPluginBase = resolveConfigString(pc["baseUrl"]);
+  const fromFileBase = asString(cachedMulticornConfig?.baseUrl);
+  const fromEnvBase = asString(process.env["MULTICORN_BASE_URL"]);
+  const baseUrl = fromPluginBase ?? fromFileBase ?? fromEnvBase ?? "https://api.multicorn.ai";
 
   const agentName =
     asString(pc["agentName"]) ??
@@ -130,9 +157,8 @@ function readConfig(): ShieldConfig {
     agentNameFromOpenclawPlatform(cachedMulticornConfig) ??
     asString(cachedMulticornConfig?.agentName) ??
     null;
-  const failMode = "closed" as const;
+  const failMode = parseFailMode(pc["failMode"]);
 
-  let apiKey = resolvedApiKey;
   if (apiKey.length > 0 && (!apiKey.startsWith("mcs_") || apiKey.length < 16)) {
     pluginLogger?.error(
       "Invalid API key format. Key must start with mcs_ and be at least 16 characters.",
@@ -140,7 +166,7 @@ function readConfig(): ShieldConfig {
     apiKey = "";
   }
 
-  return { apiKey, baseUrl: resolvedBaseUrl, agentName, failMode };
+  return { apiKey, baseUrl, agentName, failMode };
 }
 
 function asString(value: unknown): string | undefined {
@@ -753,7 +779,7 @@ export function register(api: OpenClawPluginApi): void {
 }
 
 // Exported for testing
-export { readConfig, resolveAgentName, beforeToolCall, afterToolCall };
+export { readConfig, resolveConfigString, resolveAgentName, beforeToolCall, afterToolCall };
 
 /**
  * Reset in-memory state. For testing only.

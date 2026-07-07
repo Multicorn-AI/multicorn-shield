@@ -33,9 +33,11 @@ metadata:
 >     "entries": {
 >       "multicorn-shield": {
 >         "enabled": true,
->         "env": {
->           "MULTICORN_API_KEY": "mcs_your_key_here",
->           "MULTICORN_BASE_URL": "https://api.multicorn.ai"
+>         "config": {
+>           "apiKey": "${MULTICORN_API_KEY}",
+>           "baseUrl": "https://api.multicorn.ai",
+>           "agentName": "openclaw",
+>           "failMode": "closed"
 >         }
 >       }
 >     }
