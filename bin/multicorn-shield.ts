@@ -20,6 +20,7 @@ import {
   isAllowedShieldApiBaseUrl,
   DEFAULT_SHIELD_API_BASE_URL,
   type ProxyConfig,
+  type InitHybridIntegrationMode,
 } from "../src/proxy/config.js";
 import { createProxyServer } from "../src/proxy/index.js";
 import {
@@ -47,6 +48,8 @@ export interface CliArgs {
   readonly apiKey: string | undefined;
   /** Extra diagnostics during `init` (menu selection, agent counts). */
   readonly verbose: boolean;
+  /** `init` subcommand: hybrid platform integration mode (native default). */
+  readonly initIntegration: InitHybridIntegrationMode | undefined;
   /** `files` subcommand: directory to share. */
   readonly filesDir: string;
   /** `files` subcommand: filesystem server port. */
@@ -89,6 +92,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
   let filesStatus = false;
   let filesRestart = false;
   let filesRespawnProxy = false;
+  let initIntegration: InitHybridIntegrationMode | undefined = undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -259,6 +263,12 @@ export function parseArgs(argv: readonly string[]): CliArgs {
       }
     } else if (arg === "--verbose" || arg === "--debug") {
       verbose = true;
+    } else if (arg === "--integration") {
+      const next = args[i + 1];
+      if (next === "native" || next === "hosted") {
+        initIntegration = next;
+        i++;
+      }
     }
   }
 
@@ -273,6 +283,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     deleteAgentName,
     apiKey,
     verbose,
+    initIntegration,
     filesDir,
     filesPort,
     filesProxyPort,
@@ -292,7 +303,12 @@ function printHelp(): void {
       "",
       "Usage:",
       "  npx multicorn-shield init",
-      "      Interactive setup. Saves API key to ~/.multicorn/config.json.",
+      "      Interactive setup for native plugins (files, terminal, browser).",
+      "      Native: OpenClaw, Claude Code, Windsurf, Cline, Gemini CLI, OpenCode, Codex CLI.",
+      "      MCP-only clients (Cursor, Copilot, etc.): https://app.multicorn.ai/agents/new",
+      "      Saves API key to ~/.multicorn/config.json.",
+      "      --integration hosted  Use hosted MCP proxy for Windsurf, Cline, Gemini CLI,",
+      "                            OpenCode, or Codex CLI (default: native).",
       "",
       "  npx multicorn-shield files <dir> --agent <name> [--client <client>]",
       "      Share a local folder with a coding agent. Starts a filesystem MCP server",
@@ -378,7 +394,10 @@ export async function runCli(): Promise<void> {
   }
 
   if (cli.subcommand === "init") {
-    await runInit(cli.baseUrl, { verbose: cli.verbose });
+    await runInit(cli.baseUrl, {
+      verbose: cli.verbose,
+      ...(cli.initIntegration !== undefined ? { integration: cli.initIntegration } : {}),
+    });
     return;
   }
 

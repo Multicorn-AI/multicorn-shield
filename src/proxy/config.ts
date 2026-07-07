@@ -161,7 +161,7 @@ export interface ApiKeyValidationResult {
 export type ClaudeDesktopUpdateResult = "updated" | "created" | "parse-error" | "skipped";
 
 interface ConfiguredAgent {
-  /** Menu index: 1..INIT_WIZARD_SELECTION_MAX (matches `promptPlatformSelection`). */
+  /** Picker index: 1..INIT_WIZARD_PICKER_SELECTION_MAX (matches `promptPlatformSelection`). */
   readonly selection: number;
   /** Agent platform slug sent to the Shield API (e.g. `cursor`, `github-copilot`). */
   readonly platform: string;
@@ -539,15 +539,64 @@ function isVersionAtLeast(version: string, minimum: string): boolean {
   return true;
 }
 
+/** OpenClaw plugin manifest reference for the API key (plaintext key lives in ~/.multicorn/config.json). */
+export const OPENCLAW_SHIELD_API_KEY_ENV_REF = "${MULTICORN_API_KEY}";
+
+/** Inner `plugins.entries.multicorn-shield.config` object validated by openclaw.plugin.json configSchema. */
+export function buildOpenClawShieldPluginConfig(params: {
+  readonly baseUrl: string;
+  readonly agentName: string;
+}): Record<string, string> {
+  return {
+    apiKey: OPENCLAW_SHIELD_API_KEY_ENV_REF,
+    baseUrl: params.baseUrl,
+    agentName: params.agentName,
+    failMode: "closed",
+  };
+}
+
 /**
- * Updates ~/.openclaw/openclaw.json with Shield credentials if the file exists.
- * @param apiKey - The Shield API key to store.
- * @param baseUrl - The Shield API base URL to store.
- * @param agentName - Optional agent name to register.
+ * True when deprecated gateway hook config coexists with the plugin entry.
+ * Caller should warn; do not auto-delete user config.
+ */
+export function detectStaleOpenClawHookIntegration(
+  openclawConfig: Record<string, unknown>,
+): boolean {
+  const hooks = openclawConfig["hooks"];
+  if (typeof hooks !== "object" || hooks === null) return false;
+  const internal = (hooks as Record<string, unknown>)["internal"];
+  if (typeof internal !== "object" || internal === null) return false;
+  const entries = (internal as Record<string, unknown>)["entries"];
+  if (typeof entries !== "object" || entries === null) return false;
+  return Object.prototype.hasOwnProperty.call(entries, "multicorn-shield");
+}
+
+export function staleOpenClawHookIntegrationMessage(): string {
+  return (
+    "Deprecated OpenClaw gateway hook config detected at hooks.internal.entries.multicorn-shield. " +
+    "Shield now uses the multicorn-shield plugin under plugins.entries. " +
+    "Disable the old hook manually (for example openclaw hooks disable multicorn-shield) and remove hooks.internal.entries.multicorn-shield when you are ready."
+  );
+}
+
+function stripLegacyOpenClawShieldEntryFields(shield: Record<string, unknown>): void {
+  delete shield["env"];
+  delete shield["apiKey"];
+  delete shield["baseUrl"];
+  delete shield["agentName"];
+  delete shield["failMode"];
+}
+
+/**
+ * Updates ~/.openclaw/openclaw.json with Shield plugin config if the file exists.
+ * Plaintext API keys are not written here; init stores them in ~/.multicorn/config.json.
+ * @param _apiKey - Unused; kept for call-site compatibility. Key is not written to openclaw.json.
+ * @param baseUrl - Shield API base URL for the plugin config block.
+ * @param agentName - Agent name for the plugin config block and agents.list.
  * @returns The outcome of the update attempt.
  */
 export async function updateOpenClawConfigIfPresent(
-  apiKey: string,
+  _apiKey: string,
   baseUrl: string,
   agentName?: string,
 ): Promise<OpenClawUpdateResult> {
@@ -568,50 +617,77 @@ export async function updateOpenClawConfigIfPresent(
     return "parse-error";
   }
 
-  let hooks = obj["hooks"] as Record<string, unknown> | undefined;
-  if (hooks === undefined || typeof hooks !== "object") {
-    hooks = {};
-    obj["hooks"] = hooks;
+  if (detectStaleOpenClawHookIntegration(obj)) {
+    process.stderr.write(
+      style.yellow("\u26A0") + " " + staleOpenClawHookIntegrationMessage() + "\n",
+    );
   }
-  let internal = hooks["internal"] as Record<string, unknown> | undefined;
-  if (internal === undefined || typeof internal !== "object") {
-    internal = { enabled: true, entries: {} };
-    hooks["internal"] = internal;
+
+  let plugins = obj["plugins"] as Record<string, unknown> | undefined;
+  if (plugins === undefined || typeof plugins !== "object") {
+    plugins = {};
+    obj["plugins"] = plugins;
   }
-  let entries = internal["entries"] as Record<string, unknown> | undefined;
-  if (entries === undefined || typeof entries !== "object") {
-    entries = {};
-    internal["entries"] = entries;
+  let pluginEntries = plugins["entries"] as Record<string, unknown> | undefined;
+  if (pluginEntries === undefined || typeof pluginEntries !== "object") {
+    pluginEntries = {};
+    plugins["entries"] = pluginEntries;
   }
-  let shield = entries["multicorn-shield"] as Record<string, unknown> | undefined;
+  let shield = pluginEntries["multicorn-shield"] as Record<string, unknown> | undefined;
   if (shield === undefined || typeof shield !== "object") {
-    shield = { enabled: true, env: {} };
-    entries["multicorn-shield"] = shield;
+    shield = { enabled: true };
+    pluginEntries["multicorn-shield"] = shield;
   }
-  let env = shield["env"] as Record<string, unknown> | undefined;
-  if (env === undefined || typeof env !== "object") {
-    env = {};
-    shield["env"] = env;
-  }
-  env["MULTICORN_API_KEY"] = apiKey;
-  env["MULTICORN_BASE_URL"] = baseUrl;
-  if (agentName !== undefined) {
-    env["MULTICORN_AGENT_NAME"] = agentName;
+
+  stripLegacyOpenClawShieldEntryFields(shield);
+
+  const resolvedAgentName =
+    agentName ??
+    (typeof shield["config"] === "object" &&
+    shield["config"] !== null &&
+    typeof (shield["config"] as Record<string, unknown>)["agentName"] === "string"
+      ? String((shield["config"] as Record<string, unknown>)["agentName"])
+      : undefined);
+
+  if (resolvedAgentName !== undefined) {
+    shield["enabled"] = true;
+    shield["config"] = buildOpenClawShieldPluginConfig({
+      baseUrl,
+      agentName: resolvedAgentName,
+    });
 
     const agentsList = obj["agents"] as Record<string, unknown> | undefined;
     const list = agentsList?.["list"];
     if (Array.isArray(list) && list.length > 0) {
       const first = list[0] as Record<string, unknown>;
-      if (first["id"] !== agentName) {
-        first["id"] = agentName;
-        first["name"] = agentName;
+      if (first["id"] !== resolvedAgentName) {
+        first["id"] = resolvedAgentName;
+        first["name"] = resolvedAgentName;
       }
     } else {
       if (agentsList !== undefined && typeof agentsList === "object") {
-        agentsList["list"] = [{ id: agentName, name: agentName }];
+        agentsList["list"] = [{ id: resolvedAgentName, name: resolvedAgentName }];
       } else {
-        obj["agents"] = { list: [{ id: agentName, name: agentName }] };
+        obj["agents"] = { list: [{ id: resolvedAgentName, name: resolvedAgentName }] };
       }
+    }
+  } else {
+    shield["enabled"] = true;
+    const existingConfig = shield["config"];
+    if (typeof existingConfig === "object" && existingConfig !== null) {
+      const cfg = { ...(existingConfig as Record<string, unknown>) };
+      cfg["apiKey"] = OPENCLAW_SHIELD_API_KEY_ENV_REF;
+      cfg["baseUrl"] = baseUrl;
+      if (cfg["failMode"] !== "open" && cfg["failMode"] !== "closed") {
+        cfg["failMode"] = "closed";
+      }
+      shield["config"] = cfg;
+    } else {
+      shield["config"] = {
+        apiKey: OPENCLAW_SHIELD_API_KEY_ENV_REF,
+        baseUrl,
+        failMode: "closed",
+      };
     }
   }
 
@@ -626,6 +702,14 @@ export async function updateOpenClawConfigIfPresent(
 // ---------------------------------------------------------------------------
 // API key validation
 // ---------------------------------------------------------------------------
+
+/**
+ * True when input looks like a pasted Shield API key (not Y/n).
+ */
+export function isPastedShieldApiKeyInput(input: string): boolean {
+  const trimmed = input.trim();
+  return trimmed.startsWith("mcs_") && trimmed.length >= 8;
+}
 
 /**
  * Validates an API key against the Shield service.
@@ -788,6 +872,7 @@ export async function installWindsurfNativeHooks(): Promise<void> {
   await mkdir(installDir, { recursive: true });
   const destPre = join(installDir, "pre-action.cjs");
   const destPost = join(installDir, "post-action.cjs");
+  // Overwrite on every init so re-running the wizard upgrades installed hook scripts.
   await copyFile(srcPre, destPre);
   await copyFile(srcPost, destPost);
 
@@ -1103,48 +1188,6 @@ export async function installCodexCliNativeHooks(): Promise<void> {
     },
   };
   await writeFile(getCodexHooksJsonPath(), JSON.stringify(hooksConfig, null, 2) + "\n", "utf8");
-}
-
-async function promptCodexCliIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
-  process.stderr.write("\n" + style.bold("Codex CLI integration") + "\n");
-  process.stderr.write(
-    "  " +
-      style.violet("1") +
-      ". Native plugin - Shield checks terminal (Bash) commands via Codex Hooks\n",
-  );
-  process.stderr.write(
-    "  " + style.violet("2") + ". Hosted proxy - govern MCP server traffic via config.toml\n",
-  );
-  let choice = 0;
-  while (choice === 0) {
-    const input = await ask("Choose integration (1-2): ");
-    const num = parseInt(input.trim(), 10);
-    if (num === 1) choice = 1;
-    if (num === 2) choice = 2;
-  }
-  return choice === 1 ? "native" : "hosted";
-}
-
-async function promptClineIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
-  process.stderr.write("\n" + style.bold("Cline integration") + "\n");
-  process.stderr.write(
-    "  " +
-      style.violet("1") +
-      ". Native plugin (recommended) - Cline Hooks see every file, terminal, browser, and MCP action\n",
-  );
-  process.stderr.write(
-    "  " +
-      style.violet("2") +
-      ". Hosted proxy - govern MCP traffic only (paste proxy URL into Cline MCP settings)\n",
-  );
-  let choice = 0;
-  while (choice === 0) {
-    const input = await ask("Choose integration (1-2): ");
-    const num = parseInt(input.trim(), 10);
-    if (num === 1) choice = 1;
-    if (num === 2) choice = 2;
-  }
-  return choice === 1 ? "native" : "hosted";
 }
 
 export function getGeminiCliHooksInstallDir(): string {
@@ -1549,50 +1592,6 @@ export async function installGeminiCliNativeHooks(ask: AskFn): Promise<void> {
   await writeFile(settingsPath, JSON.stringify(existing, null, 2) + "\n", SECRET_JSON_FILE_OPTIONS);
 }
 
-async function promptGeminiCliIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
-  process.stderr.write("\n" + style.bold("Gemini CLI integration") + "\n");
-  process.stderr.write(
-    "  " +
-      style.violet("1") +
-      ". Native plugin (recommended) - Gemini CLI Hooks see every file, terminal, web, and MCP action\n",
-  );
-  process.stderr.write(
-    "  " +
-      style.violet("2") +
-      ". Hosted proxy - govern MCP traffic only (paste proxy URL into Gemini CLI settings)\n",
-  );
-  let choice = 0;
-  while (choice === 0) {
-    const input = await ask("Choose integration (1-2): ");
-    const num = parseInt(input.trim(), 10);
-    if (num === 1) choice = 1;
-    if (num === 2) choice = 2;
-  }
-  return choice === 1 ? "native" : "hosted";
-}
-
-async function promptOpencodeIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
-  process.stderr.write("\n" + style.bold("OpenCode integration") + "\n");
-  process.stderr.write(
-    "  " +
-      style.violet("1") +
-      ". Native plugin (recommended) - Shield checks primary-agent tool execution via OpenCode Hooks\n",
-  );
-  process.stderr.write(
-    "  " +
-      style.violet("2") +
-      ". Hosted proxy - govern MCP server traffic via opencode.json (full subagent coverage when tools use MCP through Shield)\n",
-  );
-  let choice = 0;
-  while (choice === 0) {
-    const input = await ask("Choose integration (1-2): ");
-    const num = parseInt(input.trim(), 10);
-    if (num === 1) choice = 1;
-    if (num === 2) choice = 2;
-  }
-  return choice === 1 ? "native" : "hosted";
-}
-
 /**
  * Returns the platform-specific path to the Claude Desktop config file.
  * @returns Absolute path to claude_desktop_config.json.
@@ -1810,24 +1809,17 @@ export const INIT_WIZARD_PLATFORM_REGISTRY: readonly InitWizardPlatformEntry[] =
   { slug: "other-mcp", displayName: "Local MCP / Other", section: "hosted" },
 ];
 
-const INIT_WIZARD_MENU_SECTIONS: readonly {
-  readonly title: string;
-  readonly items: readonly { readonly platform: string; readonly label: string }[];
-}[] = (() => {
-  const itemsFor = (
-    section: InitWizardPlatformSection,
-  ): readonly { readonly platform: string; readonly label: string }[] =>
-    INIT_WIZARD_PLATFORM_REGISTRY.filter((e) => e.section === section).map((e) => ({
-      platform: e.slug,
-      label: e.displayName,
-    }));
-  return [
-    { title: "Recommended (native plugin)", items: itemsFor("native") },
-    { title: "Hosted proxy (MCP only)", items: itemsFor("hosted") },
-  ];
-})();
+/** Interactive init picker: native platforms only, plus a dashboard escape hatch. */
+export const INIT_WIZARD_PICKER_NATIVE_SLUGS: readonly string[] =
+  INIT_WIZARD_PLATFORM_REGISTRY.filter((e) => e.section === "native").map((e) => e.slug);
 
-const INIT_WIZARD_SELECTION_MAX: number = INIT_WIZARD_PLATFORM_REGISTRY.length;
+export const INIT_WIZARD_DASHBOARD_AGENTS_URL = "https://app.multicorn.ai/agents/new";
+
+export const INIT_WIZARD_PICKER_SELECTION_MAX: number = INIT_WIZARD_PICKER_NATIVE_SLUGS.length;
+
+const PICKER_SLUG_BY_SELECTION: Record<number, string> = Object.fromEntries(
+  INIT_WIZARD_PICKER_NATIVE_SLUGS.map((slug, i) => [i + 1, slug]),
+) as Record<number, string>;
 
 /** Shown when init already has agents for the selected platform (one row per option). */
 const INIT_EXISTING_AGENTS_PLATFORM_ACTIONS: readonly string[] = [
@@ -1836,11 +1828,7 @@ const INIT_EXISTING_AGENTS_PLATFORM_ACTIONS: readonly string[] = [
   "Skip - choose a different platform",
 ];
 
-const PLATFORM_BY_SELECTION: Record<number, string> = Object.fromEntries(
-  INIT_WIZARD_PLATFORM_REGISTRY.map((e, i) => [i + 1, e.slug]),
-) as Record<number, string>;
-
-/** 1-based menu index for tests and tooling (matches `promptPlatformSelection`). */
+/** 1-based registry index (full platform list including hosted). Not used by the interactive picker. */
 export function initWizardSelectionNumberForSlug(slug: string): number {
   const i = INIT_WIZARD_PLATFORM_REGISTRY.findIndex((e) => e.slug === slug);
   if (i === -1) {
@@ -1849,8 +1837,27 @@ export function initWizardSelectionNumberForSlug(slug: string): number {
   return i + 1;
 }
 
-function platformMenuLabelForSelection(sel: number): string {
-  const slug = PLATFORM_BY_SELECTION[sel];
+/** 1-based picker index for native platforms (matches `promptPlatformSelection`). */
+export function initWizardPickerSelectionNumberForSlug(slug: string): number {
+  const i = INIT_WIZARD_PICKER_NATIVE_SLUGS.indexOf(slug);
+  if (i === -1) {
+    throw new Error(`Platform "${slug}" is not in the init picker (native-only menu).`);
+  }
+  return i + 1;
+}
+
+/** Hybrid platforms that support both native hooks and hosted MCP proxy in init. */
+export type InitHybridIntegrationMode = "native" | "hosted";
+
+/** Interactive init defaults to native; pass `--integration hosted` to use the hosted path. */
+export function resolveInitHybridIntegrationMode(
+  explicit: InitHybridIntegrationMode | undefined,
+): InitHybridIntegrationMode {
+  return explicit ?? "native";
+}
+
+function platformMenuLabelForPickerSelection(sel: number): string {
+  const slug = PICKER_SLUG_BY_SELECTION[sel];
   if (slug === undefined) return "Unknown";
   const entry = INIT_WIZARD_PLATFORM_REGISTRY.find((e) => e.slug === slug);
   return entry?.displayName ?? slug;
@@ -1878,55 +1885,30 @@ async function promptPlatformSelection(ask: AskFn): Promise<number> {
     "\n" + style.bold(style.violet("Which platform are you connecting?")) + "\n\n",
   );
 
+  process.stderr.write("  " + style.dim("Native plugin (files, terminal, browser)") + "\n");
+
   let optionNum = 1;
-  for (const section of INIT_WIZARD_MENU_SECTIONS) {
-    process.stderr.write("  " + style.dim(section.title) + "\n");
-    for (const item of section.items) {
-      const indent = optionNum >= 10 ? "   " : "    ";
-      process.stderr.write(`${indent}${style.violet(String(optionNum))}. ${item.label}\n`);
-      optionNum++;
-    }
+  for (const slug of INIT_WIZARD_PICKER_NATIVE_SLUGS) {
+    const entry = INIT_WIZARD_PLATFORM_REGISTRY.find((e) => e.slug === slug);
+    const label = entry?.displayName ?? slug;
+    const indent = optionNum >= 10 ? "   " : "    ";
+    process.stderr.write(`${indent}${style.violet(String(optionNum))}. ${label}\n`);
+    optionNum++;
   }
 
-  process.stderr.write(
-    "\n" +
-      style.dim(
-        `  Pick ${String(INIT_WIZARD_SELECTION_MAX)} to wrap a local MCP server with multicorn-shield --wrap.`,
-      ) +
-      "\n",
-  );
+  process.stderr.write("\n");
+  process.stderr.write("  MCP agents (Cursor, Copilot, others) are set up\n");
+  process.stderr.write(`  in the dashboard: ${INIT_WIZARD_DASHBOARD_AGENTS_URL}\n\n`);
 
   let selection = 0;
   while (selection === 0) {
-    const input = await ask(`Select (1-${String(INIT_WIZARD_SELECTION_MAX)}): `);
+    const input = await ask(`Select (1-${String(INIT_WIZARD_PICKER_SELECTION_MAX)}): `);
     const num = parseInt(input.trim(), 10);
-    if (num >= 1 && num <= INIT_WIZARD_SELECTION_MAX) {
+    if (num >= 1 && num <= INIT_WIZARD_PICKER_SELECTION_MAX) {
       selection = num;
     }
   }
   return selection;
-}
-
-async function promptWindsurfIntegrationMode(ask: AskFn): Promise<"native" | "hosted"> {
-  process.stderr.write("\n" + style.bold("Windsurf integration") + "\n");
-  process.stderr.write(
-    "  " +
-      style.violet("1") +
-      ". Native plugin (recommended) - Cascade Hooks see every file, terminal, and MCP action\n",
-  );
-  process.stderr.write(
-    "  " +
-      style.violet("2") +
-      ". Hosted proxy - govern MCP traffic only (paste proxy URL into mcp_config)\n",
-  );
-  let choice = 0;
-  while (choice === 0) {
-    const input = await ask("Choose integration (1-2): ");
-    const num = parseInt(input.trim(), 10);
-    if (num === 1) choice = 1;
-    if (num === 2) choice = 2;
-  }
-  return choice === 1 ? "native" : "hosted";
 }
 
 /**
@@ -2222,6 +2204,16 @@ const HOSTED_PROXY_PLATFORMS_WITH_URL_KEY = new Set([
 
 export function shouldEmbedKeyInHostedProxyUrl(platform: string): boolean {
   return HOSTED_PROXY_PLATFORMS_WITH_URL_KEY.has(platform);
+}
+
+/** Cline remote MCP entry (streamable HTTP; auth via ?key= on the URL). */
+export function buildClineHostedMcpEntry(url: string): Record<string, unknown> {
+  return {
+    type: "streamableHttp",
+    url,
+    timeout: 60,
+    disabled: false,
+  };
 }
 
 /**
@@ -2796,9 +2788,11 @@ async function applyHostedProxyMcpConfig(
         printHostedProxyJsonParseWarning(getWindsurfMcpConfigPath());
       }
     } else if (platform === "cline") {
-      result = await mergeMcpServersObjectStyle(getClineMcpSettingsPath(), shortName, {
-        url: proxyUrlWithKeyWhenNeeded,
-      });
+      result = await mergeMcpServersObjectStyle(
+        getClineMcpSettingsPath(),
+        shortName,
+        buildClineHostedMcpEntry(proxyUrlWithKeyWhenNeeded),
+      );
       if (result === "parse-error") {
         printHostedProxyJsonParseWarning(getClineMcpSettingsPath());
       }
@@ -3122,9 +3116,7 @@ function printPlatformSnippet(
         ? JSON.stringify(
             {
               mcpServers: {
-                [shortName]: {
-                  [urlKey]: urlInSnippet,
-                },
+                [shortName]: buildClineHostedMcpEntry(urlInSnippet),
               },
             },
             null,
@@ -3346,14 +3338,15 @@ export const DEFAULT_SHIELD_API_BASE_URL = "https://api.multicorn.ai";
  * and configures one or more agents.
  * @param explicitBaseUrl - Optional Shield API base URL from `--base-url`. When omitted, resolution uses
  *   full config, then partial config file, then `MULTICORN_BASE_URL`, then the production default.
- * @param options - When `verbose` is true, prints extra init diagnostics (e.g. menu selection and agent counts). Use `npx multicorn-shield init --verbose` or `init --debug`.
+ * @param options - When `verbose` is true, prints extra init diagnostics (e.g. menu selection and agent counts). Use `npx multicorn-shield init --verbose` or `init --debug`. Pass `integration: "hosted"` for hybrid platforms when you want the hosted MCP proxy path instead of the default native plugin.
  * @returns The last saved config, or null if the user exited early.
  */
 export async function runInit(
   explicitBaseUrl?: string,
-  options?: { readonly verbose?: boolean },
+  options?: { readonly verbose?: boolean; readonly integration?: InitHybridIntegrationMode },
 ): Promise<ProxyConfig | null> {
   const verbose = options?.verbose === true;
+  const hybridIntegration = resolveInitHybridIntegrationMode(options?.integration);
 
   if (!process.stdin.isTTY) {
     process.stderr.write(
@@ -3414,9 +3407,31 @@ export async function runInit(
   if (existing !== null && existing.apiKey.startsWith("mcs_") && existing.apiKey.length >= 8) {
     const masked = "mcs_..." + existing.apiKey.slice(-4);
     process.stderr.write("Found existing API key: " + style.cyan(masked) + "\n");
-    const answer = await ask("Use this key? (Y/n) ");
-    if (answer.trim().toLowerCase() !== "n") {
-      apiKey = existing.apiKey;
+    const answer = await ask("Use this key? (Y/n, or paste a new mcs_ key) ");
+    const trimmed = answer.trim();
+    if (trimmed.toLowerCase() !== "n") {
+      const candidate = isPastedShieldApiKeyInput(trimmed) ? trimmed : existing.apiKey;
+      const spinner = withSpinner("Validating key...");
+      let reuseResult: Awaited<ReturnType<typeof validateApiKey>>;
+      try {
+        reuseResult = await validateApiKey(candidate, resolvedBaseUrl);
+      } catch (error) {
+        spinner.stop(false, "Validation failed");
+        throw error;
+      }
+      if (reuseResult.valid) {
+        spinner.stop(true, "Key validated");
+        apiKey = candidate;
+      } else {
+        spinner.stop(false, reuseResult.error ?? "Validation failed.");
+        if (isPastedShieldApiKeyInput(trimmed)) {
+          process.stderr.write(style.red("That key was rejected. Enter a new key below.") + "\n");
+        } else {
+          process.stderr.write(
+            style.yellow("Existing key is no longer valid. Enter a new key below.") + "\n",
+          );
+        }
+      }
     }
   }
 
@@ -3485,8 +3500,8 @@ export async function runInit(
     let removeAgentNameBeforeSave: string | undefined = undefined;
     const initWorkspacePath = resolve(process.cwd());
     const selection = await promptPlatformSelection(ask);
-    const selectedPlatform = PLATFORM_BY_SELECTION[selection] ?? "cursor";
-    const selectedLabel = platformMenuLabelForSelection(selection);
+    const selectedPlatform = PICKER_SLUG_BY_SELECTION[selection] ?? "openclaw";
+    const selectedLabel = platformMenuLabelForPickerSelection(selection);
 
     // Local MCP / Other - minimal config, no agent name, no target URL.
     if (selectedPlatform === "other-mcp") {
@@ -3657,7 +3672,7 @@ export async function runInit(
       if (detection.status === "parse-error") {
         process.stderr.write(
           style.red("\u2717") +
-            " Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.\n",
+            " Could not update OpenClaw config. Set plugins.entries.multicorn-shield.config.apiKey in ~/.openclaw/openclaw.json, or run npx multicorn-shield init.\n",
         );
       }
 
@@ -3698,7 +3713,7 @@ export async function runInit(
           if (result === "parse-error") {
             spinner.stop(
               false,
-              "Could not update OpenClaw config. Set MULTICORN_API_KEY in ~/.openclaw/openclaw.json manually.",
+              "Could not update OpenClaw config. Set plugins.entries.multicorn-shield.config.apiKey in ~/.openclaw/openclaw.json, or run npx multicorn-shield init.",
             );
           } else {
             spinner.stop(
@@ -3750,7 +3765,7 @@ export async function runInit(
       });
       setupSucceeded = true;
     } else if (selectedPlatform === "windsurf") {
-      const windsurfMode = await promptWindsurfIntegrationMode(ask);
+      const windsurfMode = hybridIntegration;
       if (windsurfMode === "native") {
         try {
           await installWindsurfNativeHooks();
@@ -3857,7 +3872,7 @@ export async function runInit(
         }
       }
     } else if (selectedPlatform === "gemini-cli") {
-      const geminiMode = await promptGeminiCliIntegrationMode(ask);
+      const geminiMode = hybridIntegration;
       if (geminiMode === "native") {
         try {
           await installGeminiCliNativeHooks(ask);
@@ -3955,7 +3970,7 @@ export async function runInit(
         }
       }
     } else if (selectedPlatform === "opencode") {
-      const opencodeMode = await promptOpencodeIntegrationMode(ask);
+      const opencodeMode = hybridIntegration;
       if (opencodeMode === "native") {
         try {
           await installOpenCodeNativePlugin();
@@ -4050,7 +4065,7 @@ export async function runInit(
         }
       }
     } else if (selectedPlatform === "codex-cli") {
-      const codexMode = await promptCodexCliIntegrationMode(ask);
+      const codexMode = hybridIntegration;
       if (codexMode === "native") {
         try {
           await installCodexCliNativeHooks();
@@ -4143,7 +4158,7 @@ export async function runInit(
         }
       }
     } else if (selectedPlatform === "cline") {
-      const clineMode = await promptClineIntegrationMode(ask);
+      const clineMode = hybridIntegration;
       if (clineMode === "native") {
         try {
           await installClineNativeHooks();
@@ -4870,9 +4885,7 @@ export async function writeLocalMcpEntry(
       return (await mergeMcpServersObjectStyle(
         filePath,
         entryKey,
-        {
-          url,
-        },
+        buildClineHostedMcpEntry(url),
         legacyKeys,
       )) === "ok"
         ? filePath

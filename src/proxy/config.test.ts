@@ -13,6 +13,7 @@ import {
   hostedProxyUrlWithKeyParam,
   mergeAgentsForPlatform,
   shouldEmbedKeyInHostedProxyUrl,
+  buildClineHostedMcpEntry,
   cwdUnderWorkspacePath,
   type ProxyConfig,
 } from "./config.js";
@@ -367,6 +368,19 @@ describe("shouldEmbedKeyInHostedProxyUrl", () => {
     expect(shouldEmbedKeyInHostedProxyUrl("windsurf")).toBe(false);
     expect(shouldEmbedKeyInHostedProxyUrl("gemini-cli")).toBe(false);
     expect(shouldEmbedKeyInHostedProxyUrl("opencode")).toBe(false);
+  });
+});
+
+describe("buildClineHostedMcpEntry", () => {
+  it("uses streamableHttp transport with url-key auth and no headers", () => {
+    const url = "http://localhost:3001/r/token/agent?key=mcs_test";
+    const entry = buildClineHostedMcpEntry(url);
+    expect(entry).toEqual({
+      type: "streamableHttp",
+      url,
+      timeout: 60,
+      disabled: false,
+    });
   });
 });
 

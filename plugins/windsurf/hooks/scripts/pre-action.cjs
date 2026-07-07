@@ -1,7 +1,8 @@
 /**
  * Windsurf Cascade pre-hook: permission check before read, write, terminal, or MCP tool use.
  * Routes by stdin JSON field agent_action_name (see Windsurf Cascade Hooks docs).
- * Fail-closed on API errors once config is loaded. Fail-open if Shield is not configured.
+ * Fail-closed on API errors once config is loaded or Windsurf hooks are installed.
+ * Fail-open only when Shield is not configured (no config file and no installed hook copy).
  */
 
 "use strict";
@@ -111,11 +112,82 @@ function resolveWindsurfAgentName(obj) {
 }
 
 /**
+ * @returns {string}
+ */
+function multicornConfigPath() {
+  return path.join(os.homedir(), ".multicorn", "config.json");
+}
+
+/**
+ * @returns {boolean}
+ */
+function configFileExists() {
+  try {
+    fs.accessSync(multicornConfigPath());
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @returns {boolean}
+ */
+function isShieldWindsurfHooksInstalled() {
+  try {
+    fs.accessSync(path.join(os.homedir(), ".multicorn", "windsurf-hooks", "pre-action.cjs"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @returns {boolean}
+ */
+function shouldEnforceGovernance() {
+  return configFileExists() || isShieldWindsurfHooksInstalled();
+}
+
+/**
+ * @param {string} baseUrl
+ * @returns {string}
+ */
+function apiHostFromBaseUrl(baseUrl) {
+  try {
+    return new URL(baseUrl).host;
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * @param {string} agentActionName
+ * @param {string} agentName
+ * @param {string} baseUrl
+ */
+function logInvocation(agentActionName, agentName, baseUrl) {
+  process.stderr.write(
+    `${LOG_PREFIX} check event=${agentActionName} agent=${agentName} api=${apiHostFromBaseUrl(baseUrl)}\n`,
+  );
+}
+
+/**
+ * @param {string} cause
+ * @param {string} fix
+ * @returns {never}
+ */
+function blockMisconfigured(cause, fix) {
+  process.stderr.write(`${LOG_PREFIX} Action blocked: ${cause}\n  ${fix}\n`);
+  process.exit(2);
+}
+
+/**
  * @returns {{ apiKey: string; baseUrl: string; agentName: string } | null}
  */
 function loadConfig() {
   try {
-    const configPath = path.join(os.homedir(), ".multicorn", "config.json");
+    const configPath = multicornConfigPath();
     const raw = fs.readFileSync(configPath, "utf8");
     const obj = JSON.parse(raw);
     const apiKey = typeof obj.apiKey === "string" ? obj.apiKey : "";
@@ -564,16 +636,13 @@ async function main() {
   try {
     raw = await readStdin();
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`${LOG_PREFIX} could not read stdin (${msg}). Allowing action.\n`);
-    process.exit(0);
-  }
-
-  const config = loadConfig();
-  if (config === null) {
-    process.exit(0);
-  }
-  if (config.apiKey.length === 0 || config.agentName.length === 0) {
+    if (shouldEnforceGovernance()) {
+      const msg = e instanceof Error ? e.message : String(e);
+      blockMisconfigured(
+        `could not read stdin (${msg}), cannot verify permissions.`,
+        "Retry the action. If it keeps failing, check Windsurf hook configuration.",
+      );
+    }
     process.exit(0);
   }
 
@@ -582,8 +651,13 @@ async function main() {
   try {
     hookPayload = JSON.parse(raw.length > 0 ? raw : "{}");
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(`${LOG_PREFIX} invalid JSON (${msg}). Allowing action.\n`);
+    if (shouldEnforceGovernance()) {
+      const msg = e instanceof Error ? e.message : String(e);
+      blockMisconfigured(
+        `invalid JSON on stdin (${msg}), cannot verify permissions.`,
+        "Retry the action or reinstall hooks with npx multicorn-shield init.",
+      );
+    }
     process.exit(0);
   }
 
@@ -606,6 +680,32 @@ async function main() {
   }
   const { service, actionType } = mapped;
 
+  const config = loadConfig();
+  if (config === null) {
+    if (shouldEnforceGovernance()) {
+      blockMisconfigured(
+        "Shield config missing or unreadable, cannot verify permissions.",
+        "Run npx multicorn-shield init and complete setup, then check ~/.multicorn/config.json.",
+      );
+    }
+    process.exit(0);
+  }
+  if (config.apiKey.length === 0 || config.agentName.length === 0) {
+    if (shouldEnforceGovernance()) {
+      const cause =
+        config.apiKey.length === 0
+          ? "API key missing from Shield config, cannot verify permissions."
+          : "Windsurf agent name missing from Shield config, cannot verify permissions.";
+      blockMisconfigured(
+        cause,
+        "Run npx multicorn-shield init, paste a valid mcs_ key, and configure the Windsurf agent.",
+      );
+    }
+    process.exit(0);
+  }
+
+  logInvocation(agentActionName, config.agentName, config.baseUrl);
+
   let toolInfoSerialized;
   try {
     toolInfoSerialized =
@@ -614,10 +714,10 @@ async function main() {
         : JSON.stringify(toolInfo === undefined ? null : toolInfo);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    process.stderr.write(
-      `${LOG_PREFIX} could not serialize tool_info (${msg}). Allowing action.\n`,
+    blockMisconfigured(
+      `could not serialize tool_info (${msg}), cannot verify permissions.`,
+      "Retry the action. If it keeps failing, reinstall hooks with npx multicorn-shield init.",
     );
-    process.exit(0);
   }
 
   if (typeof toolInfoSerialized === "string" && toolInfoSerialized.length > 4096) {
@@ -714,6 +814,15 @@ async function main() {
       `${LOG_PREFIX} Action blocked: ambiguous Shield status, cannot verify permissions.\n` +
         `  Check that your Shield API and plugin versions match, then retry.\n` +
         `  Detail: status=${JSON.stringify(/** @type {Record<string, unknown>} */ (data).status)}\n`,
+    );
+    process.exit(2);
+  }
+
+  if (statusCode === 401 || statusCode === 403) {
+    const host = apiHostFromBaseUrl(config.baseUrl);
+    process.stderr.write(
+      `${LOG_PREFIX} Action blocked: API key not recognized for ${host}.\n` +
+        `  Run npx multicorn-shield init and paste a valid key at the prompt.\n`,
     );
     process.exit(2);
   }

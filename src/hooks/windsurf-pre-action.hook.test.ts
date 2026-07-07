@@ -63,6 +63,12 @@ function writeConfig(
   writeFileSync(path.join(dir, "config.json"), JSON.stringify(obj), "utf8");
 }
 
+function installHooksMarker(home: string): void {
+  const dir = path.join(home, ".multicorn", "windsurf-hooks");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(path.join(dir, "pre-action.cjs"), "// installed\n", "utf8");
+}
+
 async function withActionServer(
   onPost: (res: ServerResponse) => void,
   fn: (baseUrl: string) => void | Promise<void>,
@@ -117,17 +123,43 @@ describe("windsurf pre-action hook script", () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it("exits 0 when no config file exists", async () => {
+  it("exits 0 when no config file exists and hooks are not installed", async () => {
     const { status, stderr } = await runPreAction(stdinFor("pre_read_code"), { HOME: home });
     expect(status).toBe(0);
     expect(stderr).toBe("");
   });
 
-  it("exits 0 when API key is empty", async () => {
+  it("exits 2 when hooks are installed but config is missing", async () => {
+    installHooksMarker(home);
+    const { status, stderr } = await runPreAction(stdinFor("pre_read_code"), { HOME: home });
+    expect(status).toBe(2);
+    expect(stderr).toContain("Shield config missing or unreadable");
+    expect(stderr).toContain("npx multicorn-shield init");
+  });
+
+  it("exits 2 when API key is empty", async () => {
     writeConfig(home, { apiKey: "", windsurfAgent: "agent" });
     const { status, stderr } = await runPreAction(stdinFor("pre_read_code"), { HOME: home });
-    expect(status).toBe(0);
-    expect(stderr).toBe("");
+    expect(status).toBe(2);
+    expect(stderr).toContain("API key missing from Shield config");
+    expect(stderr).toContain("npx multicorn-shield init");
+  });
+
+  it("exits 2 when Windsurf agent name is empty", async () => {
+    const dir = path.join(home, ".multicorn");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      path.join(dir, "config.json"),
+      JSON.stringify({
+        apiKey: "mcs_test_key1234",
+        baseUrl: "http://127.0.0.1:9",
+        agents: [],
+      }),
+      "utf8",
+    );
+    const { status, stderr } = await runPreAction(stdinFor("pre_read_code"), { HOME: home });
+    expect(status).toBe(2);
+    expect(stderr).toContain("Windsurf agent name missing from Shield config");
   });
 
   it("exits 0 for unknown agent_action_name (not a governed pre event)", async () => {
@@ -152,7 +184,8 @@ describe("windsurf pre-action hook script", () => {
           { HOME: home },
         );
         expect(status).toBe(0);
-        expect(stderr).toBe("");
+        expect(stderr).toContain("check event=pre_read_code agent=test-agent");
+        expect(stderr).toContain(`api=127.0.0.1:${new URL(baseUrl).port}`);
       },
     );
   });
@@ -187,14 +220,34 @@ describe("windsurf pre-action hook script", () => {
     expect(stderr).toContain("Shield API unreachable");
   });
 
-  it("exits 0 when tool_info cannot be serialized (fail-open)", async () => {
+  it.each([401, 403] as const)("exits 2 when Shield API returns HTTP %s", async (code) => {
+    await withActionServer(
+      (res) => {
+        res.statusCode = code;
+        res.end("nope");
+      },
+      async (baseUrl) => {
+        writeConfig(home, { baseUrl });
+        const { status, stderr } = await runPreAction(
+          stdinFor("pre_read_code", { file_path: "/tmp/x" }),
+          { HOME: home },
+        );
+        expect(status).toBe(2);
+        expect(stderr).toContain(`API key not recognized for 127.0.0.1:${new URL(baseUrl).port}`);
+        expect(stderr).toContain("npx multicorn-shield init");
+      },
+    );
+  });
+
+  it("exits 2 when tool_info cannot be serialized", async () => {
     writeConfig(home);
     const { status, stderr } = await runPreAction(stdinFor("pre_read_code"), {
       HOME: home,
       MULTICORN_SHIELD_WINDSURF_PRE_HOOK_TEST_SERIALIZE_FAIL: "1",
     });
-    expect(status).toBe(0);
+    expect(status).toBe(2);
     expect(stderr).toContain("could not serialize tool_info");
+    expect(stderr).not.toContain("Allowing action");
   });
 
   it("exits 2 when main throws after config is loaded (test hook)", async () => {
