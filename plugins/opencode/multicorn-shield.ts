@@ -11,6 +11,8 @@ import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
 
+import { serializeHookAuditFragment } from "../../src/hooks/codex-cli-hooks-shared.js";
+
 const MULTICORN_CONFIG = path.join(homedir(), ".multicorn", "config.json");
 const HTTP_MS = 10_000;
 const PLATFORM = "opencode";
@@ -230,37 +232,14 @@ function blockedMessage(
   return `Shield: Action blocked. Required permission: ${service} (${actionType}). Grant access at ${approvalsUrl}`;
 }
 
-function scrubMetadataArgs(args: unknown): string {
-  try {
-    if (typeof args !== "object" || args === null) return "{}";
-    const clone = { ...(args as Record<string, unknown>) };
-    const contentKey = clone["content"];
-    if (typeof contentKey === "string") {
-      clone["content"] = "[" + contentKey.length.toString() + " chars redacted]";
-    }
-    const cmd = clone["command"];
-    if (typeof cmd === "string" && cmd.length > 200) {
-      clone["command"] = cmd.slice(0, 200) + "... [truncated]";
-    }
-    let out = JSON.stringify(clone);
-    if (out.length > 4096) out = out.slice(0, 4096);
-    return out;
-  } catch {
-    return "{}";
-  }
+/** Builds redacted parameters metadata for OpenCode audit rows. */
+export function buildOpenCodeParametersMetadata(args: unknown): string {
+  return serializeHookAuditFragment(args);
 }
 
-function scrubResultSnippet(text: unknown): string {
-  if (typeof text !== "string") return "";
-  let s = text;
-  s = s.replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED]");
-  s = s.replace(/\bmcs_[A-Za-z0-9_-]+\b/g, "[REDACTED]");
-  s = s.replace(/\bghp_[A-Za-z0-9]{20,}\b/g, "[REDACTED]");
-  s = s.replace(/Bearer\s+[^\s]+/gi, "[REDACTED]");
-  if (s.length > 500) {
-    return s.slice(0, 500) + "[truncated]";
-  }
-  return s;
+/** Builds redacted result metadata for OpenCode audit rows. */
+export function buildOpenCodeResultMetadata(output: unknown): string {
+  return serializeHookAuditFragment(output);
 }
 
 async function shieldPostActions(
@@ -327,7 +306,7 @@ async function shieldBeforeDecision(
   /** @type {Record<string, unknown>} */
   const metadata = {
     tool_name: toolName,
-    parameters: scrubMetadataArgs(args),
+    parameters: buildOpenCodeParametersMetadata(args),
     source: PLATFORM,
   };
 
@@ -474,7 +453,7 @@ export const MulticornShieldPlugin: Plugin = (input: PluginInput): Promise<Hooks
       if (typeof output === "object" && "output" in output) {
         const rawOut = (output as Record<string, unknown>)["output"];
         if (typeof rawOut === "string") {
-          snippet = scrubResultSnippet(rawOut);
+          snippet = buildOpenCodeResultMetadata(rawOut);
         }
       }
 

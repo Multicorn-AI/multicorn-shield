@@ -14,7 +14,7 @@ export default defineConfig({
     globals: true,
     environment: "jsdom",
     passWithNoTests: true,
-    include: ["src/**/*.{test,spec}.ts"],
+    include: ["src/**/*.{test,spec}.ts", "plugins/**/*.{test,spec}.ts"],
     setupFiles: [],
     maxWorkers: 2,
     coverage: {
