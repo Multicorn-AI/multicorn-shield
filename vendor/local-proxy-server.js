@@ -1,6 +1,6 @@
 import { createServer } from 'http';
 import { fileURLToPath } from 'url';
-import { createHash } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { isIP } from 'net';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
@@ -1275,7 +1275,8 @@ var AGGREGATOR_UPSTREAM_TIMEOUT_MS = UPSTREAM_TIMEOUT_MS;
 // ../multicorn-proxy/src/multicorn-mcp.ts
 var MULTICORN_MCP_SENTINEL2 = "multicorn://mcp";
 var GOOGLE_API_TIMEOUT_MS = 15e3;
-var SAMPLE_NOTE = "\n\nThis is sample data. Connect your Google account in the Shield dashboard to see your real emails, events, and files.";
+var GOOGLE_NOT_CONNECTED = "Google is not connected. Open your Shield dashboard and connect your Google account to use this tool.";
+var SLACK_NOT_AVAILABLE = "Slack is not available yet. Multicorn does not support connecting a Slack account, so this tool cannot be used.";
 var TOOLS = [
   {
     name: "gmail_read_inbox",
@@ -1516,9 +1517,9 @@ async function executeToolCall(toolName, args, ctx) {
     case "delete_file":
       return workspaceDelete(args, ctx);
     case "slack_read_messages":
-      return slackReadMessages(args);
+      return slackReadMessages();
     case "slack_send_message":
-      return slackSendMessage(args);
+      return slackSendMessage();
     default:
       return Promise.resolve(null);
   }
@@ -1588,7 +1589,7 @@ async function gmailReadInbox(args, ctx) {
   const query = typeof args["query"] === "string" ? args["query"] : "";
   const limit = typeof args["limit"] === "number" && args["limit"] > 0 ? Math.floor(args["limit"]) : 5;
   if (ctx.google === void 0) {
-    return textResult(sampleGmailReadInbox(query, limit) + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const listUrl = new URL("https://gmail.googleapis.com/gmail/v1/users/me/messages");
@@ -1639,7 +1640,7 @@ async function gmailSendEmail(args, ctx) {
   const subject = typeof args["subject"] === "string" ? args["subject"] : "";
   const body = typeof args["body"] === "string" ? args["body"] : "";
   if (ctx.google === void 0) {
-    return textResult(`Email sent to ${to} with subject '${subject}'` + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const raw = buildRawEmail(to, subject, body);
@@ -1665,7 +1666,7 @@ async function gmailDeleteThread(args, ctx) {
     return errorResult("A thread_id is required to delete a thread.");
   }
   if (ctx.google === void 0) {
-    return textResult(`Thread '${threadId}' moved to trash` + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const url = `https://gmail.googleapis.com/gmail/v1/users/me/threads/${encodeURIComponent(threadId)}/trash`;
@@ -1681,7 +1682,7 @@ async function gmailDeleteEmail(args, ctx) {
     return errorResult("A message_id is required to delete an email.");
   }
   if (ctx.google === void 0) {
-    return textResult(`Email '${messageId}' moved to Trash` + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/trash`;
@@ -1732,7 +1733,7 @@ async function fetchEventsForCalendar(calendarId, start, end, timeZone, auth) {
 async function calendarListEvents(args, ctx) {
   const dateArg = typeof args["date"] === "string" ? args["date"] : void 0;
   if (ctx.google === void 0) {
-    return textResult(sampleCalendarListEvents() + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     let timeZone;
@@ -1845,7 +1846,7 @@ async function calendarCreateEvent(args, ctx) {
   const durationMinutes = typeof args["duration_minutes"] === "number" && args["duration_minutes"] > 0 ? Math.floor(args["duration_minutes"]) : 60;
   const location = typeof args["location"] === "string" ? args["location"] : void 0;
   if (ctx.google === void 0) {
-    return textResult(`Event '${title}' created for ${date}` + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const startDate = parseEventStart(date);
@@ -1888,7 +1889,7 @@ async function calendarUpdateEvent(args, ctx) {
   const durationMinutes = typeof args["duration_minutes"] === "number" && args["duration_minutes"] > 0 ? Math.floor(args["duration_minutes"]) : void 0;
   const location = typeof args["location"] === "string" ? args["location"] : void 0;
   if (ctx.google === void 0) {
-    return textResult(`Event '${eventId}' updated` + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const eventBody = {};
@@ -1921,7 +1922,7 @@ async function calendarDeleteEvent(args, ctx) {
     return errorResult("An event_id is required to delete an event.");
   }
   if (ctx.google === void 0) {
-    return textResult(`Event '${eventId}' deleted` + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events/${encodeURIComponent(eventId)}`;
@@ -1934,7 +1935,7 @@ async function calendarDeleteEvent(args, ctx) {
 async function driveSearchFiles(args, ctx) {
   const query = typeof args["query"] === "string" ? args["query"] : "";
   if (ctx.google === void 0) {
-    return textResult(sampleDriveSearchFiles(query) + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const url = new URL("https://www.googleapis.com/drive/v3/files");
@@ -1963,7 +1964,7 @@ async function driveWriteFile(args, ctx) {
   const name = typeof args["name"] === "string" ? args["name"] : "";
   const content = typeof args["content"] === "string" ? args["content"] : "";
   if (ctx.google === void 0) {
-    return textResult(`File '${name}' saved to Drive` + SAMPLE_NOTE);
+    return errorResult(GOOGLE_NOT_CONNECTED);
   }
   try {
     const boundary = `multicorn-${Math.random().toString(36).slice(2)}`;
@@ -1987,86 +1988,11 @@ ${content}\r
     return googleErrorResult(err);
   }
 }
-function slackReadMessages(args) {
-  const messages = [
-    { channel: "general", author: "Sam Patel", text: "Launch is confirmed for next Tuesday. Marketing assets are ready." },
-    { channel: "engineering", author: "Alex Chen", text: "PR #247 merged. Deployment starts at 4pm." },
-    { channel: "random", author: "Jordan Kim", text: "Friday social is at the rooftop bar this week!" }
-  ];
-  const channel = typeof args["channel"] === "string" ? args["channel"].toLowerCase().replace(/^#/, "") : "";
-  let filtered = messages;
-  if (channel.length > 0) {
-    filtered = messages.filter((m) => m.channel === channel);
-  }
-  const text = filtered.length === 0 ? `No recent messages in #${channel}.` : filtered.map((m) => `#${m.channel} \u2014 ${m.author}: "${m.text}"`).join("\n");
-  return Promise.resolve(textResult(text));
+function slackReadMessages() {
+  return errorResult(SLACK_NOT_AVAILABLE);
 }
-function slackSendMessage(args) {
-  const channel = typeof args["channel"] === "string" ? args["channel"].replace(/^#/, "") : "";
-  return Promise.resolve(textResult(`Message sent to #${channel}`));
-}
-function sampleGmailReadInbox(query, limit) {
-  const emails = [
-    {
-      from: "Alex Chen <alex@acme.co>",
-      subject: "Q3 planning doc ready for review",
-      date: "yesterday",
-      threadId: "thread_sample_q3",
-      preview: "Hey team, I've finished the Q3 planning document..."
-    },
-    {
-      from: "Jordan Kim <jordan@acme.co>",
-      subject: "Design review at 2pm",
-      date: "today",
-      threadId: "thread_sample_design",
-      preview: "Quick reminder about the design review..."
-    },
-    {
-      from: "Acme Weekly <newsletter@acme.co>",
-      subject: "This week at Acme",
-      date: "2 days ago",
-      threadId: "thread_sample_weekly",
-      preview: "Product launch update, new hires, and Friday social..."
-    }
-  ];
-  const q = query.toLowerCase();
-  let filtered = emails;
-  if (q.length > 0) {
-    filtered = emails.filter(
-      (e) => e.subject.toLowerCase().includes(q) || e.from.toLowerCase().includes(q) || e.preview.toLowerCase().includes(q)
-    );
-  }
-  filtered = filtered.slice(0, limit);
-  return filtered.length === 0 ? "No emails found matching your query." : filtered.map(
-    (e) => `From: ${e.from}
-Subject: ${e.subject}
-Date: ${e.date}
-Thread ID: ${e.threadId}
-Preview: ${e.preview}`
-  ).join("\n\n");
-}
-function sampleCalendarListEvents() {
-  return [
-    "9:00 AM \u2014 Daily standup (15 min, recurring) [Event ID: evt_sample_standup]",
-    "11:00 AM \u2014 1:1 with Alex Chen (30 min) [Event ID: evt_sample_1on1]",
-    "12:30 PM \u2014 Team lunch at Sushi Place (60 min) [Event ID: evt_sample_lunch]",
-    "3:00 PM \u2014 Sprint demo (45 min, Friday) [Event ID: evt_sample_demo]"
-  ].join("\n");
-}
-function sampleDriveSearchFiles(query) {
-  const files = [
-    { name: "Q3 Planning.docx", modified: "Modified yesterday", shared: "shared with team" },
-    { name: "Budget 2026.xlsx", modified: "Modified 3 days ago", shared: "shared with finance" },
-    { name: "Meeting Notes - Sprint Review.md", modified: "Modified today", shared: "" },
-    { name: "Product Roadmap.pdf", modified: "Modified last week", shared: "shared with leadership" },
-    { name: "Onboarding Checklist.docx", modified: "Modified 2 weeks ago", shared: "" }
-  ];
-  const q = query.toLowerCase();
-  let filtered = files;
-  if (q.length > 0) {
-    filtered = files.filter((f) => f.name.toLowerCase().includes(q));
-  }
-  return filtered.length === 0 ? "No files found matching your query." : filtered.map((f) => `${f.name} \u2014 ${f.modified}${f.shared ? `, ${f.shared}` : ""}`).join("\n");
+function slackSendMessage() {
+  return errorResult(SLACK_NOT_AVAILABLE);
 }
 var WORKSPACE_TIMEOUT_MS = 1e4;
 var WORKSPACE_AUTH_HEADER = "X-Multicorn-Key";
@@ -3331,6 +3257,21 @@ data: ${JSON.stringify({ error: message })}
     }
   };
 }
+function buildUnauthenticatedRejectLogContext(input) {
+  const requestIdHeader = input.req.headers["x-request-id"];
+  const requestId = typeof requestIdHeader === "string" && requestIdHeader.length > 0 ? requestIdHeader : randomUUID();
+  const contentLengthHeader = input.req.headers["content-length"];
+  const headerContentLength = typeof contentLengthHeader === "string" ? Number.parseInt(contentLengthHeader, 10) : Number.NaN;
+  const contentLength = Number.isFinite(headerContentLength) ? headerContentLength : input.bodyByteLength;
+  return {
+    method: input.req.method ?? "UNKNOWN",
+    path: input.path,
+    status: 401,
+    contentLength,
+    requestId,
+    parsedMethod: input.parsedMethod
+  };
+}
 
 // ../multicorn-proxy/src/server.ts
 var ROUTE_RE = /^\/r\/([^/]+)\/([^/]+)(.*)$/;
@@ -3424,11 +3365,15 @@ function main() {
                 const body = await bufferFromRequest(req, MCP_PROXY_MAX_BODY_BYTES);
                 const bodyText = body.toString("utf8");
                 const rpc = body.length > 0 ? parseJsonRpcLine(bodyText) : null;
-                logger.info("[DEBUG] Unauthenticated POST body", {
-                  url: redactedUrl,
-                  bodyPreview: bodyText.slice(0, 500),
-                  parsedMethod: rpc?.method ?? null
-                });
+                logger.info(
+                  "Unauthenticated request rejected",
+                  buildUnauthenticatedRejectLogContext({
+                    req,
+                    path: redactedUrl,
+                    bodyByteLength: body.length,
+                    parsedMethod: rpc?.method ?? null
+                  })
+                );
                 if (body.length > 0) {
                   const handshakeKind = classifyUnauthenticatedMcpHandshake(rpc);
                   if (handshakeKind === "initialize" && rpc !== null) {
