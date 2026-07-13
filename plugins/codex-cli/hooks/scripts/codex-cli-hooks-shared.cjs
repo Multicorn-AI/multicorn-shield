@@ -42,6 +42,46 @@ var path__namespace = /*#__PURE__*/ _interopNamespace(path);
 
 var AUTH_HEADER = "X-Multicorn-Key";
 var AUDIT_METADATA_MAX_CHARS = 1e4;
+var GOOGLE_USER_DATA_FIELD_NAMES = /* @__PURE__ */ new Set([
+  "to",
+  "subject",
+  "body",
+  "query",
+  "name",
+  "content",
+  "title",
+  "description",
+  "location",
+  "attendees",
+  "summary",
+]);
+function redactGoogleUserDataValue(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactGoogleUserDataValue(item));
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value;
+    const out = {};
+    for (const [key, val] of Object.entries(record)) {
+      out[key] = GOOGLE_USER_DATA_FIELD_NAMES.has(key.toLowerCase())
+        ? "[REDACTED]"
+        : redactGoogleUserDataValue(val);
+    }
+    return out;
+  }
+  return value;
+}
+function redactGoogleUserDataInText(text) {
+  let out = text;
+  out = out.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, "[REDACTED]");
+  out = out.replace(
+    /(\b(?:to|from|subject|body|query|preview|attendees):\s*)([^\n]+)/gi,
+    "$1[REDACTED]",
+  );
+  out = out.replace(/\bwith subject\s+'[^']*'/gi, "with subject '[REDACTED]'");
+  out = out.replace(/\bwith subject\s+"[^"]*"/gi, 'with subject "[REDACTED]"');
+  return out;
+}
 function redactSecretsForAudit(serialized) {
   let out = serialized;
   out = out.replace(/\bsk-[a-zA-Z0-9]{20,}\b/g, "[REDACTED]");
@@ -64,7 +104,14 @@ function truncateForAudit(serialized, maxChars = AUDIT_METADATA_MAX_CHARS) {
 }
 function serializeHookAuditFragment(value) {
   try {
-    const raw = typeof value === "string" ? value : JSON.stringify(value === void 0 ? null : value);
+    if (typeof value === "string") {
+      return truncateForAudit(redactGoogleUserDataInText(redactSecretsForAudit(value)));
+    }
+    const redacted = redactGoogleUserDataValue(value);
+    const raw =
+      typeof redacted === "string"
+        ? redacted
+        : JSON.stringify(redacted === void 0 ? null : redacted);
     return truncateForAudit(redactSecretsForAudit(raw));
   } catch {
     return "[unserializable]";
@@ -263,6 +310,8 @@ exports.formatShieldNetworkError = formatShieldNetworkError;
 exports.isLocalHostname = isLocalHostname;
 exports.loadCodexCliConfig = loadCodexCliConfig;
 exports.readHttpApiKeyRefusalHostname = readHttpApiKeyRefusalHostname;
+exports.redactGoogleUserDataInText = redactGoogleUserDataInText;
+exports.redactGoogleUserDataValue = redactGoogleUserDataValue;
 exports.redactSecretsForAudit = redactSecretsForAudit;
 exports.resolveCodexCliAgentName = resolveCodexCliAgentName;
 exports.serializeHookAuditFragment = serializeHookAuditFragment;
