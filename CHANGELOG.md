@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.1] - 2026-07-13
+
+### Fixed
+
+- Regenerated the vendored local proxy bundle (`vendor/local-proxy-server.js`). Built-in MCP Google tools no longer return fabricated emails, events, or files, or fake write confirmations when Google is not connected; they return a clear "Google is not connected" error instead. Slack tools return a "not available yet" error rather than sample content.
+
+### Security
+
+- OpenCode plugin and Codex CLI hooks now redact Google user-data fields (recipient, subject, body, query, and similar) from tool arguments and output before storing them in audit metadata. Regenerated `plugins/codex-cli/hooks/scripts/codex-cli-hooks-shared.cjs` so Codex CLI installs pick up the same redaction as the TypeScript source.
+
 ## [1.12.0] - 2026-07-06
 
 ### Fixed
